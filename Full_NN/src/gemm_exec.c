@@ -232,7 +232,7 @@ void gemm_exec_compact(gemm_t gemm_layer,
  * given (out_idx, in_idx), but each learner reads its own input and codebook
  * value. SVE wrappers use this as the correctness-preserving fallback.
  */
-void gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                     const float *in_interleaved,
                                                     const uint32_t *weight_idx,
                                                     const float *codebook_interleaved,
@@ -269,7 +269,7 @@ void gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
  * are shared across learners, while input, codebook, bias, and output values are
  * interleaved as [learner0, learner1, learner2, learner3].
  */
-void gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                     const float *in_interleaved,
                                                     const uint32_t *weight_idx,
                                                     const float *codebook_interleaved,
@@ -312,7 +312,7 @@ void gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
  * [output][packed word][learner]. This allows each learner to use different
  * compact weights while still sharing the outer GEMM traversal.
  */
-void gemm_exec_compact_fp32_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                    const float *in_interleaved,
                                                    const uint32_t *weight_idx_interleaved,
                                                    const float *codebook_interleaved,
@@ -414,7 +414,7 @@ void gemm_exec_compact_int(gemm_t gemm_layer,
  * so the caller can process four different compact weight streams in a single
  * traversal. This function is also the fallback for the matching SVE wrapper.
  */
-void gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx_interleaved,
                                                    const int8_t *codebook_interleaved,
@@ -465,7 +465,7 @@ void gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_t gemm_layer,
  * The two learners share each decoded codebook index, then use that index to
  * read learner-specific entries from an interleaved int8 codebook.
  */
-void gemm_exec_compact_int_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx,
                                                    const int8_t *codebook_interleaved,
@@ -508,7 +508,7 @@ void gemm_exec_compact_int_interleaved_2D_same_seq(gemm_t gemm_layer,
  * but still have separate interleaved inputs, codebook values, biases, and
  * output accumulators.
  */
-void gemm_exec_compact_int_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx,
                                                    const int8_t *codebook_interleaved,
@@ -679,9 +679,9 @@ void gemm_exec_compact_sve(gemm_t gemm_layer,
  *
  * The SVE row kernel expects the whole codebook to fit in the configured
  * register-cache mode. If the bit width or codebook size is unsupported, this
- * wrapper calls the scalar 2D same_seq implementation with the same arguments.
+ * wrapper calls the scalar 2-learner same_seq implementation with the same arguments.
  */
-void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
+void gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(
     gemm_t gemm_layer,
     const float *in_interleaved,
     const uint32_t *weight_idx,
@@ -717,7 +717,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
 
     /* Step 3: unsupported packed-index widths use the scalar same_seq path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
                                                        codebook_interleaved,
@@ -730,7 +730,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
                                                        codebook_interleaved,
@@ -777,7 +777,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
                  * Step 10: call the SVE kernel. Input/output strides are doubled
                  * because each logical value is stored for two learners.
                  */
-                sve_gemm_row_compact_fp32_interleaved_2D_same_seq(
+                sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(
                     &packed_row[w0],
                     tile_words,
                     k_tile,
@@ -804,11 +804,11 @@ void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
 /**
  * SVE FP32 compact GEMM for four same-sequence interleaved learners.
  *
- * This has the same control flow as the 2D same_seq wrapper, but all interleaved
+ * This has the same control flow as the 2-learner same_seq wrapper, but all interleaved
  * strides are four learners wide and the row kernel consumes svld4-friendly
  * codebook/input layouts.
  */
-void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
+void gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(
     gemm_t gemm_layer,
     const float *in_interleaved,
     const uint32_t *weight_idx,
@@ -850,7 +850,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
 
     /* Step 3: unsupported packed-index widths use the scalar same_seq path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
                                                        codebook_interleaved,
@@ -863,7 +863,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
                                                        codebook_interleaved,
@@ -910,7 +910,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
                  * Step 10: call the SVE kernel. Input/output strides are four
                  * times wider because four learners are interleaved.
                  */
-                sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
+                sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(
                     &packed_row[w0],
                     tile_words,
                     k_tile,
@@ -941,7 +941,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
  * at &packed_rows[w0 * 4]. Apart from that layout difference, the tiling and
  * fallback policy matches the same_seq SVE wrappers.
  */
-void gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(
+void gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(
     gemm_t gemm_layer,
     const float *in_interleaved,
     const uint32_t *weight_idx_interleaved,
@@ -983,7 +983,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(
 
     /* Step 3: unsupported packed-index widths use the scalar diff_seq path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_fp32_interleaved_4D_diff_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx_interleaved,
                                                        codebook_interleaved,
@@ -996,7 +996,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_4D_diff_seq(gemm_layer,
+        gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx_interleaved,
                                                        codebook_interleaved,
@@ -1043,7 +1043,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(
                  * Step 10: call the diff_seq SVE kernel. packed_rows advances by
                  * w0 * 4 because each packed word has four learner-specific words.
                  */
-                sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(
+                sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq(
                     &packed_rows[w0 * 4u],
                     tile_words,
                     k_tile,
@@ -1196,11 +1196,11 @@ void gemm_exec_compact_int_sve(gemm_t gemm_layer,
  * SVE int8 compact GEMM for four learners with separate packed indexes.
  *
  * The input/output layout matches
- * gemm_exec_compact_int_interleaved_4D_diff_seq(); only the inner math changes.
+ * gemm_exec_compact_int_interleaved_4Learners_diff_seq(); only the inner math changes.
  * The wrapper expands both the codebook and input from int8 to int32 because the
  * SVE row kernel operates on int32 lanes for accumulation.
  */
-void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
+void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
     const uint32_t *weight_idx_interleaved,
@@ -1248,7 +1248,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
 
     /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx_interleaved,
                                                       codebook_interleaved,
@@ -1261,7 +1261,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx_interleaved,
                                                       codebook_interleaved,
@@ -1293,7 +1293,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
         (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
     if (input_i32_interleaved == NULL) {
         /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx_interleaved,
                                                       codebook_interleaved,
@@ -1345,7 +1345,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
                  * Step 15: run the diff_seq SVE row kernel. packed_rows advances
                  * by w0 * 4 because every packed word has four learner words.
                  */
-                sve_gemm_row_compact_int8_interleaved_4D_diff_seq(
+                sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
                     &packed_rows[w0 * 4u],
                     tile_words,
                     k_tile,
@@ -1377,9 +1377,9 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
  *
  * The packed index row is shared by both learners. The codebook and input are
  * expanded to int32 interleaved buffers before entering the SVE row kernel, and
- * unsupported cases fall back to the scalar 2D same_seq implementation.
+ * unsupported cases fall back to the scalar 2-learner same_seq implementation.
  */
-void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
+void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
     const uint32_t *weight_idx,
@@ -1423,7 +1423,7 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
 
     /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_int_interleaved_2D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1436,7 +1436,7 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_2D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1468,7 +1468,7 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
         (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
     if (input_i32_interleaved == NULL) {
         /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_2D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1520,7 +1520,7 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
                  * Step 15: run the same_seq SVE row kernel. Input/output strides
                  * are doubled because two learners are interleaved.
                  */
-                sve_gemm_row_compact_int8_interleaved_2D_same_seq(
+                sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                     &packed_row[w0],
                     tile_words,
                     k_tile,
@@ -1550,11 +1550,11 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(
 /**
  * SVE int8 compact GEMM for four same-sequence interleaved learners.
  *
- * This is the four-learner counterpart to the 2D same_seq SVE wrapper. Learners
+ * This is the four-learner counterpart to the 2-learner same_seq SVE wrapper. Learners
  * share packed indexes, while the codebook, input, bias, and output buffers stay
  * interleaved four values at a time.
  */
-void gemm_exec_compact_int_sve_interleaved_4D_same_seq(
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
     const uint32_t *weight_idx,
@@ -1602,7 +1602,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_same_seq(
 
     /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
     if (bits_per_cb > 8u) {
-        gemm_exec_compact_int_interleaved_4D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1615,7 +1615,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_same_seq(
     const uint32_t codebook_size = 1u << bits_per_cb;
     /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_4D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1647,7 +1647,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_same_seq(
         (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
     if (input_i32_interleaved == NULL) {
         /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_4D_same_seq(gemm_layer,
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
                                                       codebook_interleaved,
@@ -1699,7 +1699,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_same_seq(
                  * Step 15: run the same_seq SVE row kernel. Input/output strides
                  * are four times wider because four learners are interleaved.
                  */
-                sve_gemm_row_compact_int8_interleaved_4D_same_seq(
+                sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
                     &packed_row[w0],
                     tile_words,
                     k_tile,

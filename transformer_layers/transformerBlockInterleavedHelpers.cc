@@ -24,20 +24,20 @@ using transformer_internal::requireInterleavedCodebookDense4;
  *
  * @param label Layer name used in validation error messages.
  * @param layers Two learner-specific layer pointers from the layer factory.
- *        They are checked for CodebookDense 2D interleaved support.
+ *        They are checked for CodebookDense 2-learner interleaved support.
  * @param seq_len Number of sequence rows to process.
  * @param input_interleaved Input activation buffer laid out as
  *        [seq][input_feature][learner] with two learner lanes.
  * @param output_interleaved Destination buffer laid out as
  *        [seq][output_feature][learner] with two learner lanes.
  */
-void computeCodebookDenseInterleaved2D(const char* label,
+void computeCodebookDenseInterleaved2Learners(const char* label,
                                        LinearLayer* const layers[2],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,
                                        int8_t* output_interleaved) {
     CodebookDense* primary = requireInterleavedCodebookDense2(label, layers);
-    primary->computeInterleaved2DToInt8(seq_len, input_interleaved, output_interleaved);
+    primary->computeInterleaved2LearnersToInt8(seq_len, input_interleaved, output_interleaved);
 }
 
 /**
@@ -45,25 +45,25 @@ void computeCodebookDenseInterleaved2D(const char* label,
  *
  * @param label Layer name used in validation error messages.
  * @param layers Four learner-specific layer pointers from the layer factory.
- *        They are checked for CodebookDense 4D interleaved support.
+ *        They are checked for CodebookDense 4-learner interleaved support.
  * @param seq_len Number of sequence rows to process.
  * @param input_interleaved Input activation buffer laid out as
  *        [seq][input_feature][learner] with four learner lanes.
  * @param output_interleaved Destination buffer laid out as
  *        [seq][output_feature][learner] with four learner lanes.
  */
-void computeCodebookDenseInterleaved4D(const char* label,
+void computeCodebookDenseInterleaved4Learners(const char* label,
                                        LinearLayer* const layers[4],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,
                                        int8_t* output_interleaved) {
     CodebookDense* primary = requireInterleavedCodebookDense4(label, layers);
-    primary->computeInterleaved4DToInt8(seq_len, input_interleaved, output_interleaved);
+    primary->computeInterleaved4LearnersToInt8(seq_len, input_interleaved, output_interleaved);
 }
 
 #if CFG_ENABLE_DEBUG_PRINT
 /**
- * Print one learner's packed view of a 2D interleaved int8 buffer.
+ * Print one learner's packed view of a 2-learner interleaved int8 buffer.
  *
  * @param label Prefix passed to printPackedPreview.
  * @param input_interleaved Source buffer laid out as [row][col][learner].
@@ -82,7 +82,7 @@ void printInterleavedPackedPreview2D(const char* label,
 }
 
 /**
- * Print one learner's packed view of a 4D interleaved int8 buffer.
+ * Print one learner's packed view of a 4-learner interleaved int8 buffer.
  *
  * @param label Prefix passed to printPackedPreview.
  * @param input_interleaved Source buffer laid out as [row][col][learner].

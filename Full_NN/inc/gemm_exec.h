@@ -79,7 +79,7 @@ void gemm_exec_compact(gemm_t gemm_layer,
 /**
  * @brief Execute two same-sequence FP32 compact GEMMs from interleaved buffers.
  *
- * "2D same_seq" means two learners/models share the same packed index row for
+ * "2-learner same_seq" means two learners/models share the same packed index row for
  * each output, but keep separate input values, codebook values, biases, and
  * output accumulators. Values are stored as pairs:
  * [learner0, learner1].
@@ -97,7 +97,7 @@ void gemm_exec_compact(gemm_t gemm_layer,
  *                        [seq_len][output_size][2 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                     const float *in_interleaved,
                                                     const uint32_t *weight_idx,
                                                     const float *codebook_interleaved,
@@ -108,7 +108,7 @@ void gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
 /**
  * @brief Execute four same-sequence FP32 compact GEMMs from interleaved buffers.
  *
- * "4D same_seq" means four learners/models share one packed index row for each
+ * "4-learner same_seq" means four learners/models share one packed index row for each
  * output. Their input, codebook, bias, and output values are stored in groups of
  * four: [learner0, learner1, learner2, learner3].
  *
@@ -125,7 +125,7 @@ void gemm_exec_compact_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
  *                        [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                     const float *in_interleaved,
                                                     const uint32_t *weight_idx,
                                                     const float *codebook_interleaved,
@@ -136,7 +136,7 @@ void gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
 /**
  * @brief Execute four FP32 compact GEMMs with per-learner packed index rows.
  *
- * "4D diff_seq" stores four learners/models together, but each learner has its
+ * "4-learner diff_seq" stores four learners/models together, but each learner has its
  * own packed weight-index stream. This is used when the four learners may have
  * different compact weights while still sharing the same traversal.
  *
@@ -153,7 +153,7 @@ void gemm_exec_compact_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
  *                        [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_fp32_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                    const float *in_interleaved,
                                                    const uint32_t *weight_idx_interleaved,
                                                    const float *codebook_interleaved,
@@ -207,7 +207,7 @@ void gemm_exec_compact_int(gemm_t gemm_layer,
 /**
  * @brief Execute four int8 compact GEMMs with per-learner packed index rows.
  *
- * This is the int8/int32 version of the 4D diff_seq path. Each output slot
+ * This is the int8/int32 version of the 4-learner diff_seq path. Each output slot
  * stores four int32 accumulators, one per learner.
  *
  * @param gemm_layer Layer dimensions and packed-row length per learner.
@@ -223,7 +223,7 @@ void gemm_exec_compact_int(gemm_t gemm_layer,
  *                        [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx_interleaved,
                                                    const int8_t *codebook_interleaved,
@@ -250,7 +250,7 @@ void gemm_exec_compact_int_interleaved_4D_diff_seq(gemm_t gemm_layer,
  *                        [seq_len][output_size][2 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx,
                                                    const int8_t *codebook_interleaved,
@@ -277,7 +277,7 @@ void gemm_exec_compact_int_interleaved_2D_same_seq(gemm_t gemm_layer,
  *                        [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                    const int8_t *in_interleaved,
                                                    const uint32_t *weight_idx,
                                                    const int8_t *codebook_interleaved,
@@ -314,7 +314,7 @@ void gemm_exec_compact_sve(gemm_t gemm_layer,
  * @brief SVE-accelerated two-learner FP32 same-sequence compact GEMM.
  *
  * Computes the same layout and result as
- * gemm_exec_compact_fp32_interleaved_2D_same_seq(), using SVE when the codebook
+ * gemm_exec_compact_fp32_interleaved_2Learners_same_seq(), using SVE when the codebook
  * fits the selected SVE register-cache mode.
  *
  * @param gemm_layer Layer dimensions and packed-row length.
@@ -326,7 +326,7 @@ void gemm_exec_compact_sve(gemm_t gemm_layer,
  * @param out_interleaved Output matrix [seq_len][output_size][2 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                         const float *in_interleaved,
                                                         const uint32_t *weight_idx,
                                                         const float *codebook_interleaved,
@@ -346,7 +346,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(gemm_t gemm_layer,
  * @param out_interleaved Output matrix [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                         const float *in_interleaved,
                                                         const uint32_t *weight_idx,
                                                         const float *codebook_interleaved,
@@ -367,7 +367,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(gemm_t gemm_layer,
  * @param out_interleaved Output matrix [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                        const float *in_interleaved,
                                                        const uint32_t *weight_idx_interleaved,
                                                        const float *codebook_interleaved,
@@ -412,7 +412,7 @@ void gemm_exec_compact_int_sve(gemm_t gemm_layer,
  * @param out_interleaved Int32 output [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(gemm_t gemm_layer,
                                                        const int8_t *in_interleaved,
                                                        const uint32_t *weight_idx_interleaved,
                                                        const int8_t *codebook_interleaved,
@@ -433,7 +433,7 @@ void gemm_exec_compact_int_sve_interleaved_4D_diff_seq(gemm_t gemm_layer,
  * @param out_interleaved Int32 output [seq_len][output_size][2 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_sve_interleaved_2D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                                                        const int8_t *in_interleaved,
                                                        const uint32_t *weight_idx,
                                                        const int8_t *codebook_interleaved,
@@ -454,7 +454,7 @@ void gemm_exec_compact_int_sve_interleaved_2D_same_seq(gemm_t gemm_layer,
  * @param out_interleaved Int32 output [seq_len][output_size][4 learners].
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void gemm_exec_compact_int_sve_interleaved_4D_same_seq(gemm_t gemm_layer,
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                        const int8_t *in_interleaved,
                                                        const uint32_t *weight_idx,
                                                        const int8_t *codebook_interleaved,

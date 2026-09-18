@@ -417,10 +417,10 @@ void FloatTransformerBlock::computeFullInterleavedBlock(std::size_t seq_len,
 
         Matrix head_out_interleaved;
         if constexpr (LearnerCount == 2u) {
-            FloatSingleHeadSelfAttn::computeInterleaved2D(
+            FloatSingleHeadSelfAttn::computeInterleaved2Learners(
                 seq_len, heads, input_interleaved.data(), head_out_interleaved);
         } else {
-            FloatSingleHeadSelfAttn::computeInterleaved4D(
+            FloatSingleHeadSelfAttn::computeInterleaved4Learners(
                 seq_len, heads, input_interleaved.data(), head_out_interleaved);
         }
 

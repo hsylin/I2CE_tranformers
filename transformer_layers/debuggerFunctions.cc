@@ -303,16 +303,16 @@ bool tryComputeGroupedCodebookDense2(LinearLayer* const layers[2],
                                      uint32_t* const inputs[2],
                                      uint32_t* const outputs[2]) {
     auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved2DSameSeq()) {
+    if (primary == nullptr || !primary->supportsInterleaved2LearnersSameSeq()) {
         return false;
     }
 
     auto* learner_layer = dynamic_cast<CodebookDense*>(layers[1]);
-    if (learner_layer == nullptr || !learner_layer->supportsInterleaved2DSameSeq()) {
+    if (learner_layer == nullptr || !learner_layer->supportsInterleaved2LearnersSameSeq()) {
         return false;
     }
 
-    primary->computeInterleaved2DSameSeq(seq_len, inputs, outputs);
+    primary->computeInterleaved2LearnersSameSeq(seq_len, inputs, outputs);
     return true;
 }
 
@@ -324,18 +324,18 @@ bool tryComputeGroupedCodebookDense4(LinearLayer* const layers[4],
                                      uint32_t* const inputs[4],
                                      uint32_t* const outputs[4]) {
     auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved4DDiffSeq()) {
+    if (primary == nullptr || !primary->supportsInterleaved4Learners()) {
         return false;
     }
 
     for (std::size_t learner = 1; learner < 4; learner++) {
         auto* learner_layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (learner_layer == nullptr || !learner_layer->supportsInterleaved4DDiffSeq()) {
+        if (learner_layer == nullptr || !learner_layer->supportsInterleaved4Learners()) {
             return false;
         }
     }
 
-    primary->computeInterleaved4DDiffSeq(seq_len, inputs, outputs);
+    primary->computeInterleaved4Learners(seq_len, inputs, outputs);
     return true;
 }
 

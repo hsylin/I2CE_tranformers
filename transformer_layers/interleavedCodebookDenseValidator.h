@@ -20,7 +20,7 @@
 
 namespace transformer_internal {
 
-// Validate that two learner projection layers can run the 2D SAME_SEQ
+// Validate that two learner projection layers can run the 2-learner SAME_SEQ
 // interleaved CodebookDense path. All learner entries are checked so a
 // partially constructed layer bundle fails early rather than crashing
 // inside the kernel. Returns layers[0] as a CodebookDense*, which owns
@@ -28,40 +28,40 @@ namespace transformer_internal {
 inline CodebookDense* requireInterleavedCodebookDense2(
     const char* label, LinearLayer* const layers[2]) {
     auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved2DSameSeq()) {
+    if (primary == nullptr || !primary->supportsInterleaved2LearnersSameSeq()) {
         throw std::runtime_error(std::string(label) +
-                                 " does not support the 2D interleaved pipeline");
+                                 " does not support the 2-learner interleaved pipeline");
     }
 
     for (std::size_t learner = 1; learner < 2u; learner++) {
         auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved2DSameSeq()) {
+        if (layer == nullptr || !layer->supportsInterleaved2LearnersSameSeq()) {
             throw std::runtime_error(std::string(label) +
-                                     " learner layer does not support the 2D interleaved pipeline");
+                                     " learner layer does not support the 2-learner interleaved pipeline");
         }
     }
 
     return primary;
 }
 
-// Validate that four learner projection layers can run the 4D DIFF_SEQ
+// Validate that four learner projection layers can run the 4-learner DIFF_SEQ
 // interleaved CodebookDense path (which also serves SAME_SEQ at runtime;
-// see CodebookDense::computeInterleaved4DDiffSeq). Every learner entry is
+// see CodebookDense::computeInterleaved4Learners). Every learner entry is
 // checked. Returns layers[0] as a CodebookDense*, which owns the
 // interleaved compute entry point.
 inline CodebookDense* requireInterleavedCodebookDense4(
     const char* label, LinearLayer* const layers[4]) {
     auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved4DDiffSeq()) {
+    if (primary == nullptr || !primary->supportsInterleaved4Learners()) {
         throw std::runtime_error(std::string(label) +
-                                 " does not support the 4D interleaved pipeline");
+                                 " does not support the 4-learner interleaved pipeline");
     }
 
     for (std::size_t learner = 1; learner < 4u; learner++) {
         auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved4DDiffSeq()) {
+        if (layer == nullptr || !layer->supportsInterleaved4Learners()) {
             throw std::runtime_error(std::string(label) +
-                                     " learner layer does not support the 4D interleaved pipeline");
+                                     " learner layer does not support the 4-learner interleaved pipeline");
         }
     }
 

@@ -18,16 +18,16 @@
 
 // Function signatures in this file:
 // (requireInterleavedCodebookDense{2,4} moved to interleavedCodebookDenseValidator.h)
-// void computeCodebookDenseInterleaved2D(const char* label, LinearLayer* const layers[2], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
-// void computeCodebookDenseInterleaved4D(const char* label, LinearLayer* const layers[4], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
+// void computeCodebookDenseInterleaved2Learners(const char* label, LinearLayer* const layers[2], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
+// void computeCodebookDenseInterleaved4Learners(const char* label, LinearLayer* const layers[4], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
 // SingleHeadSelfAttn::SingleHeadSelfAttn(std::size_t head_idx, std::size_t pre_seq_len, std::size_t input_dim, std::size_t head_hidden_size, uint32_t** weightVector, std::size_t kernel_dim, std::size_t max_col, std::size_t learner_idx, std::string dump_dir);
 // SingleHeadSelfAttn::~SingleHeadSelfAttn();
 // void SingleHeadSelfAttn::compute(std::size_t seq_len, uint32_t* input, uint32_t* output);
 // template <std::size_t LearnerCount> void SingleHeadSelfAttn::computeGroupImpl(std::size_t seq_len, SingleHeadSelfAttn** heads, uint32_t* const* inputs, uint32_t* const* outputs);
 // void SingleHeadSelfAttn::computeGroup2(std::size_t seq_len, SingleHeadSelfAttn* heads[2], uint32_t* const inputs[2], uint32_t* const outputs[2]);
 // void SingleHeadSelfAttn::computeGroup4(std::size_t seq_len, SingleHeadSelfAttn* heads[4], uint32_t* const inputs[4], uint32_t* const outputs[4]);
-// void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len, SingleHeadSelfAttn* heads[2], const int8_t* input_interleaved, int8_t* output_interleaved);
-// void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len, SingleHeadSelfAttn* heads[4], const int8_t* input_interleaved, int8_t* output_interleaved);
+// void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len, SingleHeadSelfAttn* heads[2], const int8_t* input_interleaved, int8_t* output_interleaved);
+// void SingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len, SingleHeadSelfAttn* heads[4], const int8_t* input_interleaved, int8_t* output_interleaved);
 
 namespace {
 
@@ -40,19 +40,19 @@ using transformer_internal::requireInterleavedCodebookDense4;
  * @param label Projection label used only for validation/error messages.
  * @param layers Two learner projection layers for the same Q, K, or V projection.
  * @param seq_len Number of tokens/rows to process for each learner.
- * @param input_interleaved Input activations in the 2D interleaved learner layout.
- * @param output_interleaved Destination buffer for the projected int8 activations in the same 2D interleaved layout.
+ * @param input_interleaved Input activations in the 2-learner interleaved learner layout.
+ * @param output_interleaved Destination buffer for the projected int8 activations in the same 2-learner interleaved layout.
  *
  * This wrapper keeps validation and execution together: first it checks the layers, then it delegates to the
  * CodebookDense implementation that knows how to consume and produce the interleaved int8 format.
  */
-void computeCodebookDenseInterleaved2D(const char* label,
+void computeCodebookDenseInterleaved2Learners(const char* label,
                                        LinearLayer* const layers[2],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,
                                        int8_t* output_interleaved) {
     CodebookDense* primary = requireInterleavedCodebookDense2(label, layers);
-    primary->computeInterleaved2DToInt8(seq_len, input_interleaved, output_interleaved);
+    primary->computeInterleaved2LearnersToInt8(seq_len, input_interleaved, output_interleaved);
 }
 
 /**
@@ -61,19 +61,19 @@ void computeCodebookDenseInterleaved2D(const char* label,
  * @param label Projection label used only for validation/error messages.
  * @param layers Four learner projection layers for the same Q, K, or V projection.
  * @param seq_len Number of tokens/rows to process for each learner.
- * @param input_interleaved Input activations in the 4D interleaved learner layout.
- * @param output_interleaved Destination buffer for the projected int8 activations in the same 4D interleaved layout.
+ * @param input_interleaved Input activations in the 4-learner interleaved learner layout.
+ * @param output_interleaved Destination buffer for the projected int8 activations in the same 4-learner interleaved layout.
  *
  * The actual projection is implemented by CodebookDense. This function is a small checked entry point used by the
  * interleaved self-attention pipeline.
  */
-void computeCodebookDenseInterleaved4D(const char* label,
+void computeCodebookDenseInterleaved4Learners(const char* label,
                                        LinearLayer* const layers[4],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,
                                        int8_t* output_interleaved) {
     CodebookDense* primary = requireInterleavedCodebookDense4(label, layers);
-    primary->computeInterleaved4DToInt8(seq_len, input_interleaved, output_interleaved);
+    primary->computeInterleaved4LearnersToInt8(seq_len, input_interleaved, output_interleaved);
 }
 
 }
@@ -640,8 +640,8 @@ void SingleHeadSelfAttn::computeGroup4(std::size_t seq_len,
  *
  * @param seq_len Actual sequence length to process for each learner.
  * @param heads Two SingleHeadSelfAttn objects for the same attention head, one per learner.
- * @param input_interleaved Input activations laid out in the 2D interleaved int8 learner format.
- * @param output_interleaved Destination buffer for the final head output in the same 2D interleaved int8 format.
+ * @param input_interleaved Input activations laid out in the 2-learner interleaved int8 learner format.
+ * @param output_interleaved Destination buffer for the final head output in the same 2-learner interleaved int8 format.
  *
  * Step-by-step:
  * 1. Gather Q/K/V layers and dump directories from both learner heads.
@@ -650,7 +650,7 @@ void SingleHeadSelfAttn::computeGroup4(std::size_t seq_len,
  * 4. Apply interleaved softmax to the score matrix.
  * 5. Transpose V into column layout, multiply scores by V, and post-scale the output.
  */
-void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
+void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
                                               SingleHeadSelfAttn* heads[2],
                                               const int8_t* input_interleaved,
                                               int8_t* output_interleaved) {
@@ -673,9 +673,9 @@ void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
     std::vector<int8_t> value_out(seq_len * head_hidden_size * 2u, 0);
 
     // Compute Q/K/V projections with interleaved CodebookDense. Each output keeps both learners interleaved.
-    computeCodebookDenseInterleaved2D("q_h", query_layers, seq_len, input_interleaved, query_out.data());
-    computeCodebookDenseInterleaved2D("k_h", key_layers, seq_len, input_interleaved, key_out.data());
-    computeCodebookDenseInterleaved2D("v_h", value_layers, seq_len, input_interleaved, value_out.data());
+    computeCodebookDenseInterleaved2Learners("q_h", query_layers, seq_len, input_interleaved, query_out.data());
+    computeCodebookDenseInterleaved2Learners("k_h", key_layers, seq_len, input_interleaved, key_out.data());
+    computeCodebookDenseInterleaved2Learners("v_h", value_layers, seq_len, input_interleaved, value_out.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<uint32_t> packed_input((seq_len * heads[0]->input_dim_) >> 2, 0u);
@@ -752,7 +752,7 @@ void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
 
     // Attention score matrix for two learners: each learner gets a seq_len x seq_len score matrix.
     std::vector<int8_t> attention_scores(seq_len * seq_len * 2u, 0);
-    matmulInterleaved2DToInt8(
+    matmulInterleaved2LearnersToInt8(
         query_out.data(),
         key_out.data(),
         seq_len,
@@ -767,8 +767,8 @@ void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
         seq_len,
         seq_len);
 
-    // Softmax is applied independently per learner while preserving the 2D interleaved storage layout.
-    heads[0]->softmax_->computeInterleaved2D(attention_scores.data(), seq_len); // softmax_approx((QK^T) / 8)
+    // Softmax is applied independently per learner while preserving the 2-learner interleaved storage layout.
+    heads[0]->softmax_->computeInterleaved2Learners(attention_scores.data(), seq_len); // softmax_approx((QK^T) / 8)
 
     dumpInterleavedLearnerMatrices2(
         dump_dirs,
@@ -793,7 +793,7 @@ void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
         seq_len);
 
     // Final attention output: softmax(QK^T) * V.
-    matmulInterleaved2DToInt8(
+    matmulInterleaved2LearnersToInt8(
         attention_scores.data(),
         value_by_col.data(),
         seq_len,
@@ -834,14 +834,14 @@ void SingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
  *
  * @param seq_len Actual sequence length to process for each learner.
  * @param heads Four SingleHeadSelfAttn objects for the same attention head, one per learner.
- * @param input_interleaved Input activations laid out in the 4D interleaved int8 learner format.
- * @param output_interleaved Destination buffer for the final head output in the same 4D interleaved int8 format.
+ * @param input_interleaved Input activations laid out in the 4-learner interleaved int8 learner format.
+ * @param output_interleaved Destination buffer for the final head output in the same 4-learner interleaved int8 format.
  *
- * This follows the same algorithm as computeInterleaved2D(), but every intermediate buffer contains four learners:
+ * This follows the same algorithm as computeInterleaved2Learners(), but every intermediate buffer contains four learners:
  * interleaved Q/K/V projections, interleaved QK attention scores, interleaved softmax output, and final interleaved
  * attention-weighted V output.
  */
-void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
+void SingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len,
                                               SingleHeadSelfAttn* heads[4],
                                               const int8_t* input_interleaved,
                                               int8_t* output_interleaved) {
@@ -864,9 +864,9 @@ void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
     std::vector<int8_t> value_out(seq_len * head_hidden_size * 4u, 0);
 
     // Compute Q/K/V projections for all four learners in a single interleaved CodebookDense format.
-    computeCodebookDenseInterleaved4D("q_h", query_layers, seq_len, input_interleaved, query_out.data());
-    computeCodebookDenseInterleaved4D("k_h", key_layers, seq_len, input_interleaved, key_out.data());
-    computeCodebookDenseInterleaved4D("v_h", value_layers, seq_len, input_interleaved, value_out.data());
+    computeCodebookDenseInterleaved4Learners("q_h", query_layers, seq_len, input_interleaved, query_out.data());
+    computeCodebookDenseInterleaved4Learners("k_h", key_layers, seq_len, input_interleaved, key_out.data());
+    computeCodebookDenseInterleaved4Learners("v_h", value_layers, seq_len, input_interleaved, value_out.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<uint32_t> packed_input((seq_len * heads[0]->input_dim_) >> 2, 0u);
@@ -943,7 +943,7 @@ void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
 
     // Attention score matrix for four learners: each learner gets a seq_len x seq_len score matrix.
     std::vector<int8_t> attention_scores(seq_len * seq_len * 4u, 0);
-    matmulInterleaved4DToInt8(
+    matmulInterleaved4LearnersToInt8(
         query_out.data(),
         key_out.data(),
         seq_len,
@@ -958,8 +958,8 @@ void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
         seq_len,
         seq_len);
 
-    // Softmax is applied independently per learner while preserving the 4D interleaved storage layout.
-    heads[0]->softmax_->computeInterleaved4D(attention_scores.data(), seq_len);
+    // Softmax is applied independently per learner while preserving the 4-learner interleaved storage layout.
+    heads[0]->softmax_->computeInterleaved4Learners(attention_scores.data(), seq_len);
 
     dumpInterleavedLearnerMatrices4(
         dump_dirs,
@@ -984,7 +984,7 @@ void SingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
         seq_len);
 
     // Final attention output: softmax(QK^T) * V.
-    matmulInterleaved4DToInt8(
+    matmulInterleaved4LearnersToInt8(
         attention_scores.data(),
         value_by_col.data(),
         seq_len,
