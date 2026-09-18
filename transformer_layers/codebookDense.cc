@@ -565,6 +565,11 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved.data(),
@@ -575,7 +580,9 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
         bits_per_cb_,
         codebook_widened_i32_interleaved_cache_.empty()
             ? nullptr
-            : codebook_widened_i32_interleaved_cache_.data());
+            : codebook_widened_i32_interleaved_cache_.data(),
+        activation_workspace.data(),
+        static_cast<uint32_t>(activation_workspace.size()));
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
@@ -643,6 +650,11 @@ void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved,
@@ -653,7 +665,9 @@ void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
         bits_per_cb_,
         codebook_widened_i32_interleaved_cache_.empty()
             ? nullptr
-            : codebook_widened_i32_interleaved_cache_.data());
+            : codebook_widened_i32_interleaved_cache_.data(),
+        activation_workspace.data(),
+        static_cast<uint32_t>(activation_workspace.size()));
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
@@ -724,6 +738,11 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     if (same_seq_) {
         // Shared-index path: one packed index stream drives all 4 learners.
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
@@ -736,7 +755,9 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
             bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
-                : codebook_widened_i32_interleaved_cache_.data());
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     } else {
         // Per-learner index path: each learner has its own packed index stream.
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
@@ -749,7 +770,9 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
             bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
-                : codebook_widened_i32_interleaved_cache_.data());
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     }
 #else
     if (same_seq_) {
@@ -834,6 +857,11 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     if (same_seq_) {
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
@@ -845,7 +873,9 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
             bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
-                : codebook_widened_i32_interleaved_cache_.data());
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     } else {
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
@@ -857,7 +887,9 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
             bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
-                : codebook_widened_i32_interleaved_cache_.data());
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     }
 #else
     if (same_seq_) {

@@ -4,11 +4,13 @@
  *
  * The three public wrappers declared in gemm_exec.h keep their pre-refactor
  * signatures for backward compatibility. Callers that want to reuse a
- * caller-owned pre-widened int32 codebook buffer (avoiding the per-call
- * int8->int32 expansion that the public wrappers perform locally) call the
- * `_ex` variants declared here instead.
+ * caller-owned pre-widened int32 codebook buffer, or to supply a
+ * caller-owned scratch buffer for the int8->int32 activation widening
+ * (both of which the public wrappers otherwise perform locally on every
+ * call) call the `_ex` variants declared here instead.
  *
- * Contract for the extra parameter:
+ * Contract for the extra parameters:
+ *
  *   codebook_i32_interleaved_opt (may be NULL)
  *     - When non-NULL, the wrapper skips its local int8->int32 codebook
  *       expansion and reads this buffer directly.
@@ -21,6 +23,22 @@
  *     - Alignment: standard 4-byte int32 alignment; no special SVE-vector
  *       alignment is required (the row kernel uses masked loads).
  *     - Values: must equal (int32_t)codebook_interleaved[i] for every i.
+ *
+ *   input_i32_workspace_opt / input_i32_workspace_capacity
+ *     - When workspace_opt is non-NULL AND capacity is at least
+ *       (gemm_layer.seq_len * gemm_layer.input_size * learner_count),
+ *       the wrapper widens in place into this buffer and does NOT malloc.
+ *     - When workspace_opt is NULL, or capacity is insufficient, the
+ *       wrapper falls back to malloc/free (public-wrapper behavior);
+ *       its allocation-failure scalar fallback is preserved.
+ *     - Ownership: the caller owns the buffer; the wrapper never frees it.
+ *     - Capacity unit: number of int32 elements the buffer can hold.
+ *     - Alignment: standard 4-byte int32 alignment.
+ *     - Lifetime: only borrowed for the duration of the call; the wrapper
+ *       does not retain the pointer.
+ *     - Thread-safety: two threads calling the same _ex wrapper must
+ *       supply distinct workspace buffers. Supplying one shared mutable
+ *       buffer to concurrent calls is undefined behavior.
  *
  * This header lives under Full_NN/inc/ so C++ callers inside
  * transformer_layers/ can include it, but it is not part of the public C
@@ -43,7 +61,9 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt);
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity);
 
 void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     gemm_t gemm_layer,
@@ -53,7 +73,9 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt);
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity);
 
 void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     gemm_t gemm_layer,
@@ -63,7 +85,9 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt);
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity);
 
 #ifdef __cplusplus
 }  // extern "C"

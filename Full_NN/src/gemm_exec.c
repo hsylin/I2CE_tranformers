@@ -1244,7 +1244,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
         gemm_layer, in_interleaved, weight_idx_interleaved,
         codebook_interleaved, bias_interleaved, out_interleaved,
-        bits_per_cb, NULL);
+        bits_per_cb, NULL, NULL, 0);
 }
 
 /*
@@ -1260,7 +1260,9 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt) {
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1315,23 +1317,33 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     }
 
     /*
-     * Step 7: allocate a temporary int32 copy of the interleaved input. This
-     * avoids doing sign-extension repeatedly inside every output-row tile.
+     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
+     * caller-owned workspace when it exists and is large enough; otherwise
+     * malloc a temporary as the pre-refactor code did. The
+     * allocation-failure fallback is preserved.
      */
     const uint32_t input_count =
         (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 4u;
-    int32_t *input_i32_interleaved =
-        (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-    if (input_i32_interleaved == NULL) {
-        /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx_interleaved,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
+    int32_t *input_i32_interleaved;
+    int using_workspace = 0;
+    if ((input_i32_workspace_opt != NULL) &&
+        (input_i32_workspace_capacity >= input_count)) {
+        input_i32_interleaved = input_i32_workspace_opt;
+        using_workspace = 1;
+    } else {
+        input_i32_interleaved =
+            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
+        if (input_i32_interleaved == NULL) {
+            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
+            gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
+                                                          in_interleaved,
+                                                          weight_idx_interleaved,
+                                                          codebook_interleaved,
+                                                          bias_interleaved,
+                                                          out_interleaved,
+                                                          bits_per_cb);
+            return;
+        }
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
@@ -1399,8 +1411,10 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer. */
-    free(input_i32_interleaved);
+    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
+    if (!using_workspace) {
+        free(input_i32_interleaved);
+    }
 }
 
 /**
@@ -1425,7 +1439,7 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         gemm_layer, in_interleaved, weight_idx,
         codebook_interleaved, bias_interleaved, out_interleaved,
-        bits_per_cb, NULL);
+        bits_per_cb, NULL, NULL, 0);
 }
 
 /*
@@ -1440,7 +1454,9 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt) {
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1495,23 +1511,33 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     }
 
     /*
-     * Step 7: allocate a temporary int32 copy of the interleaved input. This
-     * avoids doing sign-extension repeatedly inside every output-row tile.
+     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
+     * caller-owned workspace when it exists and is large enough; otherwise
+     * malloc a temporary as the pre-refactor code did. The
+     * allocation-failure fallback is preserved.
      */
     const uint32_t input_count =
         (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 2u;
-    int32_t *input_i32_interleaved =
-        (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-    if (input_i32_interleaved == NULL) {
-        /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
+    int32_t *input_i32_interleaved;
+    int using_workspace = 0;
+    if ((input_i32_workspace_opt != NULL) &&
+        (input_i32_workspace_capacity >= input_count)) {
+        input_i32_interleaved = input_i32_workspace_opt;
+        using_workspace = 1;
+    } else {
+        input_i32_interleaved =
+            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
+        if (input_i32_interleaved == NULL) {
+            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
+            gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
+                                                          in_interleaved,
+                                                          weight_idx,
+                                                          codebook_interleaved,
+                                                          bias_interleaved,
+                                                          out_interleaved,
+                                                          bits_per_cb);
+            return;
+        }
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
@@ -1579,8 +1605,10 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer. */
-    free(input_i32_interleaved);
+    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
+    if (!using_workspace) {
+        free(input_i32_interleaved);
+    }
 }
 
 /**
@@ -1605,7 +1633,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
         gemm_layer, in_interleaved, weight_idx,
         codebook_interleaved, bias_interleaved, out_interleaved,
-        bits_per_cb, NULL);
+        bits_per_cb, NULL, NULL, 0);
 }
 
 /*
@@ -1620,7 +1648,9 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb,
-    const int32_t *codebook_i32_interleaved_opt) {
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1675,23 +1705,33 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     }
 
     /*
-     * Step 7: allocate a temporary int32 copy of the interleaved input. This
-     * avoids doing sign-extension repeatedly inside every output-row tile.
+     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
+     * caller-owned workspace when it exists and is large enough; otherwise
+     * malloc a temporary as the pre-refactor code did. The
+     * allocation-failure fallback is preserved.
      */
     const uint32_t input_count =
         (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 4u;
-    int32_t *input_i32_interleaved =
-        (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-    if (input_i32_interleaved == NULL) {
-        /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
+    int32_t *input_i32_interleaved;
+    int using_workspace = 0;
+    if ((input_i32_workspace_opt != NULL) &&
+        (input_i32_workspace_capacity >= input_count)) {
+        input_i32_interleaved = input_i32_workspace_opt;
+        using_workspace = 1;
+    } else {
+        input_i32_interleaved =
+            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
+        if (input_i32_interleaved == NULL) {
+            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
+            gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
+                                                          in_interleaved,
+                                                          weight_idx,
+                                                          codebook_interleaved,
+                                                          bias_interleaved,
+                                                          out_interleaved,
+                                                          bits_per_cb);
+            return;
+        }
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
@@ -1759,7 +1799,9 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer. */
-    free(input_i32_interleaved);
+    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
+    if (!using_workspace) {
+        free(input_i32_interleaved);
+    }
 }
 #endif
