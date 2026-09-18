@@ -74,6 +74,23 @@ if [ "${SIMD_FLAG:-0}" = "1" ]; then
   GEMM_SVE_SRC="Full_NN/src/gemm_SVE.c"
 fi
 
+# --- Optional experiment overrides -------------------------------------------
+# Both defaults preserve today's behavior exactly:
+#   * CORE_NUM_FLAG unset  -> -DCORE_NUM=1   (same value the script always used)
+#   * TILE_L1_SIZE_FLAG unset -> no -D added; the notebook-generated
+#     Full_NN/gemm_definitions/codebooks_def.h keeps sole authority over
+#     TILE_L1_SIZE (currently 1 = no tile).
+# When the caller sets either flag, its value is propagated as a -D macro.
+# TILE_L1_SIZE_FLAG plumbs TILE_L1_SIZE_OVERRIDE, which gemm_exec.c applies
+# with #undef/#define AFTER including codebooks_def.h so the precedence is
+# unambiguous: notebook value first, override wins if present.
+# TILE_L2_SIZE is intentionally not exposed while no codebook GEMM code path
+# consumes it.
+CORE_NUM_VALUE="${CORE_NUM_FLAG:-1}"
+if [ -n "${TILE_L1_SIZE_FLAG:-}" ]; then
+  EXTRA_DEFS="$EXTRA_DEFS -DTILE_L1_SIZE_OVERRIDE=${TILE_L1_SIZE_FLAG}"
+fi
+
 echo "Compile options:"
 echo "  RELOAD_WEIGHT_FLAG=${RELOAD_WEIGHT_FLAG:-1}"
 echo "  USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=${USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG:-1}"
@@ -86,6 +103,8 @@ echo "  FULL_INTERLEAVED_PIPELINE_FLAG=${FULL_INTERLEAVED_PIPELINE_FLAG:-0}"
 echo "  USE_FP32_TRANSFORMER_FLAG=${USE_FP32_TRANSFORMER_FLAG:-0}"
 echo "  DENSE_NO_SIMD_BASELINE_FLAG=${DENSE_NO_SIMD_BASELINE_FLAG:-0}"
 echo "  SIMD_FLAG=${SIMD_FLAG:-0}"
+echo "  CORE_NUM (build)=${CORE_NUM_VALUE}"
+echo "  TILE_L1_SIZE_FLAG=${TILE_L1_SIZE_FLAG:-<unset, using notebook TILE_L1_SIZE>}"
 
 
 
@@ -103,7 +122,7 @@ echo "  SIMD_FLAG=${SIMD_FLAG:-0}"
   -IFull_NN/gemm_definitions \
   -DSA_SIZE=4 \
   -DDEVELOP \
-  -DCORE_NUM=1 \
+  -DCORE_NUM="$CORE_NUM_VALUE" \
   -fopenmp \
   -static \
   -o transformer.o \

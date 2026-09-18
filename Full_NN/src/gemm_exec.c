@@ -38,6 +38,22 @@
 #ifdef SIMD
 #include <codebooks_def.h>
 #include <gemm_SVE.h>
+
+/*
+ * Optional command-line override for TILE_L1_SIZE, plumbed from
+ * compile_transformer.sh (TILE_L1_SIZE_FLAG env var -> -DTILE_L1_SIZE_OVERRIDE).
+ *
+ * codebooks_def.h above defines TILE_L1_SIZE from the notebook-generated
+ * configuration. When TILE_L1_SIZE_OVERRIDE is present it wins with an
+ * explicit #undef/#define so command-line tile-size experiments do not
+ * require regenerating weights. When unset, TILE_L1_SIZE keeps the
+ * notebook value unchanged. TILE_L2_SIZE has no such override because
+ * no codebook GEMM code path consumes it yet.
+ */
+#ifdef TILE_L1_SIZE_OVERRIDE
+#undef TILE_L1_SIZE
+#define TILE_L1_SIZE TILE_L1_SIZE_OVERRIDE
+#endif
 #endif
 
 /**
