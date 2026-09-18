@@ -3,6 +3,7 @@
 #include "transformer.h"
 #include "accelerator/smm_gem.h"
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <cstring>
 #include <vector>
@@ -150,6 +151,29 @@ void test() {
               << " bytes = " << (runtime_sve_bytes * 8) << " bits" << std::endl;
     std::cout << "float lanes = " << runtime_sve_int32_lanes
               << ", int32 lanes = " << runtime_sve_int32_lanes << std::endl;
+
+    // Codebook layouts, packed-index strides, and codebook-register capacity
+    // are baked in at generation time using N_SVE_LANES / N_SVE_BYTE from
+    // codebooks_def.h. A runtime SVE vector length that disagrees would make
+    // the SVE row kernels read the wrong lanes and produce silently incorrect
+    // output, so reject the mismatch here instead of masking it downstream.
+    if (runtime_sve_bytes != static_cast<uint64_t>(N_SVE_BYTE) ||
+        runtime_sve_int32_lanes != static_cast<uint64_t>(N_SVE_LANES)) {
+        std::cerr << "ERROR: SVE vector-length mismatch." << std::endl
+                  << "  expected: " << N_SVE_BYTE << " bytes ("
+                  << (N_SVE_BYTE * 8) << " bit), " << N_SVE_LANES
+                  << " int32 lanes"
+                  << " (from codebooks_def.h N_SVE_BYTE / N_SVE_LANES)"
+                  << std::endl
+                  << "  runtime : " << runtime_sve_bytes << " bytes ("
+                  << (runtime_sve_bytes * 8) << " bit), "
+                  << runtime_sve_int32_lanes << " int32 lanes"
+                  << std::endl
+                  << "Regenerate the notebook artifacts for this SVE length"
+                  << " or run under a matching QEMU/gem5 configuration."
+                  << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 #endif
 
     std::cout << "D_Q = " << D_Q << std::endl;
