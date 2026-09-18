@@ -132,9 +132,14 @@ using ActiveTransformerBlock = TransformerBlock;
 #endif
 
 
-void test() {
+namespace {
+
+// Startup banner: build flags, compile-time dimensions, SVE vector length,
+// and normalized CFG_* configuration. Behavior-preserving: same lines in the
+// same order, still gated by the same compile-time #ifs as before extraction.
+void printRunBanner() {
     std::cout << "Welcome to TiC-SAT" << std::endl;
-    
+
 #ifdef BWMA
     std::cout << "BWMA method" << std::endl;
 #else
@@ -199,40 +204,25 @@ void test() {
     std::cout << "CFG_USE_FP32_TRANSFORMER = " << CFG_USE_FP32_TRANSFORMER << std::endl;
     std::cout << "CFG_SIMD = " << CFG_SIMD << std::endl;
     std::cout << "CFG_DENSE_NO_SIMD_BASELINE = " << CFG_DENSE_NO_SIMD_BASELINE << std::endl;
-    
-    
-// #ifdef USE_F32
-//     std::cout << "USE_F32 = " << USE_F32 << std::endl;
-// #else
-//     std::cout << "USE_F32 = 0" << std::endl;
-// #endif
+}
 
+// Return the runtime weights directory. Prefer the host-side project path;
+// fall back to the 9P mount used inside the gem5 guest.
+std::string resolveWeightsDir() {
     // Prefer the host-side project path and fall back to the 9p mount in gem5.
     std::string dir_name = "/home/thu/TiC-SAT/weights";
     if (!std::filesystem::exists(dir_name)) {
         dir_name = "/mnt/weights";
     }
-    std::string notebook_weights_dir = dir_name + "/generated_from_notebook";
-#if !CFG_RELOAD_WEIGHT
-    std::filesystem::create_directories(dir_name);
-#endif
+    return dir_name;
+}
 
-    const std::size_t learner_count = getTransformerLearnerCount();
-    constexpr bool dump_outputs_enabled =
-        !(CFG_PROFILE_GEMM_ONLY || CFG_GEM5_PROFILE_REGIONS);
-#if CFG_DENSE_NO_SIMD_BASELINE
-    std::cout << "DENSE_NO_SIMD_BASELINE_N_LEARNERS = " << learner_count << std::endl;
-#else
-    std::cout << "CODEBOOK_REGISTRY_N_LEARNERS = " << learner_count << std::endl;
-#endif
-
-#if CFG_USE_FP32_TRANSFORMER
-    TransformerFloat::run(
-        learner_count,
-        dump_outputs_enabled ? dir_name + "/multiple_learner_outputs/c" : std::string());
-    return;
-#endif
-
+// Allocate and populate the input tensor on the heap. When RELOAD_WEIGHT is
+// enabled, try the notebook-generated .bin first (if that source is enabled)
+// and fall back to the legacy loadWeight path; otherwise fill in place and
+// save. Ownership of the returned buffer is transferred to the caller.
+uint32_t* loadInputTensorHeap(const std::string& dir_name,
+                              const std::string& notebook_weights_dir) {
     uint32_t *tensor_in = new uint32_t[D_SEQ * D_MODEL >> 2];
 #if CFG_RELOAD_WEIGHT
     // Load the tensor input from file
@@ -268,6 +258,79 @@ void test() {
     // We assign -1 and -1 to n_head and qkv to indicate that we are not saving the weight
     saveWeight(-1, -1, D_SEQ * D_MODEL >> 2, tensor_in, dir_name);
 #endif
+    return tensor_in;
+}
+
+// Standard "=== LEARNER N ===" banner used before per-learner weight loading
+// in the grouped and sequential paths. Callers that only want it in the
+// multi-learner case gate on learner_count > 1 themselves.
+void printLearnerHeader(std::size_t learner_idx) {
+    std::cout << "\n=============== LEARNER " << learner_idx
+              << " ===============\n" << std::endl;
+}
+
+// Per-learner path bundle plus its side effect: when make_dump_dir is true,
+// build the per-learner dump directory string AND create it on disk. The
+// grouped 2/4-learner paths always pass true; the default single-learner
+// loop only passes true when learner_count > 1 (single-learner runs write to
+// the top-level dump location instead).
+struct LearnerPaths {
+    std::string notebook_weights_dir;
+    std::string dump_dir;
+};
+
+LearnerPaths preparePathsForLearner(std::size_t learner_idx,
+                                    const std::string& notebook_weights_dir,
+                                    const std::string& multiple_learner_output_root,
+                                    bool make_dump_dir) {
+    LearnerPaths paths;
+    paths.notebook_weights_dir =
+        getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
+    if (make_dump_dir) {
+        paths.dump_dir = multiple_learner_output_root + "/learner" +
+                         std::to_string(learner_idx);
+        std::filesystem::create_directories(paths.dump_dir);
+    }
+    return paths;
+}
+
+}  // namespace
+
+
+void test() {
+    printRunBanner();
+
+    // Legacy commented-out draft kept in a prior commit; retained here as a
+    // reminder that USE_F32 is now printed unconditionally by printRunBanner().
+// #ifdef USE_F32
+//     std::cout << "USE_F32 = " << USE_F32 << std::endl;
+// #else
+//     std::cout << "USE_F32 = 0" << std::endl;
+// #endif
+
+    std::string dir_name = resolveWeightsDir();
+    std::string notebook_weights_dir = dir_name + "/generated_from_notebook";
+#if !CFG_RELOAD_WEIGHT
+    std::filesystem::create_directories(dir_name);
+#endif
+
+    const std::size_t learner_count = getTransformerLearnerCount();
+    constexpr bool dump_outputs_enabled =
+        !(CFG_PROFILE_GEMM_ONLY || CFG_GEM5_PROFILE_REGIONS);
+#if CFG_DENSE_NO_SIMD_BASELINE
+    std::cout << "DENSE_NO_SIMD_BASELINE_N_LEARNERS = " << learner_count << std::endl;
+#else
+    std::cout << "CODEBOOK_REGISTRY_N_LEARNERS = " << learner_count << std::endl;
+#endif
+
+#if CFG_USE_FP32_TRANSFORMER
+    TransformerFloat::run(
+        learner_count,
+        dump_outputs_enabled ? dir_name + "/multiple_learner_outputs/c" : std::string());
+    return;
+#endif
+
+    uint32_t *tensor_in = loadInputTensorHeap(dir_name, notebook_weights_dir);
 
 #ifndef BWMA
     uint32_t tensorInRowWise[D_SEQ * D_MODEL >> 2];
@@ -514,22 +577,15 @@ void test() {
         };
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
-            std::cout << "\n=============== LEARNER " << learner_idx
-                      << " ===============\n" << std::endl;
+            printLearnerHeader(learner_idx);
 
-            const std::string learner_notebook_weights_dir =
-                getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
-            const std::string learner_dump_dir = dump_outputs_enabled
-                ? (multiple_learner_output_root + "/learner" + std::to_string(learner_idx))
-                : std::string();
-
-            if (!learner_dump_dir.empty()) {
-                std::filesystem::create_directories(learner_dump_dir);
-            }
+            const auto paths = preparePathsForLearner(
+                learner_idx, notebook_weights_dir,
+                multiple_learner_output_root, dump_outputs_enabled);
             grouped_blocks[learner_idx] = buildTransformerBlockForLearner(
                 learner_idx,
-                learner_notebook_weights_dir,
-                learner_dump_dir);
+                paths.notebook_weights_dir,
+                paths.dump_dir);
         }
 
         TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, grouped_inputs, grouped_outputs);
@@ -554,22 +610,15 @@ void test() {
         };
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
-            std::cout << "\n=============== LEARNER " << learner_idx
-                      << " ===============\n" << std::endl;
+            printLearnerHeader(learner_idx);
 
-            const std::string learner_notebook_weights_dir =
-                getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
-            const std::string learner_dump_dir = dump_outputs_enabled
-                ? (multiple_learner_output_root + "/learner" + std::to_string(learner_idx))
-                : std::string();
-
-            if (!learner_dump_dir.empty()) {
-                std::filesystem::create_directories(learner_dump_dir);
-            }
+            const auto paths = preparePathsForLearner(
+                learner_idx, notebook_weights_dir,
+                multiple_learner_output_root, dump_outputs_enabled);
             grouped_blocks[learner_idx] = buildTransformerBlockForLearner(
                 learner_idx,
-                learner_notebook_weights_dir,
-                learner_dump_dir);
+                paths.notebook_weights_dir,
+                paths.dump_dir);
         }
 
         // This call does not jump to GEMM directly. It enters the grouped
@@ -595,24 +644,17 @@ void test() {
         std::vector<uint32_t*> learner_outputs(learner_count, nullptr);
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
-            std::cout << "\n=============== LEARNER " << learner_idx
-                      << " ===============\n" << std::endl;
+            printLearnerHeader(learner_idx);
 
-            const std::string learner_notebook_weights_dir =
-                getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
-            const std::string learner_dump_dir = dump_outputs_enabled
-                ? (multiple_learner_output_root + "/learner" + std::to_string(learner_idx))
-                : std::string();
-
-            if (!learner_dump_dir.empty()) {
-                std::filesystem::create_directories(learner_dump_dir);
-            }
+            const auto paths = preparePathsForLearner(
+                learner_idx, notebook_weights_dir,
+                multiple_learner_output_root, dump_outputs_enabled);
 
             learner_outputs[learner_idx] = new uint32_t[D_SEQ * D_MODEL >> 2]();
             learner_blocks[learner_idx] = buildTransformerBlockForLearner(
                 learner_idx,
-                learner_notebook_weights_dir,
-                learner_dump_dir);
+                paths.notebook_weights_dir,
+                paths.dump_dir);
         }
 
         // Keep one gem5 stats window around the whole sequential learner loop,
@@ -638,25 +680,19 @@ void test() {
     // Default single-learner execution path (also used for multi-learner when the registry does not expose a learner count).
     for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
         if (learner_count > 1) {
-            std::cout << "\n=============== LEARNER " << learner_idx
-                      << " ===============\n" << std::endl;
+            printLearnerHeader(learner_idx);
         }
 
-        const std::string learner_notebook_weights_dir =
-            getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
-        const std::string learner_dump_dir = (dump_outputs_enabled && learner_count > 1)
-            ? (multiple_learner_output_root + "/learner" + std::to_string(learner_idx))
-            : std::string();
-
-        if (!learner_dump_dir.empty()) {
-            std::filesystem::create_directories(learner_dump_dir);
-        }
+        const auto paths = preparePathsForLearner(
+            learner_idx, notebook_weights_dir,
+            multiple_learner_output_root,
+            dump_outputs_enabled && learner_count > 1);
 
         uint32_t *out = new uint32_t[D_SEQ * D_MODEL >> 2]();
         TransformerBlock* selfatten = buildTransformerBlockForLearner(
             learner_idx,
-            learner_notebook_weights_dir,
-            learner_dump_dir);
+            paths.notebook_weights_dir,
+            paths.dump_dir);
         selfatten->compute(D_SEQ, tensor_in, out);
         delete selfatten;
 
