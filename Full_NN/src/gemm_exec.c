@@ -38,6 +38,7 @@
 #ifdef SIMD
 #include <codebooks_def.h>
 #include <gemm_SVE.h>
+#include <gemm_exec_internal.h>
 
 /*
  * Optional command-line override for TILE_L1_SIZE, plumbed from
@@ -1226,6 +1227,12 @@ void gemm_exec_compact_int_sve(gemm_t gemm_layer,
  * The wrapper expands both the codebook and input from int8 to int32 because the
  * SVE row kernel operates on int32 lanes for accumulation.
  */
+/*
+ * Public backwards-compatible entry point. Widens the codebook locally on
+ * every call, equivalent to the pre-cache behavior. Callers that already
+ * own a widened codebook (e.g. CodebookDense) should call the _ex variant
+ * declared in gemm_exec_internal.h to skip that per-call expansion.
+ */
 void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
@@ -1234,6 +1241,26 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb) {
+    gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
+        gemm_layer, in_interleaved, weight_idx_interleaved,
+        codebook_interleaved, bias_interleaved, out_interleaved,
+        bits_per_cb, NULL);
+}
+
+/*
+ * Extended entry point: takes an optional pre-widened int32 codebook.
+ * See Full_NN/inc/gemm_exec_internal.h for the
+ * codebook_i32_interleaved_opt contract (may be NULL).
+ */
+void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx_interleaved,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb,
+    const int32_t *codebook_i32_interleaved_opt) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1264,15 +1291,27 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
 
     const uint32_t codebook_size = 1u << bits_per_cb;
     /*
-     * Step 4: expand the interleaved int8 codebook to int32 while preserving
-     * [codebook index][learner], which matches the SVE load pattern.
+     * Step 4: prefer the caller-owned widened codebook when it is available.
+     * Otherwise expand the interleaved int8 codebook to int32 into a local
+     * stack buffer while preserving [codebook index][learner], which matches
+     * the SVE load pattern. The pre-refactor behavior is preserved bit for
+     * bit when codebook_i32_interleaved_opt is NULL.
      */
-    int32_t codebook_i32_interleaved[4u * 256u] = {0};
-    for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
-        for (uint32_t learner = 0; learner < 4u; learner++) {
-            codebook_i32_interleaved[cb_idx * 4u + learner] =
-                (int32_t)codebook_interleaved[cb_idx * 4u + learner]; /* Preserve [codebook index][learner] layout for svld4_s32. */
+    int32_t codebook_i32_local[4u * 256u];
+    const int32_t *codebook_i32_interleaved;
+    if (codebook_i32_interleaved_opt != NULL) {
+        codebook_i32_interleaved = codebook_i32_interleaved_opt;
+    } else {
+        for (uint32_t idx = 0; idx < 4u * 256u; idx++) {
+            codebook_i32_local[idx] = 0;
         }
+        for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
+            for (uint32_t learner = 0; learner < 4u; learner++) {
+                codebook_i32_local[cb_idx * 4u + learner] =
+                    (int32_t)codebook_interleaved[cb_idx * 4u + learner]; /* Preserve [codebook index][learner] layout for svld4_s32. */
+            }
+        }
+        codebook_i32_interleaved = codebook_i32_local;
     }
 
     /*
@@ -1371,6 +1410,10 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
  * expanded to int32 interleaved buffers before entering the SVE row kernel, and
  * unsupported cases fall back to the scalar 2-learner same_seq implementation.
  */
+/*
+ * Public backwards-compatible entry point; calls the _ex variant with a
+ * NULL widened-codebook cache.
+ */
 void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
@@ -1379,6 +1422,25 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb) {
+    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
+        gemm_layer, in_interleaved, weight_idx,
+        codebook_interleaved, bias_interleaved, out_interleaved,
+        bits_per_cb, NULL);
+}
+
+/*
+ * Extended entry point: takes an optional pre-widened int32 codebook.
+ * See Full_NN/inc/gemm_exec_internal.h for the contract.
+ */
+void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb,
+    const int32_t *codebook_i32_interleaved_opt) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1409,15 +1471,27 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
 
     const uint32_t codebook_size = 1u << bits_per_cb;
     /*
-     * Step 4: expand the interleaved int8 codebook to int32 while preserving
-     * [codebook index][learner], which matches the SVE load pattern.
+     * Step 4: prefer the caller-owned widened codebook when it is available.
+     * Otherwise expand the interleaved int8 codebook to int32 into a local
+     * stack buffer while preserving [codebook index][learner], which matches
+     * the SVE load pattern. The pre-refactor behavior is preserved bit for
+     * bit when codebook_i32_interleaved_opt is NULL.
      */
-    int32_t codebook_i32_interleaved[2u * 256u] = {0};
-    for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
-        for (uint32_t learner = 0; learner < 2u; learner++) {
-            codebook_i32_interleaved[cb_idx * 2u + learner] =
-                (int32_t)codebook_interleaved[cb_idx * 2u + learner]; /* Preserve [codebook index][learner] layout for svld2_s32. */
+    int32_t codebook_i32_local[2u * 256u];
+    const int32_t *codebook_i32_interleaved;
+    if (codebook_i32_interleaved_opt != NULL) {
+        codebook_i32_interleaved = codebook_i32_interleaved_opt;
+    } else {
+        for (uint32_t idx = 0; idx < 2u * 256u; idx++) {
+            codebook_i32_local[idx] = 0;
         }
+        for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
+            for (uint32_t learner = 0; learner < 2u; learner++) {
+                codebook_i32_local[cb_idx * 2u + learner] =
+                    (int32_t)codebook_interleaved[cb_idx * 2u + learner]; /* Preserve [codebook index][learner] layout for svld2_s32. */
+            }
+        }
+        codebook_i32_interleaved = codebook_i32_local;
     }
 
     /*
@@ -1516,6 +1590,10 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
  * share packed indexes, while the codebook, input, bias, and output buffers stay
  * interleaved four values at a time.
  */
+/*
+ * Public backwards-compatible entry point; calls the _ex variant with a
+ * NULL widened-codebook cache.
+ */
 void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
@@ -1524,6 +1602,25 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     const int32_t *bias_interleaved,
     int32_t *out_interleaved,
     uint8_t bits_per_cb) {
+    gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
+        gemm_layer, in_interleaved, weight_idx,
+        codebook_interleaved, bias_interleaved, out_interleaved,
+        bits_per_cb, NULL);
+}
+
+/*
+ * Extended entry point: takes an optional pre-widened int32 codebook.
+ * See Full_NN/inc/gemm_exec_internal.h for the contract.
+ */
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb,
+    const int32_t *codebook_i32_interleaved_opt) {
     /* Step 1: no sequence rows or no output rows means there is nothing to fill. */
     if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
         return;
@@ -1554,15 +1651,27 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
 
     const uint32_t codebook_size = 1u << bits_per_cb;
     /*
-     * Step 4: expand the interleaved int8 codebook to int32 while preserving
-     * [codebook index][learner], which matches the SVE load pattern.
+     * Step 4: prefer the caller-owned widened codebook when it is available.
+     * Otherwise expand the interleaved int8 codebook to int32 into a local
+     * stack buffer while preserving [codebook index][learner], which matches
+     * the SVE load pattern. The pre-refactor behavior is preserved bit for
+     * bit when codebook_i32_interleaved_opt is NULL.
      */
-    int32_t codebook_i32_interleaved[4u * 256u] = {0};
-    for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
-        for (uint32_t learner = 0; learner < 4u; learner++) {
-            codebook_i32_interleaved[cb_idx * 4u + learner] =
-                (int32_t)codebook_interleaved[cb_idx * 4u + learner]; /* Preserve [codebook index][learner] layout for svld4_s32. */
+    int32_t codebook_i32_local[4u * 256u];
+    const int32_t *codebook_i32_interleaved;
+    if (codebook_i32_interleaved_opt != NULL) {
+        codebook_i32_interleaved = codebook_i32_interleaved_opt;
+    } else {
+        for (uint32_t idx = 0; idx < 4u * 256u; idx++) {
+            codebook_i32_local[idx] = 0;
         }
+        for (uint32_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
+            for (uint32_t learner = 0; learner < 4u; learner++) {
+                codebook_i32_local[cb_idx * 4u + learner] =
+                    (int32_t)codebook_interleaved[cb_idx * 4u + learner]; /* Preserve [codebook index][learner] layout for svld4_s32. */
+            }
+        }
+        codebook_i32_interleaved = codebook_i32_local;
     }
 
     /*

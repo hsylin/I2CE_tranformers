@@ -1,6 +1,9 @@
 #include "codebookDense.h"
 
 #include "../Full_NN/inc/gemm_exec.h"
+#ifdef SIMD
+#include "../Full_NN/inc/gemm_exec_internal.h"
+#endif
 
 #include <cmath>
 #include <limits>
@@ -455,6 +458,20 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
             }
         }
     }
+
+    // Pre-widen the interleaved int8 codebook to int32 once, so every SVE
+    // wrapper call can skip its per-call widening loop. This mirror is
+    // consumed via the int8 SVE wrappers' codebook_i32_interleaved_opt
+    // parameter; the scalar backend still reads codebook_interleaved_q_
+    // directly and is unaffected.
+    if (codebook_widened_i32_interleaved_cache_.empty() &&
+        !codebook_interleaved_q_.empty()) {
+        codebook_widened_i32_interleaved_cache_.resize(codebook_interleaved_q_.size());
+        for (std::size_t i = 0; i < codebook_interleaved_q_.size(); i++) {
+            codebook_widened_i32_interleaved_cache_[i] =
+                static_cast<int32_t>(codebook_interleaved_q_[i]);
+        }
+    }
 }
 
 /**
@@ -548,14 +565,17 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
+    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved.data(),
         weight_idx_,
         codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
         output_acc_interleaved.data(),
-        bits_per_cb_);
+        bits_per_cb_,
+        codebook_widened_i32_interleaved_cache_.empty()
+            ? nullptr
+            : codebook_widened_i32_interleaved_cache_.data());
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
@@ -623,14 +643,17 @@ void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
+    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved,
         weight_idx_,
         codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
         output_acc_interleaved.data(),
-        bits_per_cb_);
+        bits_per_cb_,
+        codebook_widened_i32_interleaved_cache_.empty()
+            ? nullptr
+            : codebook_widened_i32_interleaved_cache_.data());
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
@@ -703,24 +726,30 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
 #ifdef SIMD
     if (same_seq_) {
         // Shared-index path: one packed index stream drives all 4 learners.
-        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
             input_interleaved.data(),
             weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data());
     } else {
         // Per-learner index path: each learner has its own packed index stream.
-        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
             input_interleaved.data(),
             weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data());
     }
 #else
     if (same_seq_) {
@@ -806,23 +835,29 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
 
 #ifdef SIMD
     if (same_seq_) {
-        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
             input_interleaved,
             weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data());
     } else {
-        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
             input_interleaved,
             weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data());
     }
 #else
     if (same_seq_) {

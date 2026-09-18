@@ -89,4 +89,11 @@ private:
     std::vector<int32_t> biases_q_;
     std::vector<int32_t> bias_interleaved_q_;
     std::vector<uint32_t> weight_idx_interleaved_cache_;
+    // Pre-widened int32 mirror of codebook_interleaved_q_ (invariant across
+    // the layer's lifetime). Passed to the int8 SVE interleaved wrappers via
+    // the codebook_i32_interleaved_opt parameter of the _ex extended entry
+    // points declared in Full_NN/inc/gemm_exec_internal.h, so the per-call
+    // int8->int32 codebook expansion is skipped on the hot path. Empty when
+    // no interleaved int8 codebook is configured.
+    std::vector<int32_t> codebook_widened_i32_interleaved_cache_;
 };
