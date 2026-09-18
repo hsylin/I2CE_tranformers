@@ -4,6 +4,7 @@
 
 #include "codebookDense.h"
 #include "debuggerFunctions.h"
+#include "interleavedCodebookDenseValidator.h"
 #include "interleavedPipeline.h"
 
 #include <algorithm>
@@ -13,64 +14,8 @@
 
 namespace {
 
-/**
- * Validate that two learner layer pointers share a 2D SAME_SEQ CodebookDense
- * implementation.
- *
- * @param label Layer name included in error messages for easier debugging.
- * @param layers Two learner-specific LinearLayer pointers. Both must actually
- *        point to CodebookDense instances that can run the 2D interleaved
- *        SAME_SEQ kernel.
- *
- * @return The first CodebookDense instance, used to launch the grouped kernel.
- *
- * The first layer owns the shared interleaved registry data for the grouped
- * path, but all learner entries are still checked so a partially constructed
- * layer bundle fails early.
- */
-CodebookDense* requireInterleavedCodebookDense2(const char* label,
-                                                LinearLayer* const layers[2]) {
-    auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved2DSameSeq()) {
-        throw std::runtime_error(std::string(label) + " does not support the 2D interleaved pipeline");
-    }
-
-    for (std::size_t learner = 1; learner < 2u; learner++) {
-        auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved2DSameSeq()) {
-            throw std::runtime_error(std::string(label) + " learner layer does not support the 2D interleaved pipeline");
-        }
-    }
-
-    return primary;
-}
-
-/**
- * Validate that four learner layer pointers share a 4D DIFF_SEQ CodebookDense
- * implementation.
- *
- * @param label Layer name included in error messages for easier debugging.
- * @param layers Four learner-specific LinearLayer pointers. Every entry must
- *        be a CodebookDense that exposes the 4D interleaved kernel.
- *
- * @return The first CodebookDense instance, used to launch the grouped kernel.
- */
-CodebookDense* requireInterleavedCodebookDense4(const char* label,
-                                                LinearLayer* const layers[4]) {
-    auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved4DDiffSeq()) {
-        throw std::runtime_error(std::string(label) + " does not support the 4D interleaved pipeline");
-    }
-
-    for (std::size_t learner = 1; learner < 4u; learner++) {
-        auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved4DDiffSeq()) {
-            throw std::runtime_error(std::string(label) + " learner layer does not support the 4D interleaved pipeline");
-        }
-    }
-
-    return primary;
-}
+using transformer_internal::requireInterleavedCodebookDense2;
+using transformer_internal::requireInterleavedCodebookDense4;
 
 } // namespace
 

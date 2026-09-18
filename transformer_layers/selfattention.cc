@@ -10,14 +10,14 @@
 
 #include "layerFactory.h"
 #include "codebookDense.h"
+#include "interleavedCodebookDenseValidator.h"
 #include "interleavedPipeline.h"
 
 #include <stdexcept>
 #include <vector>
 
 // Function signatures in this file:
-// CodebookDense* requireInterleavedCodebookDense2(const char* label, LinearLayer* const layers[2]);
-// CodebookDense* requireInterleavedCodebookDense4(const char* label, LinearLayer* const layers[4]);
+// (requireInterleavedCodebookDense{2,4} moved to interleavedCodebookDenseValidator.h)
 // void computeCodebookDenseInterleaved2D(const char* label, LinearLayer* const layers[2], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
 // void computeCodebookDenseInterleaved4D(const char* label, LinearLayer* const layers[4], std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved);
 // SingleHeadSelfAttn::SingleHeadSelfAttn(std::size_t head_idx, std::size_t pre_seq_len, std::size_t input_dim, std::size_t head_hidden_size, uint32_t** weightVector, std::size_t kernel_dim, std::size_t max_col, std::size_t learner_idx, std::string dump_dir);
@@ -31,61 +31,8 @@
 
 namespace {
 
-/**
- * @brief Validate that two learner projection layers can run the 2D interleaved CodebookDense path.
- *
- * @param label Human-readable projection name used in error messages, for example "q_h", "k_h", or "v_h".
- * @param layers Two learner-specific LinearLayer pointers. Each entry must actually point to a CodebookDense
- *        instance that supports same-sequence 2D interleaved execution.
- * @return Pointer to layers[0] cast as CodebookDense. The first layer owns the interleaved compute entry point.
- *
- * This helper is used before the 2-learner interleaved Q/K/V projections. It fails fast if any learner cannot
- * participate in the fused codebook path, because the interleaved kernels require compatible CodebookDense layers.
- */
-CodebookDense* requireInterleavedCodebookDense2(const char* label,
-                                                LinearLayer* const layers[2]) {
-    auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved2DSameSeq()) {
-        throw std::runtime_error(std::string(label) + " does not support the 2D interleaved pipeline");
-    }
-
-    for (std::size_t learner = 1; learner < 2u; learner++) {
-        auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved2DSameSeq()) {
-            throw std::runtime_error(std::string(label) + " learner layer does not support the 2D interleaved pipeline");
-        }
-    }
-
-    return primary;
-}
-
-/**
- * @brief Validate that four learner projection layers can run the 4D interleaved CodebookDense path.
- *
- * @param label Human-readable projection name used in error messages, for example "q_h", "k_h", or "v_h".
- * @param layers Four learner-specific LinearLayer pointers. Each entry must actually point to a CodebookDense
- *        instance that supports different-sequence 4D interleaved execution.
- * @return Pointer to layers[0] cast as CodebookDense. The first layer owns the interleaved compute entry point.
- *
- * The 4D path computes four learners in a fused layout, so every learner layer must support the same interleaved
- * interface before the kernel can be called safely.
- */
-CodebookDense* requireInterleavedCodebookDense4(const char* label,
-                                                LinearLayer* const layers[4]) {
-    auto* primary = dynamic_cast<CodebookDense*>(layers[0]);
-    if (primary == nullptr || !primary->supportsInterleaved4DDiffSeq()) {
-        throw std::runtime_error(std::string(label) + " does not support the 4D interleaved pipeline");
-    }
-
-    for (std::size_t learner = 1; learner < 4u; learner++) {
-        auto* layer = dynamic_cast<CodebookDense*>(layers[learner]);
-        if (layer == nullptr || !layer->supportsInterleaved4DDiffSeq()) {
-            throw std::runtime_error(std::string(label) + " learner layer does not support the 4D interleaved pipeline");
-        }
-    }
-
-    return primary;
-}
+using transformer_internal::requireInterleavedCodebookDense2;
+using transformer_internal::requireInterleavedCodebookDense4;
 
 /**
  * @brief Run a two-learner interleaved CodebookDense projection and write int8 interleaved output.
