@@ -178,6 +178,94 @@ static int gemm_sve_codebook_fits_registers(uint32_t codebook_size) {
     const uint32_t capacity = gemm_sve_codebook_capacity();
     return (capacity != 0u) && (codebook_size <= capacity);
 }
+
+/*
+ * Shared prologue helpers used by every interleaved SVE compact GEMM wrapper.
+ *
+ * Every interleaved SVE wrapper opens with the same guard chain:
+ *   1. Empty output shape       -> return.
+ *   2. Degenerate compact input -> fill each output slot with bias/zero.
+ *      (bits_per_cb == 0, or input_size == 0, or n_words_row == 0 all
+ *       produce the same observable behavior: no K contribution.)
+ *   3. Unsupported SVE case     -> dispatch to the corresponding scalar
+ *                                  fallback wrapper.
+ *
+ * Historically each wrapper hand-inlined that chain, and the two "degenerate
+ * compact input" branches drifted: the fp32 SVE wrappers used a combined
+ * check while four of the int8 SVE wrappers used a split form. The helpers
+ * below consolidate the logic; the observable behavior is unchanged in every
+ * pre-existing case, and future edits to the guard chain apply once.
+ *
+ * Only step 3 is per-wrapper - each SVE wrapper still calls its own
+ * hand-written scalar counterpart with the exact original argument list.
+ */
+
+/*
+ * Bias/zero fill for the interleaved int32 codebook output layout.
+ *
+ * learner_count is the interleaved stride and must be positive. Called for
+ * bits_per_cb == 0 or when the K axis is empty; identical observable
+ * behavior to the pre-refactor per-wrapper split.
+ */
+static void gemm_fill_bias_or_zero_int_interleaved(
+    gemm_t gemm_layer,
+    int32_t *out_interleaved,
+    const int32_t *bias_interleaved,
+    uint32_t learner_count) {
+    for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
+        for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
+            int32_t *out_slot =
+                &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * learner_count];
+            for (uint32_t learner = 0; learner < learner_count; learner++) {
+                out_slot[learner] = (bias_interleaved == NULL)
+                                        ? 0
+                                        : bias_interleaved[out_idx * learner_count + learner];
+            }
+        }
+    }
+}
+
+/*
+ * FP32 counterpart to gemm_fill_bias_or_zero_int_interleaved. Kept as a
+ * separate function to preserve the scalar 0.0f initializer (no implicit
+ * int-to-float conversion) and to keep each wrapper's original type
+ * signature.
+ */
+static void gemm_fill_bias_or_zero_fp32_interleaved(
+    gemm_t gemm_layer,
+    float *out_interleaved,
+    const float *bias_interleaved,
+    uint32_t learner_count) {
+    for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
+        for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
+            float *out_slot =
+                &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * learner_count];
+            for (uint32_t learner = 0; learner < learner_count; learner++) {
+                out_slot[learner] = (bias_interleaved == NULL)
+                                        ? 0.0f
+                                        : bias_interleaved[out_idx * learner_count + learner];
+            }
+        }
+    }
+}
+
+/*
+ * True (non-zero) when the SVE compact path cannot execute this codebook and
+ * the caller must delegate to its scalar counterpart. Combines the two
+ * pre-existing checks: bits_per_cb > 8 (index width the SVE path never
+ * supported) and !gemm_sve_codebook_fits_registers(1u << bits_per_cb) (the
+ * cached-codebook precondition).
+ */
+static int gemm_sve_needs_scalar_fallback(uint8_t bits_per_cb) {
+    if (bits_per_cb > 8u) {
+        return 1;
+    }
+    const uint32_t codebook_size = 1u << bits_per_cb;
+    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
+        return 1;
+    }
+    return 0;
+}
 #endif
 
 /**
@@ -716,23 +804,13 @@ void gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(
      */
     if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
         (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                float *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 2u];
-                out_slot[0] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 2u + 0u];
-                out_slot[1] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 2u + 1u];
-            }
-        }
+        gemm_fill_bias_or_zero_fp32_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 2u);
         return;
     }
 
-    /* Step 3: unsupported packed-index widths use the scalar same_seq path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar same_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
@@ -744,19 +822,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_2Learners_same_seq(gemm_layer,
-                                                       in_interleaved,
-                                                       weight_idx,
-                                                       codebook_interleaved,
-                                                       bias_interleaved,
-                                                       out_interleaved,
-                                                       bits_per_cb);
-        return;
-    }
-
-    /* Step 5: choose sequence and packed-word tile sizes for cache locality. */
+    /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
 
@@ -843,29 +909,13 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(
      */
     if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
         (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                float *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
+        gemm_fill_bias_or_zero_fp32_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 4u);
         return;
     }
 
-    /* Step 3: unsupported packed-index widths use the scalar same_seq path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar same_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx,
@@ -877,19 +927,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_4Learners_same_seq(gemm_layer,
-                                                       in_interleaved,
-                                                       weight_idx,
-                                                       codebook_interleaved,
-                                                       bias_interleaved,
-                                                       out_interleaved,
-                                                       bits_per_cb);
-        return;
-    }
-
-    /* Step 5: choose sequence and packed-word tile sizes for cache locality. */
+    /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
 
@@ -976,29 +1014,13 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(
      */
     if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
         (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                float *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL)
-                                  ? 0.0f
-                                  : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
+        gemm_fill_bias_or_zero_fp32_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 4u);
         return;
     }
 
-    /* Step 3: unsupported packed-index widths use the scalar diff_seq path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar diff_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_layer,
                                                        in_interleaved,
                                                        weight_idx_interleaved,
@@ -1010,19 +1032,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 4: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(gemm_layer,
-                                                       in_interleaved,
-                                                       weight_idx_interleaved,
-                                                       codebook_interleaved,
-                                                       bias_interleaved,
-                                                       out_interleaved,
-                                                       bits_per_cb);
-        return;
-    }
-
-    /* Step 5: choose sequence and packed-word tile sizes for cache locality. */
+    /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
 
@@ -1230,40 +1240,18 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     }
 
     /*
-     * Step 2: a zero bit width cannot decode any compact weights, so each
-     * four-learner output group becomes bias/zero.
+     * Step 2: a zero bit width or empty K axis leaves no compact contribution,
+     * so each four-learner output group becomes bias/zero.
      */
-    if (bits_per_cb == 0u) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
+    if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
+        (gemm_layer.n_words_row == 0u)) {
+        gemm_fill_bias_or_zero_int_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 4u);
         return;
     }
 
-    /* Step 3: empty K dimensions also reduce to bias/zero output. */
-    if ((gemm_layer.input_size == 0u) || (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
-        return;
-    }
-
-    /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar diff_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx_interleaved,
@@ -1275,20 +1263,8 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx_interleaved,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
-    }
-
     /*
-     * Step 6: expand the interleaved int8 codebook to int32 while preserving
+     * Step 4: expand the interleaved int8 codebook to int32 while preserving
      * [codebook index][learner], which matches the SVE load pattern.
      */
     int32_t codebook_i32_interleaved[4u * 256u] = {0};
@@ -1409,36 +1385,18 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     }
 
     /*
-     * Step 2: a zero bit width cannot decode any compact weights, so each
-     * two-learner output pair becomes bias/zero.
+     * Step 2: a zero bit width or empty K axis leaves no compact contribution,
+     * so each two-learner output pair becomes bias/zero.
      */
-    if (bits_per_cb == 0u) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 2u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 2u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 2u + 1u];
-            }
-        }
+    if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
+        (gemm_layer.n_words_row == 0u)) {
+        gemm_fill_bias_or_zero_int_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 2u);
         return;
     }
 
-    /* Step 3: empty K dimensions also reduce to bias/zero output. */
-    if ((gemm_layer.input_size == 0u) || (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 2u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 2u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 2u + 1u];
-            }
-        }
-        return;
-    }
-
-    /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar same_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
@@ -1450,20 +1408,8 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
-    }
-
     /*
-     * Step 6: expand the interleaved int8 codebook to int32 while preserving
+     * Step 4: expand the interleaved int8 codebook to int32 while preserving
      * [codebook index][learner], which matches the SVE load pattern.
      */
     int32_t codebook_i32_interleaved[2u * 256u] = {0};
@@ -1584,40 +1530,18 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     }
 
     /*
-     * Step 2: a zero bit width cannot decode any compact weights, so each
-     * four-learner output group becomes bias/zero.
+     * Step 2: a zero bit width or empty K axis leaves no compact contribution,
+     * so each four-learner output group becomes bias/zero.
      */
-    if (bits_per_cb == 0u) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
+    if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
+        (gemm_layer.n_words_row == 0u)) {
+        gemm_fill_bias_or_zero_int_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 4u);
         return;
     }
 
-    /* Step 3: empty K dimensions also reduce to bias/zero output. */
-    if ((gemm_layer.input_size == 0u) || (gemm_layer.n_words_row == 0u)) {
-        for (uint32_t seq = 0; seq < gemm_layer.seq_len; seq++) {
-            for (uint32_t out_idx = 0; out_idx < gemm_layer.output_size; out_idx++) {
-                int32_t *out_slot =
-                    &out_interleaved[((seq * gemm_layer.output_size) + out_idx) * 4u];
-                out_slot[0] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 0u];
-                out_slot[1] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 1u];
-                out_slot[2] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 2u];
-                out_slot[3] = (bias_interleaved == NULL) ? 0 : bias_interleaved[out_idx * 4u + 3u];
-            }
-        }
-        return;
-    }
-
-    /* Step 4: wider indexes are valid for scalar decode but not this SVE path. */
-    if (bits_per_cb > 8u) {
+    /* Step 3: dispatch to the scalar same_seq path when SVE cannot execute. */
+    if (gemm_sve_needs_scalar_fallback(bits_per_cb)) {
         gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
                                                       in_interleaved,
                                                       weight_idx,
@@ -1629,20 +1553,8 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(
     }
 
     const uint32_t codebook_size = 1u << bits_per_cb;
-    /* Step 5: the fast path requires the full codebook to fit in SVE registers. */
-    if (!gemm_sve_codebook_fits_registers(codebook_size)) {
-        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
-                                                      in_interleaved,
-                                                      weight_idx,
-                                                      codebook_interleaved,
-                                                      bias_interleaved,
-                                                      out_interleaved,
-                                                      bits_per_cb);
-        return;
-    }
-
     /*
-     * Step 6: expand the interleaved int8 codebook to int32 while preserving
+     * Step 4: expand the interleaved int8 codebook to int32 while preserving
      * [codebook index][learner], which matches the SVE load pattern.
      */
     int32_t codebook_i32_interleaved[4u * 256u] = {0};
