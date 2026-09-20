@@ -36,6 +36,7 @@
 
 #include <gemm_exec.h>
 #ifdef SIMD
+#include <arm_sve.h>
 #include <codebooks_def.h>
 #include <gemm_SVE.h>
 #include <gemm_exec_internal.h>
@@ -133,6 +134,44 @@ static uint32_t get_packed_index_interleaved_nd(
 #ifndef TILE_L1_SIZE
 #define TILE_L1_SIZE 0
 #endif
+
+/*
+ * Sign-extend a flat activation buffer without changing its interleaved layout.
+ * Non-overlapping buffers use explicit SVE loads/stores so a caller-owned
+ * workspace does not depend on the compiler proving non-aliasing. Overlapping
+ * buffers retain the original forward scalar loop; this is not a memmove-like
+ * guarantee for in-place expansion. Count and workspace capacity are elements,
+ * while the overlap check compares byte ranges on the AArch64 address space.
+ */
+static void gemm_widen_input_sve(const int8_t *src,
+                                int32_t *dst,
+                                uint32_t count) {
+    if (count == 0u) {
+        return;
+    }
+
+    const uint64_t count64 = count;
+    const uintptr_t src_addr = (uintptr_t)src;
+    const uintptr_t dst_addr = (uintptr_t)dst;
+    /* Subtract ordered addresses rather than constructing end addresses. */
+    const int overlaps =
+        (dst_addr >= src_addr)
+            ? ((dst_addr - src_addr) < count64)
+            : ((src_addr - dst_addr) < count64 * sizeof(*dst));
+    if (overlaps) {
+        for (uint32_t idx = 0; idx < count; ++idx) {
+            dst[idx] = (int32_t)src[idx];
+        }
+        return;
+    }
+
+    const uint64_t lanes = svcntw();
+    for (uint64_t idx = 0; idx < count64; idx += lanes) {
+        const svbool_t pg = svwhilelt_b32(idx, count64);
+        const svint32_t values = svld1sb_s32(pg, src + idx);
+        svst1_s32(pg, dst + idx, values);
+    }
+}
 
 /**
  * Return the configured L1 tile size, or the full dimension when tiling is off.
@@ -1347,9 +1386,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    for (uint32_t idx = 0; idx < input_count; idx++) {
-        input_i32_interleaved[idx] = (int32_t)in_interleaved[idx];
-    }
+    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
@@ -1541,9 +1578,7 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    for (uint32_t idx = 0; idx < input_count; idx++) {
-        input_i32_interleaved[idx] = (int32_t)in_interleaved[idx];
-    }
+    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
@@ -1735,9 +1770,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     }
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    for (uint32_t idx = 0; idx < input_count; idx++) {
-        input_i32_interleaved[idx] = (int32_t)in_interleaved[idx];
-    }
+    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
