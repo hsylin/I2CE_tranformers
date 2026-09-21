@@ -93,6 +93,19 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     int32_t *input_i32_workspace_opt,
     uint32_t input_i32_workspace_capacity);
 
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb,
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity);
+
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

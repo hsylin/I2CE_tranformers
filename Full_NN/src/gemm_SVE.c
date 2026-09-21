@@ -1950,3 +1950,194 @@ void sve_gemm_dense_int8_interleaved_2Learners(
         }
     }
 }
+
+/* ======================================================================== *
+ * Tiled four-learner shared-index compact GEMM micro-kernel.
+ *
+ * Added for the `tiling` work: the first-stage loop-reorder + register-tile
+ * optimization of the four-learner shared-index compact GEMM. See
+ * gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled() in
+ * gemm_exec.c for the surrounding loop nest.
+ *
+ * Vector length is resolved at run time with svcntw(), so a single build is
+ * correct for any SVE vector length (128/256/512). The numerical result is
+ * identical to gemm_exec_compact_int_interleaved_4Learners_same_seq().
+ * ======================================================================== */
+#ifdef SIMD
+
+/*
+ * Look one shared index vector up in a learner codebook that may span up to
+ * four SVE registers. svtbl_s32 returns 0 for out-of-range indices, so summing
+ * svtbl over the register slices (each rebased by one vector length) yields
+ * codebook[idx] without any compare/select. nreg is ceil(codebook_size / vl).
+ */
+static inline svint32_t sve_cb_lookup_tile_s32(svint32x4_t cb, uint32_t nreg,
+                                               svbool_t pt, svuint32_t idx,
+                                               uint32_t vl) {
+    svint32_t w = svtbl_s32(svget4_s32(cb, 0), idx);
+    if (nreg > 1u) {
+        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 1), svsub_n_u32_x(pt, idx, vl)));
+    }
+    if (nreg > 2u) {
+        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 2), svsub_n_u32_x(pt, idx, 2u * vl)));
+    }
+    if (nreg > 3u) {
+        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 3), svsub_n_u32_x(pt, idx, 3u * vl)));
+    }
+    return w;
+}
+
+/*
+ * Tiled row micro-kernel for the four-learner shared-index compact GEMM.
+ *
+ * Computes up to MR (1 or 2) sequence rows for one output column. The packed
+ * index decode and the four learner codebook lookups are performed ONCE per
+ * group of K elements and reused across the MR rows (the shared-index reuse
+ * that motivates the register tile). Activations are read from a pre-widened
+ * int32 panel laid out as [row][k][4 learners]; results are written to the
+ * interleaved int32 output as [seq][out][4 learners].
+ *
+ * The codebook must fit in up to four SVE registers per learner
+ * (codebook_size <= 4 * svcntw()); the driver guarantees this and otherwise
+ * dispatches to the scalar path.
+ */
+void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
+    const uint32_t *packed_row,
+    uint32_t n_words_row,
+    uint32_t k_elems,
+    const int32_t *panel_interleaved,
+    uint32_t mr,
+    uint32_t panel_row_stride,
+    const int32_t *codebook_i32_interleaved,
+    uint32_t codebook_size,
+    int32_t *out_interleaved,
+    uint32_t out_row0,
+    uint32_t out_col,
+    uint32_t ld_out_interleaved,
+    const int32_t *bias_interleaved,
+    int add_bias,
+    int accumulate,
+    uint8_t bits_per_cb) {
+    (void)n_words_row; /* the K count (k_elems) bounds the packed-word walk */
+    const uint32_t vl = (uint32_t)svcntw();
+    const svbool_t pt = svptrue_b32();
+
+    if (mr == 0u) {
+        return;
+    }
+    if (mr > 2u) {
+        mr = 2u;
+    }
+
+    const int32_t *p0 = panel_interleaved;
+    const int32_t *p1 = (mr > 1u) ? (panel_interleaved + panel_row_stride)
+                                  : panel_interleaved;
+
+    /* Empty K: each output slot becomes bias/zero, honoring accumulate. */
+    if ((bits_per_cb == 0u) || (k_elems == 0u)) {
+        for (uint32_t r = 0; r < mr; r++) {
+            int32_t *slot = &out_interleaved[(size_t)(out_row0 + r) * ld_out_interleaved +
+                                             (size_t)out_col * 4u];
+            for (uint32_t l = 0; l < 4u; l++) {
+                const int32_t b = (add_bias && bias_interleaved) ? bias_interleaved[l] : 0;
+                if (accumulate) {
+                    slot[l] += b;
+                } else {
+                    slot[l] = b;
+                }
+            }
+        }
+        return;
+    }
+
+    const uint32_t ipw = 32u / bits_per_cb;
+    const uint32_t mask = (1u << bits_per_cb) - 1u;
+    const uint32_t nreg = (codebook_size + vl - 1u) / vl; /* 1..4 (driver-guaranteed) */
+
+    /*
+     * Preload the four interleaved learner codebooks into register slices.
+     * svld4_s32 de-interleaves [cb_index][learner] groups; a partial/empty
+     * predicate zero-fills slices past codebook_size and never accesses
+     * inactive lanes, so the higher-slice base addresses are safe.
+     */
+    const svint32x4_t t0 = svld4_s32(svwhilelt_b32_u32(0u * vl, codebook_size),
+                                     codebook_i32_interleaved + (size_t)0u * vl * 4u);
+    const svint32x4_t t1 = svld4_s32(svwhilelt_b32_u32(1u * vl, codebook_size),
+                                     codebook_i32_interleaved + (size_t)1u * vl * 4u);
+    const svint32x4_t t2 = svld4_s32(svwhilelt_b32_u32(2u * vl, codebook_size),
+                                     codebook_i32_interleaved + (size_t)2u * vl * 4u);
+    const svint32x4_t t3 = svld4_s32(svwhilelt_b32_u32(3u * vl, codebook_size),
+                                     codebook_i32_interleaved + (size_t)3u * vl * 4u);
+    const svint32x4_t cbL0 = svcreate4_s32(svget4_s32(t0, 0), svget4_s32(t1, 0),
+                                           svget4_s32(t2, 0), svget4_s32(t3, 0));
+    const svint32x4_t cbL1 = svcreate4_s32(svget4_s32(t0, 1), svget4_s32(t1, 1),
+                                           svget4_s32(t2, 1), svget4_s32(t3, 1));
+    const svint32x4_t cbL2 = svcreate4_s32(svget4_s32(t0, 2), svget4_s32(t1, 2),
+                                           svget4_s32(t2, 2), svget4_s32(t3, 2));
+    const svint32x4_t cbL3 = svcreate4_s32(svget4_s32(t0, 3), svget4_s32(t1, 3),
+                                           svget4_s32(t2, 3), svget4_s32(t3, 3));
+
+    svint32_t a00 = svdup_n_s32(0), a01 = svdup_n_s32(0), a02 = svdup_n_s32(0), a03 = svdup_n_s32(0);
+    svint32_t a10 = svdup_n_s32(0), a11 = svdup_n_s32(0), a12 = svdup_n_s32(0), a13 = svdup_n_s32(0);
+
+    uint32_t k = 0;
+    for (uint32_t w = 0; k < k_elems; w++) {
+        const svuint32_t pw = svdup_n_u32(packed_row[w]);
+        for (uint32_t t = 0; (t < ipw) && (k < k_elems); t += vl) {
+            uint32_t act = ipw - t;
+            if (act > vl) {
+                act = vl;
+            }
+            if (act > k_elems - k) {
+                act = k_elems - k;
+            }
+            const svbool_t pg = svwhilelt_b32_u32(0u, act);
+            const svuint32_t idx =
+                svand_n_u32_x(pt, svlsr_u32_x(pt, pw, svindex_u32(t * bits_per_cb, bits_per_cb)), mask);
+
+            const svint32_t w0 = sve_cb_lookup_tile_s32(cbL0, nreg, pt, idx, vl);
+            const svint32_t w1 = sve_cb_lookup_tile_s32(cbL1, nreg, pt, idx, vl);
+            const svint32_t w2 = sve_cb_lookup_tile_s32(cbL2, nreg, pt, idx, vl);
+            const svint32_t w3 = sve_cb_lookup_tile_s32(cbL3, nreg, pt, idx, vl);
+
+            const svint32x4_t x0 = svld4_s32(pg, p0 + (size_t)k * 4u);
+            a00 = svmla_s32_m(pg, a00, svget4_s32(x0, 0), w0);
+            a01 = svmla_s32_m(pg, a01, svget4_s32(x0, 1), w1);
+            a02 = svmla_s32_m(pg, a02, svget4_s32(x0, 2), w2);
+            a03 = svmla_s32_m(pg, a03, svget4_s32(x0, 3), w3);
+
+            if (mr > 1u) {
+                const svint32x4_t x1 = svld4_s32(pg, p1 + (size_t)k * 4u);
+                a10 = svmla_s32_m(pg, a10, svget4_s32(x1, 0), w0);
+                a11 = svmla_s32_m(pg, a11, svget4_s32(x1, 1), w1);
+                a12 = svmla_s32_m(pg, a12, svget4_s32(x1, 2), w2);
+                a13 = svmla_s32_m(pg, a13, svget4_s32(x1, 3), w3);
+            }
+
+            k += act;
+        }
+    }
+
+    int32_t r0[4] = {(int32_t)svaddv_s32(pt, a00), (int32_t)svaddv_s32(pt, a01),
+                     (int32_t)svaddv_s32(pt, a02), (int32_t)svaddv_s32(pt, a03)};
+    int32_t r1[4] = {(int32_t)svaddv_s32(pt, a10), (int32_t)svaddv_s32(pt, a11),
+                     (int32_t)svaddv_s32(pt, a12), (int32_t)svaddv_s32(pt, a13)};
+    for (uint32_t r = 0; r < mr; r++) {
+        const int32_t *acc = (r == 0u) ? r0 : r1;
+        int32_t *slot = &out_interleaved[(size_t)(out_row0 + r) * ld_out_interleaved +
+                                         (size_t)out_col * 4u];
+        for (uint32_t l = 0; l < 4u; l++) {
+            int32_t v = acc[l];
+            if (add_bias && bias_interleaved) {
+                v += bias_interleaved[l];
+            }
+            if (accumulate) {
+                slot[l] += v;
+            } else {
+                slot[l] = v;
+            }
+        }
+    }
+}
+
+#endif /* SIMD */

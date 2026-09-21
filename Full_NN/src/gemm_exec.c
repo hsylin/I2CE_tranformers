@@ -1838,3 +1838,204 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     }
 }
 #endif
+
+/* ======================================================================== *
+ * Tiled four-learner shared-index compact GEMM driver (first-stage tiling).
+ *
+ * Compared with gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(),
+ * this driver:
+ *   - reorders the loop nest to sequence-row-tile (outer) / output-feature
+ *     (inner), so the activation panel is reused across all output features
+ *     instead of the whole activation matrix being re-streamed per feature;
+ *   - processes a two-row register tile so both rows share each index decode
+ *     and the four codebook lookups;
+ *   - widens only the current MR x Kc activation tile to int32 (kept within an
+ *     ~16 KB L1 budget) instead of widening the entire activation matrix;
+ *   - writes outputs row-contiguously (output feature is the inner loop).
+ *
+ * The public API, the caller-owned pre-widened codebook, and the caller-owned
+ * workspace parameters are preserved. The workspace, when supplied and large
+ * enough, backs the small activation panel; otherwise a panel is malloc'd.
+ *
+ * SVE eligibility (codebook fits in <= 4 registers per learner) is resolved at
+ * run time from the actual vector length, so one build is correct at VL
+ * 128/256/512; oversized codebooks fall back to the scalar path, and the
+ * numerical result matches gemm_exec_compact_int_interleaved_4Learners_same_seq().
+ * ======================================================================== */
+#ifdef SIMD
+
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb,
+    const int32_t *codebook_i32_interleaved_opt,
+    int32_t *input_i32_workspace_opt,
+    uint32_t input_i32_workspace_capacity) {
+    /* Step 1: empty output shape -> nothing to do. */
+    if ((gemm_layer.seq_len == 0u) || (gemm_layer.output_size == 0u)) {
+        return;
+    }
+
+    /* Step 2: degenerate compact input -> each output group is bias/zero. */
+    if ((bits_per_cb == 0u) || (gemm_layer.input_size == 0u) ||
+        (gemm_layer.n_words_row == 0u)) {
+        gemm_fill_bias_or_zero_int_interleaved(
+            gemm_layer, out_interleaved, bias_interleaved, 4u);
+        return;
+    }
+
+    const uint32_t vl = (uint32_t)svcntw();
+    const uint32_t codebook_size = 1u << bits_per_cb;
+
+    /*
+     * Step 3: dispatch to the scalar same_seq path when the SVE compact kernel
+     * cannot execute this codebook. Eligibility is resolved from the actual
+     * vector length (codebook must fit in <= 4 registers per learner), which
+     * generalizes the compile-time N_SVE_REG_CB_* gate used by the older SVE
+     * wrappers to be correct for any runtime vector length. Results are
+     * identical either way.
+     */
+    if ((bits_per_cb > 8u) || (codebook_size > 4u * vl)) {
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
+                                                             in_interleaved,
+                                                             weight_idx,
+                                                             codebook_interleaved,
+                                                             bias_interleaved,
+                                                             out_interleaved,
+                                                             bits_per_cb);
+        return;
+    }
+
+    /*
+     * Step 4: prefer a caller-owned pre-widened int32 codebook; otherwise
+     * expand the interleaved int8 codebook to int32 locally, preserving the
+     * [codebook index][learner] layout the row kernel expects.
+     */
+    int32_t codebook_i32_local[4u * 256u];
+    const int32_t *codebook_i32_interleaved;
+    if (codebook_i32_interleaved_opt != NULL) {
+        codebook_i32_interleaved = codebook_i32_interleaved_opt;
+    } else {
+        for (uint32_t i = 0; i < codebook_size * 4u; i++) {
+            codebook_i32_local[i] = (int32_t)codebook_interleaved[i];
+        }
+        codebook_i32_interleaved = codebook_i32_local;
+    }
+
+    /*
+     * Step 5: choose the K-block width so the widened MR x Kc x 4-learner
+     * int32 panel stays within an ~16 KB L1 budget, rounded down to a whole
+     * number of packed index words.
+     */
+    const uint32_t MR = 2u;
+    const uint32_t ipw = 32u / bits_per_cb;
+    uint32_t kc = (16u * 1024u) / (MR * 4u * (uint32_t)sizeof(int32_t)); /* elems/row */
+    kc = (kc / ipw) * ipw;
+    if (kc == 0u) {
+        kc = ipw;
+    }
+    {
+        const uint32_t k_padded = ((gemm_layer.input_size + ipw - 1u) / ipw) * ipw;
+        if (kc > k_padded) {
+            kc = k_padded;
+        }
+    }
+
+    /* Step 6: back the panel with the caller workspace when it is large enough. */
+    const uint32_t panel_elems = MR * kc * 4u;
+    int32_t *panel;
+    int panel_owned = 0;
+    if ((input_i32_workspace_opt != NULL) &&
+        (input_i32_workspace_capacity >= panel_elems)) {
+        panel = input_i32_workspace_opt;
+    } else {
+        panel = (int32_t *)malloc((size_t)panel_elems * sizeof(int32_t));
+        if (panel == NULL) {
+            /* Allocation failure keeps correctness via the scalar path. */
+            gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
+                                                                 in_interleaved,
+                                                                 weight_idx,
+                                                                 codebook_interleaved,
+                                                                 bias_interleaved,
+                                                                 out_interleaved,
+                                                                 bits_per_cb);
+            return;
+        }
+        panel_owned = 1;
+    }
+
+    const uint32_t ld_out = (uint32_t)gemm_layer.output_size * 4u;
+
+    /* Step 7: rows outer, K blocks, output features inner. */
+    for (uint32_t row0 = 0; row0 < gemm_layer.seq_len; row0 += MR) {
+        const uint32_t mr =
+            ((gemm_layer.seq_len - row0) < MR) ? (gemm_layer.seq_len - row0) : MR;
+
+        for (uint32_t k0 = 0; k0 < gemm_layer.input_size; k0 += kc) {
+            const uint32_t kn =
+                ((gemm_layer.input_size - k0) < kc) ? (gemm_layer.input_size - k0) : kc;
+
+            /* Widen only this tile's activations into the L1-resident panel. */
+            for (uint32_t r = 0; r < mr; r++) {
+                gemm_widen_input_sve(
+                    &in_interleaved[((size_t)(row0 + r) * gemm_layer.input_size + k0) * 4u],
+                    panel + (size_t)r * kc * 4u,
+                    kn * 4u);
+            }
+
+            const uint32_t word0 = k0 / ipw;
+            const uint32_t nwr_blk = (kn + ipw - 1u) / ipw;
+            const int add_bias = (k0 == 0u);
+            const int accumulate = (k0 != 0u);
+
+            for (uint32_t n = 0; n < gemm_layer.output_size; n++) {
+                const int32_t *bias_vals =
+                    (bias_interleaved == NULL) ? NULL : &bias_interleaved[(size_t)n * 4u];
+                sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
+                    &weight_idx[(size_t)n * gemm_layer.n_words_row + word0],
+                    nwr_blk,
+                    kn,
+                    panel,
+                    mr,
+                    kc * 4u,
+                    codebook_i32_interleaved,
+                    codebook_size,
+                    out_interleaved,
+                    row0,
+                    n,
+                    ld_out,
+                    bias_vals,
+                    add_bias,
+                    accumulate,
+                    bits_per_cb);
+            }
+        }
+    }
+
+    if (panel_owned) {
+        free(panel);
+    }
+}
+
+/*
+ * Public entry point: widens the codebook locally and uses an internal panel.
+ * Mirrors the non-_ex/_ex split used by the other compact SVE wrappers.
+ */
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled(
+    gemm_t gemm_layer,
+    const int8_t *in_interleaved,
+    const uint32_t *weight_idx,
+    const int8_t *codebook_interleaved,
+    const int32_t *bias_interleaved,
+    int32_t *out_interleaved,
+    uint8_t bits_per_cb) {
+    gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
+        gemm_layer, in_interleaved, weight_idx, codebook_interleaved,
+        bias_interleaved, out_interleaved, bits_per_cb, NULL, NULL, 0);
+}
+
+#endif /* SIMD */

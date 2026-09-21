@@ -422,6 +422,16 @@ void sve_gemm_dense_int8_interleaved_2Learners(
 
 #ifdef __cplusplus
 }
+
+/* Tiled four-learner shared-index compact GEMM row micro-kernel (see gemm_SVE.c). */
+void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
+    const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems,
+    const int32_t *panel_interleaved, uint32_t mr, uint32_t panel_row_stride,
+    const int32_t *codebook_i32_interleaved, uint32_t codebook_size,
+    int32_t *out_interleaved, uint32_t out_row0, uint32_t out_col,
+    uint32_t ld_out_interleaved, const int32_t *bias_interleaved,
+    int add_bias, int accumulate, uint8_t bits_per_cb);
+
 #endif
 
 #endif

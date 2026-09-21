@@ -461,6 +461,16 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq(gemm_t gemm_layer,
                                                        const int32_t *bias_interleaved,
                                                        int32_t *out_interleaved,
                                                        uint8_t bits_per_cb);
+
+/* Tiled four-learner shared-index compact GEMM (see gemm_exec.c). */
+void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled(gemm_t gemm_layer,
+                                                   const int8_t *in_interleaved,
+                                                   const uint32_t *weight_idx,
+                                                   const int8_t *codebook_interleaved,
+                                                   const int32_t *bias_interleaved,
+                                                   int32_t *out_interleaved,
+                                                   uint8_t bits_per_cb);
+
 #endif
 
 #endif
