@@ -34,18 +34,18 @@ public:
     ~CodebookDense() override = default;
 
     void compute(std::size_t seq_len, uint32_t *input, uint32_t *output) override;
-    bool supportsInterleaved2DSameSeq() const;
-    void computeInterleaved2DSameSeq(std::size_t seq_len,
+    bool supportsInterleaved2LearnersSameSeq() const;
+    void computeInterleaved2LearnersSameSeq(std::size_t seq_len,
                                      uint32_t* const inputs[2],
                                      uint32_t* const outputs[2]) const;
-    void computeInterleaved2DToInt8(std::size_t seq_len,
+    void computeInterleaved2LearnersToInt8(std::size_t seq_len,
                                     const int8_t* input_interleaved,
                                     int8_t* output_interleaved) const;
-    bool supportsInterleaved4DDiffSeq() const;
-    void computeInterleaved4DDiffSeq(std::size_t seq_len,
+    bool supportsInterleaved4Learners() const;
+    void computeInterleaved4Learners(std::size_t seq_len,
                                      uint32_t* const inputs[4],
                                      uint32_t* const outputs[4]) const;
-    void computeInterleaved4DToInt8(std::size_t seq_len,
+    void computeInterleaved4LearnersToInt8(std::size_t seq_len,
                                     const int8_t* input_interleaved,
                                     int8_t* output_interleaved) const;
 
@@ -89,4 +89,11 @@ private:
     std::vector<int32_t> biases_q_;
     std::vector<int32_t> bias_interleaved_q_;
     std::vector<uint32_t> weight_idx_interleaved_cache_;
+    // Pre-widened int32 mirror of codebook_interleaved_q_ (invariant across
+    // the layer's lifetime). Passed to the int8 SVE interleaved wrappers via
+    // the codebook_i32_interleaved_opt parameter of the _ex extended entry
+    // points declared in Full_NN/inc/gemm_exec_internal.h, so the per-call
+    // int8->int32 codebook expansion is skipped on the hot path. Empty when
+    // no interleaved int8 codebook is configured.
+    std::vector<int32_t> codebook_widened_i32_interleaved_cache_;
 };

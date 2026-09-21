@@ -1131,6 +1131,46 @@ output/run_YYYYMMDD_HHMMSS/stats_YYYYMMDD_HHMMSS.txt
 
 When `GEM5_PROFILE_REGIONS_FLAG=1` is enabled during compilation, the program emits gem5 profiling checkpoints for different Transformer regions, which can be used for layer-level performance analysis.
 
+### 8. Add the run to the profiling tables
+
+gem5 does not number experiments. E01-E36 in `transformer_profiling/final/`
+were converted from their stats files after the runs, and a new run is added
+the same way with `transformer_profiling/add_experiment.py`. The script writes
+the seven-row TSV (six `interval_delta` rows plus `final_total`), adds the
+experiment to `manifest.tsv` and `final_all_experiments.tsv`, and picks the next
+free ID (E37, E38, ...) from `manifest.tsv`.
+
+Run it from the TiC-SAT root after the program has finished in gem5:
+
+```bash
+python3 transformer_profiling/add_experiment.py \
+    --stats /home/thu/gem5/output/run_YYYYMMDD_HHMMSS/stats_YYYYMMDD_HHMMSS.txt \
+    --study "Learner scaling" --model BERT-mini \
+    --n-learners 4 --codebook-size 8 --sve-bits 256
+```
+
+For a dense no-SIMD baseline, replace `--codebook-size 8` with `--dense`. Use
+the values the run was built and simulated with: `N_LEARNERS` and
+`CODEBOOK_SIZE` from the notebook, and the `sve_vl` set in `starter_fs.py`
+(1 = 128, 2 = 256, 4 = 512 bits). Add `--dry-run` to print the rows without
+writing anything.
+
+| Option | Use |
+| --- | --- |
+| `--exp-id E40` | Choose the ID yourself instead of the next free one. |
+| `--replace` | Overwrite an ID that already exists. |
+| `--start-block N` | The stats file holds more than one program run; the run to add starts at dump block `N`. |
+| `--model NAME --dims D_Q D_SEQ D_MODEL NUM_HEAD D_FF` | A model other than `BERT-mini` or `BERT-base`. |
+| `--gem5-timestamp run_YYYYMMDD_HHMMSS` | The stats path does not contain the run timestamp. |
+| `--recorded-stats-path PATH` | Record a different path in the `stats_file` column, e.g. the server path of a copied file. |
+| `--scale-first-learner` | Unfinished dense multi-learner run: first learner times `N_LEARNERS`, as for BERT-base E05/E06. |
+
+A profiling run writes six dump blocks (6 per learner for a dense
+multi-learner baseline). A run ended with `m5 exit` has one more block, which
+the script ignores. If gem5 prints a malformed `simSeconds`, the script uses
+`simTicks / simFreq` and prints a warning. Rerun
+`python3 tests/profiling_add_experiment_test.py` after changing the script.
+
 
 
 
@@ -1157,6 +1197,11 @@ ff1
    `USE_CODEBOOK_GEMM_FLAG=1`, and `ENABLE_CODEBOOK_REFERENCE_FLAG=0`.
 7. For performance profiling, keep `ENABLE_DEBUG_PRINT_FLAG=0` and
    `ENABLE_CODEBOOK_REFERENCE_FLAG=0`.
+
+After the gem5 run:
+
+8. Add the stats file to the profiling tables with
+   `transformer_profiling/add_experiment.py` (Section 4.8).
 
 
 

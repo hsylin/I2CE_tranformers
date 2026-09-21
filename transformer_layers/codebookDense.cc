@@ -1,6 +1,9 @@
 #include "codebookDense.h"
 
 #include "../Full_NN/inc/gemm_exec.h"
+#ifdef SIMD
+#include "../Full_NN/inc/gemm_exec_internal.h"
+#endif
 
 #include <cmath>
 #include <limits>
@@ -19,12 +22,12 @@
 
 // void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, uint32_t *output) const;
 // void CodebookDense::buildInterleavedCachesIfNeeded();
-// bool CodebookDense::supportsInterleaved2DSameSeq() const;
-// bool CodebookDense::supportsInterleaved4DDiffSeq() const;
-// void CodebookDense::computeInterleaved2DSameSeq(std::size_t seq_len, uint32_t* const inputs[2], uint32_t* const outputs[2]) const;
-// void CodebookDense::computeInterleaved2DToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
-// void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len, uint32_t* const inputs[4], uint32_t* const outputs[4]) const;
-// void CodebookDense::computeInterleaved4DToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
+// bool CodebookDense::supportsInterleaved2LearnersSameSeq() const;
+// bool CodebookDense::supportsInterleaved4Learners() const;
+// void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len, uint32_t* const inputs[2], uint32_t* const outputs[2]) const;
+// void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
+// void CodebookDense::computeInterleaved4Learners(std::size_t seq_len, uint32_t* const inputs[4], uint32_t* const outputs[4]) const;
+// void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
 // void CodebookDense::compute(std::size_t seq_len, uint32_t *input, uint32_t *output);
 
 namespace {
@@ -455,6 +458,20 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
             }
         }
     }
+
+    // Pre-widen the interleaved int8 codebook to int32 once, so every SVE
+    // wrapper call can skip its per-call widening loop. This mirror is
+    // consumed via the int8 SVE wrappers' codebook_i32_interleaved_opt
+    // parameter; the scalar backend still reads codebook_interleaved_q_
+    // directly and is unaffected.
+    if (codebook_widened_i32_interleaved_cache_.empty() &&
+        !codebook_interleaved_q_.empty()) {
+        codebook_widened_i32_interleaved_cache_.resize(codebook_interleaved_q_.size());
+        for (std::size_t i = 0; i < codebook_interleaved_q_.size(); i++) {
+            codebook_widened_i32_interleaved_cache_[i] =
+                static_cast<int32_t>(codebook_interleaved_q_[i]);
+        }
+    }
 }
 
 /**
@@ -467,7 +484,7 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
  * @return true when the layer has exactly 2 learners, same_seq_ is enabled, the
  *         interleaved codebook is available, and weight_idx_ is non-null.
  */
-bool CodebookDense::supportsInterleaved2DSameSeq() const {
+bool CodebookDense::supportsInterleaved2LearnersSameSeq() const {
     if ((n_learners_ != 2u) || !same_seq_ || codebook_interleaved_q_.empty()) {
         return false;
     }
@@ -486,7 +503,7 @@ bool CodebookDense::supportsInterleaved2DSameSeq() const {
  *         available, and the required packed-index stream exists. For same_seq_
  *         this requires weight_idx_; for diff-seq this requires weight_idx_interleaved_.
  */
-bool CodebookDense::supportsInterleaved4DDiffSeq() const {
+bool CodebookDense::supportsInterleaved4Learners() const {
     if ((n_learners_ != 4u) || codebook_interleaved_q_.empty()) {
         return false;
     }
@@ -522,10 +539,10 @@ bool CodebookDense::supportsInterleaved4DDiffSeq() const {
  * @param outputs Array of two packed output buffers, one per learner.
  * @throws std::runtime_error if the layer is not configured for the 2D same-seq path.
  */
-void CodebookDense::computeInterleaved2DSameSeq(std::size_t seq_len,
+void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
                                                 uint32_t* const inputs[2],
                                                 uint32_t* const outputs[2]) const {
-    if (!supportsInterleaved2DSameSeq()) {
+    if (!supportsInterleaved2LearnersSameSeq()) {
         throw std::runtime_error("CodebookDense interleaved 2D same-seq path is not available");
     }
 
@@ -548,16 +565,26 @@ void CodebookDense::computeInterleaved2DSameSeq(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    gemm_exec_compact_int_sve_interleaved_2D_same_seq(
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
+    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved.data(),
         weight_idx_,
         codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
         output_acc_interleaved.data(),
-        bits_per_cb_);
+        bits_per_cb_,
+        codebook_widened_i32_interleaved_cache_.empty()
+            ? nullptr
+            : codebook_widened_i32_interleaved_cache_.data(),
+        activation_workspace.data(),
+        static_cast<uint32_t>(activation_workspace.size()));
 #else
-    gemm_exec_compact_int_interleaved_2D_same_seq(
+    gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
         input_interleaved.data(),
         weight_idx_,
@@ -588,7 +615,7 @@ void CodebookDense::computeInterleaved2DSameSeq(std::size_t seq_len,
  * @brief Execute two learners together using already-interleaved int8 buffers.
  *
  * This is the fully interleaved 2D pipeline entry point. Unlike
- * computeInterleaved2DSameSeq(), it does not unpack per-learner uint32_t inputs
+ * computeInterleaved2LearnersSameSeq(), it does not unpack per-learner uint32_t inputs
  * and does not repack outputs. The caller keeps the whole transformer block in
  * the shared [seq][feature][learner] int8 layout.
  *
@@ -607,10 +634,10 @@ void CodebookDense::computeInterleaved2DSameSeq(std::size_t seq_len,
  *                           2 learners.
  * @throws std::runtime_error if the layer is not configured for the 2D same-seq path.
  */
-void CodebookDense::computeInterleaved2DToInt8(std::size_t seq_len,
+void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
                                                const int8_t* input_interleaved,
                                                int8_t* output_interleaved) const {
-    if (!supportsInterleaved2DSameSeq()) {
+    if (!supportsInterleaved2LearnersSameSeq()) {
         throw std::runtime_error("CodebookDense interleaved 2D pipeline path is not available");
     }
 
@@ -623,16 +650,26 @@ void CodebookDense::computeInterleaved2DToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    gemm_exec_compact_int_sve_interleaved_2D_same_seq(
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
+    gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved,
         weight_idx_,
         codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
         output_acc_interleaved.data(),
-        bits_per_cb_);
+        bits_per_cb_,
+        codebook_widened_i32_interleaved_cache_.empty()
+            ? nullptr
+            : codebook_widened_i32_interleaved_cache_.data(),
+        activation_workspace.data(),
+        static_cast<uint32_t>(activation_workspace.size()));
 #else
-    gemm_exec_compact_int_interleaved_2D_same_seq(
+    gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
         input_interleaved,
         weight_idx_,
@@ -675,10 +712,10 @@ void CodebookDense::computeInterleaved2DToInt8(std::size_t seq_len,
  * @param outputs Array of four packed output buffers, one per learner.
  * @throws std::runtime_error if the layer is not configured for the 4D grouped path.
  */
-void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len,
+void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
                                                 uint32_t* const inputs[4],
                                                 uint32_t* const outputs[4]) const {
-    if (!supportsInterleaved4DDiffSeq()) {
+    if (!supportsInterleaved4Learners()) {
         throw std::runtime_error("CodebookDense interleaved 4D diff-seq path is not available");
     }
 
@@ -701,30 +738,45 @@ void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     if (same_seq_) {
         // Shared-index path: one packed index stream drives all 4 learners.
-        gemm_exec_compact_int_sve_interleaved_4D_same_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
             input_interleaved.data(),
             weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     } else {
         // Per-learner index path: each learner has its own packed index stream.
-        gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
             input_interleaved.data(),
             weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     }
 #else
     if (same_seq_) {
-        gemm_exec_compact_int_interleaved_4D_same_seq(
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(
             layer,
             input_interleaved.data(),
             weight_idx_,
@@ -733,7 +785,7 @@ void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len,
             output_acc_interleaved.data(),
             bits_per_cb_);
     } else {
-        gemm_exec_compact_int_interleaved_4D_diff_seq(
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(
             layer,
             input_interleaved.data(),
             weight_idx_interleaved_,
@@ -766,7 +818,7 @@ void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len,
  *
  * This is the fully interleaved 4D pipeline entry point. The input and output
  * buffers stay in [seq][feature][learner] format, so this function avoids the
- * unpack/de-interleave/repack work done by computeInterleaved4DDiffSeq().
+ * unpack/de-interleave/repack work done by computeInterleaved4Learners().
  *
  * The function supports both 4D same-sequence and 4D different-sequence registry
  * layouts:
@@ -789,10 +841,10 @@ void CodebookDense::computeInterleaved4DDiffSeq(std::size_t seq_len,
  *                           4 learners.
  * @throws std::runtime_error if the layer is not configured for the 4D grouped path.
  */
-void CodebookDense::computeInterleaved4DToInt8(std::size_t seq_len,
+void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
                                                const int8_t* input_interleaved,
                                                int8_t* output_interleaved) const {
-    if (!supportsInterleaved4DDiffSeq()) {
+    if (!supportsInterleaved4Learners()) {
         throw std::runtime_error("CodebookDense interleaved 4D pipeline path is not available");
     }
 
@@ -805,28 +857,43 @@ void CodebookDense::computeInterleaved4DToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
+    static thread_local std::vector<int32_t> activation_workspace;
+    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
+    if (activation_workspace.size() < activation_workspace_needed) {
+        activation_workspace.resize(activation_workspace_needed);
+    }
     if (same_seq_) {
-        gemm_exec_compact_int_sve_interleaved_4D_same_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
             input_interleaved,
             weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     } else {
-        gemm_exec_compact_int_sve_interleaved_4D_diff_seq(
+        gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
             input_interleaved,
             weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
             output_acc_interleaved.data(),
-            bits_per_cb_);
+            bits_per_cb_,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            activation_workspace.data(),
+            static_cast<uint32_t>(activation_workspace.size()));
     }
 #else
     if (same_seq_) {
-        gemm_exec_compact_int_interleaved_4D_same_seq(
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(
             layer,
             input_interleaved,
             weight_idx_,
@@ -835,7 +902,7 @@ void CodebookDense::computeInterleaved4DToInt8(std::size_t seq_len,
             output_acc_interleaved.data(),
             bits_per_cb_);
     } else {
-        gemm_exec_compact_int_interleaved_4D_diff_seq(
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(
             layer,
             input_interleaved,
             weight_idx_interleaved_,
@@ -858,7 +925,7 @@ void CodebookDense::computeInterleaved4DToInt8(std::size_t seq_len,
  * This overrides LinearLayer::compute() for callers that use the normal packed
  * uint32_t tensor interface. It currently delegates all work to runCompactGemm().
  * Fully interleaved pipeline callers bypass this entry point and call
- * computeInterleaved2DToInt8() or computeInterleaved4DToInt8() instead.
+ * computeInterleaved2LearnersToInt8() or computeInterleaved4LearnersToInt8() instead.
  *
  * @param seq_len Number of sequence rows/tokens in the input tensor.
  * @param input Pointer to packed input storage in [seq][input_word] layout, where

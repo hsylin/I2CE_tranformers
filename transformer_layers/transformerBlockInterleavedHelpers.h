@@ -10,13 +10,13 @@
 #include "addNorm.h"
 #include "linearLayer.h"
 
-void computeCodebookDenseInterleaved2D(const char* label,
+void computeCodebookDenseInterleaved2Learners(const char* label,
                                        LinearLayer* const layers[2],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,
                                        int8_t* output_interleaved);
 
-void computeCodebookDenseInterleaved4D(const char* label,
+void computeCodebookDenseInterleaved4Learners(const char* label,
                                        LinearLayer* const layers[4],
                                        std::size_t seq_len,
                                        const int8_t* input_interleaved,

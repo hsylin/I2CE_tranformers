@@ -23,7 +23,7 @@
  * learners or dimensions in the same pass through the packed indexes.
  *
  * The dense helpers at the end of the file are reference-style SVE kernels for
- * already-expanded int32 matrices. They use the same 2D/4D interleaved layout,
+ * already-expanded int32 matrices. They use the same 2- and 4-learner interleaved layout,
  * but do not decode codebook indexes.
  */
 
@@ -52,18 +52,18 @@ void sve_gemm_row_compact_int8(const uint32_t *packed_row, uint32_t n_words_row,
 void sve_gemm_row_compact_fp32(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat, uint32_t seq_tile, uint32_t ld_in, const float *codebook, float *out_mat, uint32_t out_col, uint32_t ld_out, float bias_val, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* FP32 compact row kernels for interleaved outputs. */
-void sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_fp32_interleaved_2D_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Int8/int32 compact row kernels for interleaved outputs. */
-void sve_gemm_row_compact_int8_interleaved_4D_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_2D_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_4D_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Dense interleaved int8/int32 GEMM helpers. */
-void sve_gemm_dense_int8_interleaved_4D(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
-void sve_gemm_dense_int8_interleaved_2D(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
+void sve_gemm_dense_int8_interleaved_4Learners(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
+void sve_gemm_dense_int8_interleaved_2Learners(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
 
 /*
  * Build a bit mask for one packed codebook index.
@@ -428,7 +428,7 @@ void sve_gemm_row_compact_fp32(const uint32_t *packed_row,
  * packed-row stream. The kernel decodes four independent codebook-index streams
  * and accumulates four dot products for each sequence row.
  */
-void sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(
+void sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -690,7 +690,7 @@ void sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(
  * when two generated learners share the same compressed structure but have
  * different codebook values.
  */
-void sve_gemm_row_compact_fp32_interleaved_2D_same_seq(
+void sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -859,12 +859,12 @@ void sve_gemm_row_compact_fp32_interleaved_2D_same_seq(
 /*
  * Compute four fp32 compact GEMM outputs that share the same packed index row.
  *
- * This combines the 4D interleaved data layout with the "same_seq" packed
+ * This combines the 4-learner interleaved data layout with the "same_seq" packed
  * index convention. One packed index stream is decoded, then used to select
  * weights from four interleaved fp32 codebooks. Four accumulators track the
  * four dot products in parallel.
  */
-void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
+void sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -965,7 +965,7 @@ void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
 #endif
 
     /*
-     * The loop structure mirrors the 4D diff_seq kernel, except there is only
+     * The loop structure mirrors the 4-learner diff_seq kernel, except there is only
      * one packed index stream. cb_idxs is therefore reused for all four
      * codebook lookups.
      */
@@ -1079,11 +1079,11 @@ void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
  * Compute four int32 compact GEMM outputs with four independent packed rows.
  *
  * This is the int32/int8-style counterpart of
- * sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(). Input values and
+ * sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq(). Input values and
  * codebook weights are carried as int32 SVE lanes, and the four compressed
  * packed-row streams are decoded independently before multiply-accumulate.
  */
-void sve_gemm_row_compact_int8_interleaved_4D_diff_seq(
+void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -1330,7 +1330,7 @@ void sve_gemm_row_compact_int8_interleaved_4D_diff_seq(
  * indexes select two interleaved int32 codebook values, which are multiplied
  * by the two interleaved input streams and reduced into two output values.
  */
-void sve_gemm_row_compact_int8_interleaved_2D_same_seq(
+void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -1569,9 +1569,9 @@ void sve_gemm_row_compact_int8_interleaved_2D_same_seq(
  *
  * This version decodes one packed-row stream and applies the same codebook
  * indexes to four interleaved int32 codebooks. It is the 4D integer equivalent
- * of sve_gemm_row_compact_fp32_interleaved_4D_same_seq().
+ * of sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq().
  */
-void sve_gemm_row_compact_int8_interleaved_4D_same_seq(
+void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -1848,14 +1848,14 @@ void sve_gemm_row_compact_int8_interleaved_4D_same_seq(
 }
 
 /*
- * Dense 4D interleaved int32 GEMM helper.
+ * Dense 4-learner interleaved int32 GEMM helper.
  *
  * Unlike the compact kernels above, this function receives already-expanded
  * left-hand-side and right-hand-side matrices. rhs_by_col_interleaved is laid
  * out by output column so each inner loop walks a contiguous RHS column. Four
  * interleaved dot products are accumulated for every (row, column) pair.
  */
-void sve_gemm_dense_int8_interleaved_4D(
+void sve_gemm_dense_int8_interleaved_4Learners(
     const int32_t *lhs_interleaved,
     const int32_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
@@ -1907,13 +1907,13 @@ void sve_gemm_dense_int8_interleaved_4D(
 }
 
 /*
- * Dense 2D interleaved int32 GEMM helper.
+ * Dense 2-learner interleaved int32 GEMM helper.
  *
- * This is the two-stream version of sve_gemm_dense_int8_interleaved_4D(). It
+ * This is the two-stream version of sve_gemm_dense_int8_interleaved_4Learners(). It
  * multiplies already-expanded interleaved int32 inputs and writes two output
  * values per logical matrix element.
  */
-void sve_gemm_dense_int8_interleaved_2D(
+void sve_gemm_dense_int8_interleaved_2Learners(
     const int32_t *lhs_interleaved,
     const int32_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,

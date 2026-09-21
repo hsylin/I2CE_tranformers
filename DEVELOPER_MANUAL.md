@@ -456,12 +456,12 @@ Important fully interleaved integer functions:
 
 | Function                                  | File                     | Role                                              |
 | ----------------------------------------- | ------------------------ | ------------------------------------------------- |
-| `AddNormalize::computeInterleaved2D(...)` | `addNorm.cc`             | AddNorm for 2 interleaved learners.               |
-| `AddNormalize::computeInterleaved4D(...)` | `addNorm.cc`             | AddNorm for 4 interleaved learners.               |
-| `Softmax::computeInterleaved2D(...)`      | `softmax.cc`             | Softmax for 2 interleaved learners.               |
-| `Softmax::computeInterleaved4D(...)`      | `softmax.cc`             | Softmax for 4 interleaved learners.               |
-| `matmulInterleaved2DToInt8(...)`          | `interleavedPipeline.cc` | Interleaved int8 attention matmul for 2 learners. |
-| `matmulInterleaved4DToInt8(...)`          | `interleavedPipeline.cc` | Interleaved int8 attention matmul for 4 learners. |
+| `AddNormalize::computeInterleaved2Learners(...)` | `addNorm.cc`             | AddNorm for 2 interleaved learners.               |
+| `AddNormalize::computeInterleaved4Learners(...)` | `addNorm.cc`             | AddNorm for 4 interleaved learners.               |
+| `Softmax::computeInterleaved2Learners(...)`      | `softmax.cc`             | Softmax for 2 interleaved learners.               |
+| `Softmax::computeInterleaved4Learners(...)`      | `softmax.cc`             | Softmax for 4 interleaved learners.               |
+| `matmulInterleaved2LearnersToInt8(...)`          | `interleavedPipeline.cc` | Interleaved int8 attention matmul for 2 learners. |
+| `matmulInterleaved4LearnersToInt8(...)`          | `interleavedPipeline.cc` | Interleaved int8 attention matmul for 4 learners. |
 
 ### 3.2 Layer Creation
 
@@ -855,22 +855,22 @@ The fully interleaved 2-learner or 4-learner data flow is:
 
 ```text
 for each attention head:
-    SingleHeadSelfAttn::computeInterleaved2D/4D()
+    SingleHeadSelfAttn::computeInterleaved2Learners/4D()
         -> interleaved CodebookDense Q
         -> interleaved CodebookDense K
         -> interleaved CodebookDense V
         -> interleaved Q * K^T
-        -> Softmax::computeInterleaved2D/4D()
+        -> Softmax::computeInterleaved2Learners/4D()
         -> interleaved softmax * V
-        -> copyHeadToMultiheadInterleaved2D/4D()
+        -> copyHeadToMultiheadInterleaved2Learners/4D()
 
 interleaved CodebookDense condense
-AddNormalize::computeInterleaved2D/4D()
+AddNormalize::computeInterleaved2Learners/4D()
 
 interleaved CodebookDense ff0
 interleaved CodebookDense ff1
 
-AddNormalize::computeInterleaved2D/4D()
+AddNormalize::computeInterleaved2Learners/4D()
 
 packInterleavedLearners2/4()
   -> per-learner outputs
@@ -879,13 +879,13 @@ packInterleavedLearners2/4()
 The key interleaved GEMM calls are:
 
 ```text
-CodebookDense::computeInterleaved2DToInt8()
-  -> gemm_exec_compact_int_sve_interleaved_2D_same_seq()
-      -> sve_gemm_row_compact_int8_interleaved_2D_same_seq()
+CodebookDense::computeInterleaved2LearnersToInt8()
+  -> gemm_exec_compact_int_sve_interleaved_2Learners_same_seq()
+      -> sve_gemm_row_compact_int8_interleaved_2Learners_same_seq()
 
-CodebookDense::computeInterleaved4DToInt8()
-  -> gemm_exec_compact_int_sve_interleaved_4D_same_seq()
-      -> sve_gemm_row_compact_int8_interleaved_4D_same_seq()
+CodebookDense::computeInterleaved4LearnersToInt8()
+  -> gemm_exec_compact_int_sve_interleaved_4Learners_same_seq()
+      -> sve_gemm_row_compact_int8_interleaved_4Learners_same_seq()
 ```
 
 
@@ -893,8 +893,8 @@ CodebookDense::computeInterleaved4DToInt8()
 The different-sequence interleaved path is outside the main scope of this project. In the current implementation, only the 4-learner different-sequence case has been completed:
 
 ```text
-gemm_exec_compact_int_sve_interleaved_4D_diff_seq()
-  -> sve_gemm_row_compact_int8_interleaved_4D_diff_seq()
+gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq()
+  -> sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq()
 ```
 
 This path supports learners with different packed index streams. It has been implemented and checked for functional correctness, but it was not included in the profiling experiments. Therefore, the reported performance results focus on the same-sequence shared-index implementation.
@@ -908,29 +908,29 @@ TransformerBlock::computeGroup2FullInterleaved(...)
   -> interleavePackedLearners2(...)
 
   for each head:
-      SingleHeadSelfAttn::computeInterleaved2D(...)
-          -> computeCodebookDenseInterleaved2D("q_hX", ...)
-              -> CodebookDense::computeInterleaved2DToInt8(...)
-                  -> gemm_exec_compact_int_sve_interleaved_2D_same_seq(...)
-          -> computeCodebookDenseInterleaved2D("k_hX", ...)
-          -> computeCodebookDenseInterleaved2D("v_hX", ...)
-          -> matmulInterleaved2DToInt8(...)        // Q * K
-              -> sve_gemm_dense_int8_interleaved_2D(...) when SIMD
-          -> Softmax::computeInterleaved2D(...)
+      SingleHeadSelfAttn::computeInterleaved2Learners(...)
+          -> computeCodebookDenseInterleaved2Learners("q_hX", ...)
+              -> CodebookDense::computeInterleaved2LearnersToInt8(...)
+                  -> gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(...)
+          -> computeCodebookDenseInterleaved2Learners("k_hX", ...)
+          -> computeCodebookDenseInterleaved2Learners("v_hX", ...)
+          -> matmulInterleaved2LearnersToInt8(...)        // Q * K
+              -> sve_gemm_dense_int8_interleaved_2Learners(...) when SIMD
+          -> Softmax::computeInterleaved2Learners(...)
           -> transposeInterleavedRowsToCols2(...)  // V layout for matmul
-          -> matmulInterleaved2DToInt8(...)        // softmax * V
+          -> matmulInterleaved2LearnersToInt8(...)        // softmax * V
           -> Softmax::post_softmax_interleaved2D(...)
-      -> copyHeadToMultiheadInterleaved2D(...)
+      -> copyHeadToMultiheadInterleaved2Learners(...)
 
-  -> computeCodebookDenseInterleaved2D("condense", ...)
-      -> CodebookDense::computeInterleaved2DToInt8(...)
+  -> computeCodebookDenseInterleaved2Learners("condense", ...)
+      -> CodebookDense::computeInterleaved2LearnersToInt8(...)
 
-  -> AddNormalize::computeInterleaved2D(...)
+  -> AddNormalize::computeInterleaved2Learners(...)
 
-  -> computeCodebookDenseInterleaved2D("ff0", ...)
-  -> computeCodebookDenseInterleaved2D("ff1", ...)
+  -> computeCodebookDenseInterleaved2Learners("ff0", ...)
+  -> computeCodebookDenseInterleaved2Learners("ff1", ...)
 
-  -> AddNormalize::computeInterleaved2D(...)
+  -> AddNormalize::computeInterleaved2Learners(...)
   -> packInterleavedLearners2(...)
 ```
 
@@ -1026,13 +1026,13 @@ CodebookDense kernels:
 
 ```text
 tryComputeGroupedCodebookDense2(...)
-  -> CodebookDense::computeInterleaved2DSameSeq(...)
-      -> gemm_exec_compact_int_interleaved_2D_same_seq(...)
-      -> or gemm_exec_compact_int_sve_interleaved_2D_same_seq(...)
+  -> CodebookDense::computeInterleaved2LearnersSameSeq(...)
+      -> gemm_exec_compact_int_interleaved_2Learners_same_seq(...)
+      -> or gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(...)
 
 tryComputeGroupedCodebookDense4(...)
-  -> CodebookDense::computeInterleaved4DDiffSeq(...)
-      -> gemm_exec_compact_int_interleaved_4D_same_seq(...)
+  -> CodebookDense::computeInterleaved4Learners(...)
+      -> gemm_exec_compact_int_interleaved_4Learners_same_seq(...)
       -> or SVE versions when SIMD
 ```
 
@@ -1095,11 +1095,11 @@ For the floating point implementations, it will be discussed in  Section 5. **Fl
 | ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | Main activation layout    | Separate per-learner buffers. Integer path uses packed `uint32_t` int8 values. FP32 path uses one `float` matrix per learner. | One shared `[seq or row][feature or col][learner]` buffer. Integer path uses `int8_t`; FP32 path uses `float`. |
 | When interleaving happens | Only around selected grouped CodebookDense calls, if supported. | Once at the beginning of the block, then maintained through attention, projection, AddNorm, FFN, and final output. |
-| Q/K/V projection          | May use `CodebookDense::computeInterleaved2DSameSeq` or `computeInterleaved4DDiffSeq`, then returns to per-learner packed buffers. | Uses `CodebookDense::computeInterleaved2DToInt8` or `computeInterleaved4DToInt8` in int8, or `FloatCodebookDense::computeInterleaved` in FP32. |
-| Attention QK matmul       | Per learner: `smmComputeRWMA`, `simdComputeRWMA`, or BWMA variants. | Integer: `matmulInterleaved2DToInt8` or `matmulInterleaved4DToInt8`. FP32: `matmulInterleavedTransposedRhs`. |
-| Softmax                   | Integer: `Softmax::compute` or `computeRearranged`. FP32: `FloatSoftmax::compute`. | Integer: `Softmax::computeInterleaved2D` or `computeInterleaved4D`. FP32: `FloatSoftmax::computeInterleaved`. |
-| Attention output matmul   | Per learner: `smmComputeRWMA`, `simdComputeRWMA`, or BWMA variants. | Integer: `matmulInterleaved2DToInt8` or `matmulInterleaved4DToInt8`. FP32: `matmulInterleavedRows`. |
-| AddNorm                   | Integer: `AddNormalize::compute` or `computeRearranged`. FP32: `FloatAddNormalize::compute`. | Integer: `AddNormalize::computeInterleaved2D` or `computeInterleaved4D`. FP32: `FloatAddNormalize::computeInterleaved`. |
+| Q/K/V projection          | May use `CodebookDense::computeInterleaved2LearnersSameSeq` or `computeInterleaved4Learners`, then returns to per-learner packed buffers. | Uses `CodebookDense::computeInterleaved2LearnersToInt8` or `computeInterleaved4LearnersToInt8` in int8, or `FloatCodebookDense::computeInterleaved` in FP32. |
+| Attention QK matmul       | Per learner: `smmComputeRWMA`, `simdComputeRWMA`, or BWMA variants. | Integer: `matmulInterleaved2LearnersToInt8` or `matmulInterleaved4LearnersToInt8`. FP32: `matmulInterleavedTransposedRhs`. |
+| Softmax                   | Integer: `Softmax::compute` or `computeRearranged`. FP32: `FloatSoftmax::compute`. | Integer: `Softmax::computeInterleaved2Learners` or `computeInterleaved4Learners`. FP32: `FloatSoftmax::computeInterleaved`. |
+| Attention output matmul   | Per learner: `smmComputeRWMA`, `simdComputeRWMA`, or BWMA variants. | Integer: `matmulInterleaved2LearnersToInt8` or `matmulInterleaved4LearnersToInt8`. FP32: `matmulInterleavedRows`. |
+| AddNorm                   | Integer: `AddNormalize::compute` or `computeRearranged`. FP32: `FloatAddNormalize::compute`. | Integer: `AddNormalize::computeInterleaved2Learners` or `computeInterleaved4Learners`. FP32: `FloatAddNormalize::computeInterleaved`. |
 | Projection and FFN        | May use grouped CodebookDense, but stores outputs per learner between stages. | Projection and FFN consume and produce interleaved buffers.  |
 | Final conversion          | Not needed; outputs are already per learner.                 | Integer calls `packInterleavedLearners2/4`. FP32 calls `deinterleaveLearnerMatrices`. |
 
@@ -1111,28 +1111,28 @@ by the normal grouped non-full path:
 ```text
 TransformerBlock::computeGroup2FullInterleaved
 TransformerBlock::computeGroup4FullInterleaved
-SingleHeadSelfAttn::computeInterleaved2D
-SingleHeadSelfAttn::computeInterleaved4D
-computeCodebookDenseInterleaved2D
-computeCodebookDenseInterleaved4D
-CodebookDense::computeInterleaved2DToInt8
-CodebookDense::computeInterleaved4DToInt8
+SingleHeadSelfAttn::computeInterleaved2Learners
+SingleHeadSelfAttn::computeInterleaved4Learners
+computeCodebookDenseInterleaved2Learners
+computeCodebookDenseInterleaved4Learners
+CodebookDense::computeInterleaved2LearnersToInt8
+CodebookDense::computeInterleaved4LearnersToInt8
 interleavePackedLearners2
 interleavePackedLearners4
 packInterleavedLearners2
 packInterleavedLearners4
 transposeInterleavedRowsToCols2
 transposeInterleavedRowsToCols4
-matmulInterleaved2DToInt8
-matmulInterleaved4DToInt8
-copyHeadToMultiheadInterleaved2D
-copyHeadToMultiheadInterleaved4D
-Softmax::computeInterleaved2D
-Softmax::computeInterleaved4D
+matmulInterleaved2LearnersToInt8
+matmulInterleaved4LearnersToInt8
+copyHeadToMultiheadInterleaved2Learners
+copyHeadToMultiheadInterleaved4Learners
+Softmax::computeInterleaved2Learners
+Softmax::computeInterleaved4Learners
 Softmax::post_softmax_interleaved2D
 Softmax::post_softmax_interleaved4D
-AddNormalize::computeInterleaved2D
-AddNormalize::computeInterleaved4D
+AddNormalize::computeInterleaved2Learners
+AddNormalize::computeInterleaved4Learners
 ```
 
 #### 3.4.3 Functions Used by Integer Non-Full Interleaved Mode
@@ -1151,12 +1151,12 @@ SingleHeadSelfAttn::computeGroupImpl<2>
 SingleHeadSelfAttn::computeGroupImpl<4>
 tryComputeGroupedCodebookDense2
 tryComputeGroupedCodebookDense4
-CodebookDense::computeInterleaved2DSameSeq
-CodebookDense::computeInterleaved4DDiffSeq
-gemm_exec_compact_int_interleaved_2D_same_seq
-gemm_exec_compact_int_interleaved_4D_same_seq
-gemm_exec_compact_int_sve_interleaved_2D_same_seq
-gemm_exec_compact_int_sve_interleaved_4D_same_seq
+CodebookDense::computeInterleaved2LearnersSameSeq
+CodebookDense::computeInterleaved4Learners
+gemm_exec_compact_int_interleaved_2Learners_same_seq
+gemm_exec_compact_int_interleaved_4Learners_same_seq
+gemm_exec_compact_int_sve_interleaved_2Learners_same_seq
+gemm_exec_compact_int_sve_interleaved_4Learners_same_seq
 Softmax::compute
 AddNormalize::compute
 ```
@@ -1212,8 +1212,8 @@ The GEMM code is split into two levels:
 
 | Level           | Example functions                                        | Role                                                         |
 | --------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
-| GEMM wrappers   | `gemm_exec_compact_int_sve_interleaved_2D_same_seq(...)` | Check fallback conditions, prepare temporary buffers, select tiles, and call row kernels. |
-| SVE row kernels | `sve_gemm_row_compact_int8_interleaved_2D_same_seq(...)` | Perform the actual vectorized dot-product using SVE intrinsics. |
+| GEMM wrappers   | `gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(...)` | Check fallback conditions, prepare temporary buffers, select tiles, and call row kernels. |
+| SVE row kernels | `sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(...)` | Perform the actual vectorized dot-product using SVE intrinsics. |
 
 
 
@@ -1232,12 +1232,12 @@ The GEMM code is split into two levels:
 | `gemm_exec_compact`                              | FP32 1-learner compact/codebook GEMM.                        |
 | `gemm_exec_noCB_int`                             | Integer 1-learner dense GEMM without codebook compression.   |
 | `gemm_exec_compact_int`                          | Integer 1-learner compact/codebook GEMM.                     |
-| `gemm_exec_compact_fp32_interleaved_2D_same_seq` | Scalar FP32 2-learner interleaved compact GEMM for same-sequence weights. |
-| `gemm_exec_compact_fp32_interleaved_4D_same_seq` | Scalar FP32 4-learner interleaved compact GEMM for same-sequence weights. |
-| `gemm_exec_compact_fp32_interleaved_4D_diff_seq` | Scalar FP32 4-learner interleaved compact GEMM for different per-learner index streams. (Developed but not used in this project) |
-| `gemm_exec_compact_int_interleaved_2D_same_seq`  | Scalar int8 2-learner interleaved compact GEMM for same-sequence weights. |
-| `gemm_exec_compact_int_interleaved_4D_same_seq`  | Scalar int8 4-learner interleaved compact GEMM for same-sequence weights. |
-| `gemm_exec_compact_int_interleaved_4D_diff_seq`  | Scalar int8 4-learner interleaved compact GEMM for different per-learner index streams. (Developed but not used in this project) |
+| `gemm_exec_compact_fp32_interleaved_2Learners_same_seq` | Scalar FP32 2-learner interleaved compact GEMM for same-sequence weights. |
+| `gemm_exec_compact_fp32_interleaved_4Learners_same_seq` | Scalar FP32 4-learner interleaved compact GEMM for same-sequence weights. |
+| `gemm_exec_compact_fp32_interleaved_4Learners_diff_seq` | Scalar FP32 4-learner interleaved compact GEMM for different per-learner index streams. (Developed but not used in this project) |
+| `gemm_exec_compact_int_interleaved_2Learners_same_seq`  | Scalar int8 2-learner interleaved compact GEMM for same-sequence weights. |
+| `gemm_exec_compact_int_interleaved_4Learners_same_seq`  | Scalar int8 4-learner interleaved compact GEMM for same-sequence weights. |
+| `gemm_exec_compact_int_interleaved_4Learners_diff_seq`  | Scalar int8 4-learner interleaved compact GEMM for different per-learner index streams. (Developed but not used in this project) |
 
 #### **SIMD wrapper functions:**
 
@@ -1245,23 +1245,23 @@ The GEMM code is split into two levels:
 | ---------------------------------------------------- | ------------------------------------------------------------ |
 | `gemm_exec_compact_sve`                              | SVE FP32 1-learner compact GEMM wrapper.                     |
 | `gemm_exec_compact_int_sve`                          | SVE int8 1-learner compact GEMM wrapper.                     |
-| `gemm_exec_compact_sve_fp32_interleaved_2D_same_seq` | SVE FP32 2-learner interleaved compact GEMM wrapper for same-sequence weights. |
-| `gemm_exec_compact_sve_fp32_interleaved_4D_same_seq` | SVE FP32 4-learner interleaved compact GEMM wrapper for same-sequence weights. |
-| `gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq` | SVE FP32 4-learner interleaved compact GEMM wrapper for different per-learner index streams (Developed but not used in this project). |
-| `gemm_exec_compact_int_sve_interleaved_2D_same_seq`  | SVE int8 2-learner interleaved compact GEMM wrapper for same-sequence weights. |
-| `gemm_exec_compact_int_sve_interleaved_4D_same_seq`  | SVE int8 4-learner interleaved compact GEMM wrapper for same-sequence weights. |
-| `gemm_exec_compact_int_sve_interleaved_4D_diff_seq`  | SVE int8 4-learner interleaved compact GEMM wrapper for different per-learner index streams (Developed but not used in this project). |
+| `gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq` | SVE FP32 2-learner interleaved compact GEMM wrapper for same-sequence weights. |
+| `gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq` | SVE FP32 4-learner interleaved compact GEMM wrapper for same-sequence weights. |
+| `gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq` | SVE FP32 4-learner interleaved compact GEMM wrapper for different per-learner index streams (Developed but not used in this project). |
+| `gemm_exec_compact_int_sve_interleaved_2Learners_same_seq`  | SVE int8 2-learner interleaved compact GEMM wrapper for same-sequence weights. |
+| `gemm_exec_compact_int_sve_interleaved_4Learners_same_seq`  | SVE int8 4-learner interleaved compact GEMM wrapper for same-sequence weights. |
+| `gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq`  | SVE int8 4-learner interleaved compact GEMM wrapper for different per-learner index streams (Developed but not used in this project). |
 
 
 
-##### Pseudocode: `gemm_exec_compact_int_sve_interleaved_2D_same_seq`
+##### Pseudocode: `gemm_exec_compact_int_sve_interleaved_2Learners_same_seq`
 
 This function is the SVE wrapper for int8 compact GEMM with two same-sequence interleaved learners. It first handles unsupported or degenerate cases, then prepares int32 temporary buffers, and finally dispatches the computation to the low-level SVE row kernel.
 
 In the experiments, tiling is effectively disabled by setting `TILE_SIZE` to 1.  Therefore, the current implementation can be treated as operating on the full matrix.  Completing and evaluating the tiled version is left as future work.
 
 ```text
-function gemm_exec_compact_int_sve_interleaved_2D_same_seq(...):
+function gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(...):
 
     if seq_len == 0 or output_size == 0:
         return
@@ -1308,7 +1308,7 @@ function gemm_exec_compact_int_sve_interleaved_2D_same_seq(...):
             for each packed K-word tile:
                 compute valid K tile size
 
-                call sve_gemm_row_compact_int8_interleaved_2D_same_seq(
+                call sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                     packed index tile,
                     int32 interleaved input tile,
                     int32 interleaved codebook,
@@ -1337,14 +1337,14 @@ interleaved attention kernels. Important functions:
 | --------------------------------------------------- | ------------------------------------------------------------ |
 | `sve_gemm_row_compact_int8`                         | SVE row kernel for single-learner int8 compact GEMM.         |
 | `sve_gemm_row_compact_fp32`                         | SVE row kernel for single-learner FP32 compact GEMM.         |
-| `sve_gemm_row_compact_fp32_interleaved_2D_same_seq` | SVE row kernel for FP32 2D same-sequence interleaving.       |
-| `sve_gemm_row_compact_fp32_interleaved_4D_same_seq` | SVE row kernel for FP32 4D same-sequence interleaving.       |
-| `sve_gemm_row_compact_fp32_interleaved_4D_diff_seq` | SVE row kernel for FP32 4D different-sequence interleaving. (Developed but not used in this project) |
-| `sve_gemm_row_compact_int8_interleaved_2D_same_seq` | SVE row kernel for int8 2D same-sequence interleaving.       |
-| `sve_gemm_row_compact_int8_interleaved_4D_same_seq` | SVE row kernel for int8 4D same-sequence interleaving.       |
-| `sve_gemm_row_compact_int8_interleaved_4D_diff_seq` | SVE row kernel for int8 4D different-sequence interleaving. (Developed but not used in this project) |
-| `sve_gemm_dense_int8_interleaved_2D`                | SVE dense int8 attention matmul for 2 interleaved learners.  |
-| `sve_gemm_dense_int8_interleaved_4D`                | SVE dense int8 attention matmul for 4 interleaved learners.  |
+| `sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq` | SVE row kernel for FP32 2D same-sequence interleaving.       |
+| `sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq` | SVE row kernel for FP32 4D same-sequence interleaving.       |
+| `sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq` | SVE row kernel for FP32 4D different-sequence interleaving. (Developed but not used in this project) |
+| `sve_gemm_row_compact_int8_interleaved_2Learners_same_seq` | SVE row kernel for int8 2D same-sequence interleaving.       |
+| `sve_gemm_row_compact_int8_interleaved_4Learners_same_seq` | SVE row kernel for int8 4D same-sequence interleaving.       |
+| `sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq` | SVE row kernel for int8 4D different-sequence interleaving. (Developed but not used in this project) |
+| `sve_gemm_dense_int8_interleaved_2Learners`                | SVE dense int8 attention matmul for 2 interleaved learners.  |
+| `sve_gemm_dense_int8_interleaved_4Learners`                | SVE dense int8 attention matmul for 4 interleaved learners.  |
 
 
 #### Row-kernel execution idea
@@ -1355,7 +1355,7 @@ weight row is not stored as explicit weights. Instead, it is stored as packed
 codebook indices.
 
 For example, in the 2-learner same-sequence interleaved int8 kernel
-`sve_gemm_row_compact_int8_interleaved_2D_same_seq`, the packed index row is
+`sve_gemm_row_compact_int8_interleaved_2Learners_same_seq`, the packed index row is
 shared by both learners. The kernel repeatedly unpacks indices, looks up the
 corresponding codebook values for learner 0 and learner 1, multiplies them with
 the interleaved input activations, accumulates partial sums, and writes two
@@ -1363,7 +1363,7 @@ interleaved output values.
 
 So, the figure below also shows this: a row-kernel produce one interleaved output column (two red columns at the output).
 
-##### Pseudocode: `sve_gemm_row_compact_int8_interleaved_2D_same_seq`
+##### Pseudocode: `sve_gemm_row_compact_int8_interleaved_2Learners_same_seq`
 
 ```text
 for each sequence row in the sequence tile:
@@ -1438,10 +1438,10 @@ These operations are different from codebooked GEMM layers. The matrices `Q`, `K
 
 | Function                                  | File                                        | Role                                                         |
 | ----------------------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| `matmulInterleaved2DToInt8(...)`          | `transformer_layers/interleavedPipeline.cc` | Interleaved int8 runtime attention matmul for 2 learners. Used for both `Q * K^T` and `softmax * V` in the 2-learner fully interleaved path. |
-| `matmulInterleaved4DToInt8(...)`          | `transformer_layers/interleavedPipeline.cc` | Interleaved int8 runtime attention matmul for 4 learners. Used for both `Q * K^T` and `softmax * V` in the 4-learner fully interleaved path. |
-| `sve_gemm_dense_int8_interleaved_2D(...)` | `Full_NN/src/gemm_SVE.c`                    | Low-level SVE dense int8 kernel called by `matmulInterleaved2DToInt8(...)` when SIMD is enabled. |
-| `sve_gemm_dense_int8_interleaved_4D(...)` | `Full_NN/src/gemm_SVE.c`                    | Low-level SVE dense int8 kernel called by `matmulInterleaved4DToInt8(...)` when SIMD is enabled. |
+| `matmulInterleaved2LearnersToInt8(...)`          | `transformer_layers/interleavedPipeline.cc` | Interleaved int8 runtime attention matmul for 2 learners. Used for both `Q * K^T` and `softmax * V` in the 2-learner fully interleaved path. |
+| `matmulInterleaved4LearnersToInt8(...)`          | `transformer_layers/interleavedPipeline.cc` | Interleaved int8 runtime attention matmul for 4 learners. Used for both `Q * K^T` and `softmax * V` in the 4-learner fully interleaved path. |
+| `sve_gemm_dense_int8_interleaved_2Learners(...)` | `Full_NN/src/gemm_SVE.c`                    | Low-level SVE dense int8 kernel called by `matmulInterleaved2LearnersToInt8(...)` when SIMD is enabled. |
+| `sve_gemm_dense_int8_interleaved_4Learners(...)` | `Full_NN/src/gemm_SVE.c`                    | Low-level SVE dense int8 kernel called by `matmulInterleaved4LearnersToInt8(...)` when SIMD is enabled. |
 
 The interleaved attention layout is:
 
@@ -1456,22 +1456,22 @@ multiple learners together during the attention GEMM.
 In the fully interleaved path, these functions are used inside:
 
 ```text
-SingleHeadSelfAttn::computeInterleaved2D(...)
-SingleHeadSelfAttn::computeInterleaved4D(...)
+SingleHeadSelfAttn::computeInterleaved2Learners(...)
+SingleHeadSelfAttn::computeInterleaved4Learners(...)
 ```
 
 The simplified call flow is:
 
 ```text
-SingleHeadSelfAttn::computeInterleaved2D/4D(...)
+SingleHeadSelfAttn::computeInterleaved2Learners/4D(...)
   -> compute interleaved Q, K, V using CodebookDense
-  -> matmulInterleaved2DToInt8(...) or matmulInterleaved4DToInt8(...)
+  -> matmulInterleaved2LearnersToInt8(...) or matmulInterleaved4LearnersToInt8(...)
        -> Q * K^T
-       -> sve_gemm_dense_int8_interleaved_2D/4D(...) when SIMD
-  -> Softmax::computeInterleaved2D/4D(...)
-  -> matmulInterleaved2DToInt8(...) or matmulInterleaved4DToInt8(...)
+       -> sve_gemm_dense_int8_interleaved_2Learners/4D(...) when SIMD
+  -> Softmax::computeInterleaved2Learners/4D(...)
+  -> matmulInterleaved2LearnersToInt8(...) or matmulInterleaved4LearnersToInt8(...)
        -> softmax * V
-       -> sve_gemm_dense_int8_interleaved_2D/4D(...) when SIMD
+       -> sve_gemm_dense_int8_interleaved_2Learners/4D(...) when SIMD
 ```
 
 
@@ -1654,7 +1654,7 @@ separate learner FP32 inputs
   -> interleaveLearnerMatrices()
 
 for each attention head:
-    FloatSingleHeadSelfAttn::computeInterleaved2D/4D()
+    FloatSingleHeadSelfAttn::computeInterleaved2Learners/4D()
         -> interleaved FloatCodebookDense Q
         -> interleaved FloatCodebookDense K
         -> interleaved FloatCodebookDense V
@@ -1679,13 +1679,13 @@ The FP32 interleaved codebook GEMM calls are:
 
 ```text
 FloatCodebookDense::computeInterleaved()
-  -> gemm_exec_compact_sve_fp32_interleaved_2D_same_seq()
+  -> gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq()
 
 FloatCodebookDense::computeInterleaved()
-  -> gemm_exec_compact_sve_fp32_interleaved_4D_same_seq()
+  -> gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq()
 
 FloatCodebookDense::computeInterleaved()
-  -> gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq()
+  -> gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq()
 ```
 
 
@@ -1698,11 +1698,11 @@ FloatTransformerBlock::computeGroup2/4(...)
       -> interleaveLearnerMatrices(...)
 
       for each head:
-          FloatSingleHeadSelfAttn::computeInterleaved2D/4D(...)
+          FloatSingleHeadSelfAttn::computeInterleaved2Learners/4D(...)
               -> FloatCodebookDense::computeInterleaved(...) for Q
-                  -> gemm_exec_compact_fp32_interleaved_2D_same_seq(...)
-                  -> or gemm_exec_compact_fp32_interleaved_4D_same_seq(...)
-                  -> or gemm_exec_compact_fp32_interleaved_4D_diff_seq(...)
+                  -> gemm_exec_compact_fp32_interleaved_2Learners_same_seq(...)
+                  -> or gemm_exec_compact_fp32_interleaved_4Learners_same_seq(...)
+                  -> or gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(...)
                   -> SVE versions when SIMD
               -> FloatCodebookDense::computeInterleaved(...) for K
               -> FloatCodebookDense::computeInterleaved(...) for V
@@ -1745,13 +1745,13 @@ FloatTransformerBlock::computeGroup2
 FloatTransformerBlock::computeGroup4
 FloatTransformerBlock::computeFullInterleavedBlock<2>
 FloatTransformerBlock::computeFullInterleavedBlock<4>
-FloatSingleHeadSelfAttn::computeInterleaved2D
-FloatSingleHeadSelfAttn::computeInterleaved4D
+FloatSingleHeadSelfAttn::computeInterleaved2Learners
+FloatSingleHeadSelfAttn::computeInterleaved4Learners
 FloatCodebookDense::computeInterleaved
-gemm_exec_compact_fp32_interleaved_2D_same_seq
-gemm_exec_compact_fp32_interleaved_4D_same_seq
-gemm_exec_compact_sve_fp32_interleaved_2D_same_seq
-gemm_exec_compact_sve_fp32_interleaved_4D_same_seq
+gemm_exec_compact_fp32_interleaved_2Learners_same_seq
+gemm_exec_compact_fp32_interleaved_4Learners_same_seq
+gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq
+gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq
 FloatSoftmax::computeInterleaved
 FloatAddNormalize::computeInterleaved
 interleaveLearnerMatrices

@@ -229,14 +229,14 @@ void FloatCodebookDense::computeInterleaved(std::size_t learner_count,
     if (learner_count == 2u) {
         if (!view.same_seq) {
             throw std::runtime_error(
-                "FP32 2D interleaved path currently requires SAME_SEQ: " + layer_name_);
+                "FP32 2-learner interleaved path currently requires SAME_SEQ: " + layer_name_);
         }
 #ifdef SIMD
-        gemm_exec_compact_sve_fp32_interleaved_2D_same_seq(
+        gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(
             layer, input_interleaved, view.weight_idx, codebook_interleaved,
             bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #else
-        gemm_exec_compact_fp32_interleaved_2D_same_seq(
+        gemm_exec_compact_fp32_interleaved_2Learners_same_seq(
             layer, input_interleaved, view.weight_idx, codebook_interleaved,
             bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #endif
@@ -248,11 +248,11 @@ void FloatCodebookDense::computeInterleaved(std::size_t learner_count,
     if (learner_count == 4u) {
         if (view.same_seq) {
 #ifdef SIMD
-            gemm_exec_compact_sve_fp32_interleaved_4D_same_seq(
+            gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(
                 layer, input_interleaved, view.weight_idx, codebook_interleaved,
                 bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #else
-            gemm_exec_compact_fp32_interleaved_4D_same_seq(
+            gemm_exec_compact_fp32_interleaved_4Learners_same_seq(
                 layer, input_interleaved, view.weight_idx, codebook_interleaved,
                 bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #endif
@@ -266,11 +266,11 @@ void FloatCodebookDense::computeInterleaved(std::size_t learner_count,
                 "FP32 4D diff-seq path is missing interleaved indexes: " + layer_name_);
         }
 #ifdef SIMD
-        gemm_exec_compact_sve_fp32_interleaved_4D_diff_seq(
+        gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(
             layer, input_interleaved, weight_idx_interleaved, codebook_interleaved,
             bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #else
-        gemm_exec_compact_fp32_interleaved_4D_diff_seq(
+        gemm_exec_compact_fp32_interleaved_4Learners_diff_seq(
             layer, input_interleaved, weight_idx_interleaved, codebook_interleaved,
             bias_interleaved, output_interleaved.data(), view.bits_per_cb);
 #endif

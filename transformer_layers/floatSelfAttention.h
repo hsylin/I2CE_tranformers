@@ -29,11 +29,11 @@ public:
                               const float* const inputs[4],
                               Matrix outputs[4]);
 
-    static void computeInterleaved2D(std::size_t seq_len,
+    static void computeInterleaved2Learners(std::size_t seq_len,
                                      FloatSingleHeadSelfAttn* heads[2],
                                      const float* input_interleaved,
                                      Matrix& output_interleaved);
-    static void computeInterleaved4D(std::size_t seq_len,
+    static void computeInterleaved4Learners(std::size_t seq_len,
                                      FloatSingleHeadSelfAttn* heads[4],
                                      const float* input_interleaved,
                                      Matrix& output_interleaved);
