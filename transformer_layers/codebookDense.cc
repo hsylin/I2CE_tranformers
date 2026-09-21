@@ -863,7 +863,7 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
         activation_workspace.resize(activation_workspace_needed);
     }
     if (same_seq_) {
-        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
+        gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
             layer,
             input_interleaved,
             weight_idx_,
