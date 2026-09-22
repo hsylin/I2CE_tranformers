@@ -1931,7 +1931,15 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
      * int32 panel stays within an ~16 KB L1 budget, rounded down to a whole
      * number of packed index words.
      */
-    const uint32_t MR = 2u;
+    /*
+     * Register budget: each learner codebook spans nreg = ceil(codebook_size /
+     * vl) SVE registers, so the four codebooks pin 4 * nreg of the 32 vector
+     * registers while the tile needs 4 * MR accumulators plus the working
+     * registers of the decode and the panel loads. Only nreg == 1 leaves room
+     * for a four-row tile; wider codebooks keep the two-row tile.
+     */
+    const uint32_t nreg = (codebook_size + vl - 1u) / vl;
+    const uint32_t MR = (nreg <= 1u) ? 4u : 2u;
     const uint32_t ipw = 32u / bits_per_cb;
     uint32_t kc = (16u * 1024u) / (MR * 4u * (uint32_t)sizeof(int32_t)); /* elems/row */
     kc = (kc / ipw) * ipw;
@@ -1940,6 +1948,15 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_tiled_ex(
     }
     {
         const uint32_t k_padded = ((gemm_layer.input_size + ipw - 1u) / ipw) * ipw;
+        /*
+         * Rounding down to whole packed words can leave a short trailing K
+         * block whose only cost is another accumulate pass over the output.
+         * When one more word covers the whole reduction, take it: the panel
+         * grows by at most one word per row and the K loop stays single-pass.
+         */
+        if ((kc < k_padded) && (k_padded <= kc + ipw)) {
+            kc = k_padded;
+        }
         if (kc > k_padded) {
             kc = k_padded;
         }
