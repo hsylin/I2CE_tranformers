@@ -2126,61 +2126,112 @@ sve_gemm_tile_body_4Learners_same_seq(
 }
 
 /*
- * Dispatch one (NREG, MR) instantiation of the body. mr == 3 is served as a
- * two-row tile followed by a one-row tile, so MR only ever takes the values
- * 1, 2 and 4 and no instantiation computes fewer rows than requested.
+ * One non-inlined entry point per (NREG, MR) combination.
+ *
+ * Each entry loads the codebook slices it needs and then runs the body, which
+ * inlines into it with NREG and MR as constants. Keeping the entries separate
+ * (rather than inlining every combination into the dispatcher) is what keeps
+ * the codebook tuples' live ranges short: inlined together, they stay live
+ * across the whole dispatch region and the allocator spills them.
  */
-#define I2CE_TILE_DISPATCH(cb0_, cb1_, cb2_, cb3_, nreg_)                      \
-    do {                                                                       \
-        if (mr >= 4u) {                                                        \
-            sve_gemm_tile_body_4Learners_same_seq(                             \
-                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
-                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
-                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
-                accumulate, bits_per_cb, vl, (nreg_), 4u);                     \
-        } else if (mr == 3u) {                                                 \
-            sve_gemm_tile_body_4Learners_same_seq(                             \
-                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
-                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
-                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
-                accumulate, bits_per_cb, vl, (nreg_), 2u);                     \
-            sve_gemm_tile_body_4Learners_same_seq(                             \
-                packed_row, k_elems,                                           \
-                panel_interleaved + (size_t)2u * panel_row_stride,             \
-                panel_row_stride, (cb0_), (cb1_), (cb2_), (cb3_),              \
-                out_interleaved, out_row0 + 2u, out_col, ld_out_interleaved,   \
-                bias_interleaved, add_bias, accumulate, bits_per_cb, vl,       \
-                (nreg_), 1u);                                                  \
-        } else if (mr == 2u) {                                                 \
-            sve_gemm_tile_body_4Learners_same_seq(                             \
-                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
-                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
-                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
-                accumulate, bits_per_cb, vl, (nreg_), 2u);                     \
-        } else {                                                               \
-            sve_gemm_tile_body_4Learners_same_seq(                             \
-                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
-                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
-                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
-                accumulate, bits_per_cb, vl, (nreg_), 1u);                     \
-        }                                                                      \
-    } while (0)
+#define I2CE_TILE_PARAMS                                                       \
+    const uint32_t *packed_row, uint32_t k_elems,                              \
+    const int32_t *panel_interleaved, uint32_t panel_row_stride,               \
+    const int32_t *cb, uint32_t codebook_size,                                 \
+    int32_t *out_interleaved, uint32_t out_row0, uint32_t out_col,             \
+    uint32_t ld_out_interleaved, const int32_t *bias_interleaved,              \
+    int add_bias, int accumulate, uint8_t bits_per_cb, uint32_t vl
+
+#define I2CE_TILE_RUN(s0_, s1_, s2_, s3_, nreg_, mr_)                          \
+    sve_gemm_tile_body_4Learners_same_seq(                                     \
+        packed_row, k_elems, panel_interleaved, panel_row_stride,              \
+        (s0_), (s1_), (s2_), (s3_), out_interleaved, out_row0, out_col,        \
+        ld_out_interleaved, bias_interleaved, add_bias, accumulate,            \
+        bits_per_cb, vl, (nreg_), (mr_))
+
+#define I2CE_TILE_BODY_N1(mr_)                                                 \
+    const svint32x4_t s0 = svld4_s32(svwhilelt_b32_u32(0u, codebook_size), cb); \
+    I2CE_TILE_RUN(s0, s0, s0, s0, 1u, (mr_))
+
+#define I2CE_TILE_BODY_N2(mr_)                                                 \
+    const svint32x4_t s0 = svld4_s32(svwhilelt_b32_u32(0u, codebook_size), cb); \
+    const svint32x4_t s1 = svld4_s32(svwhilelt_b32_u32(vl, codebook_size),     \
+                                     cb + (size_t)vl * 4u);                    \
+    I2CE_TILE_RUN(s0, s1, s1, s1, 2u, (mr_))
+
+#define I2CE_TILE_BODY_N4(mr_)                                                 \
+    const svint32x4_t s0 = svld4_s32(svwhilelt_b32_u32(0u, codebook_size), cb); \
+    const svint32x4_t s1 = svld4_s32(svwhilelt_b32_u32(vl, codebook_size),     \
+                                     cb + (size_t)vl * 4u);                    \
+    const svint32x4_t s2 = svld4_s32(svwhilelt_b32_u32(2u * vl, codebook_size),\
+                                     cb + (size_t)2u * vl * 4u);               \
+    const svint32x4_t s3 = svld4_s32(svwhilelt_b32_u32(3u * vl, codebook_size),\
+                                     cb + (size_t)3u * vl * 4u);               \
+    I2CE_TILE_RUN(s0, s1, s2, s3, 4u, (mr_))
+
+static void __attribute__((noinline))
+i2ce_tile_n1_m1(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N1(1u); }
+static void __attribute__((noinline))
+i2ce_tile_n1_m2(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N1(2u); }
+static void __attribute__((noinline))
+i2ce_tile_n1_m4(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N1(4u); }
+static void __attribute__((noinline))
+i2ce_tile_n2_m1(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N2(1u); }
+static void __attribute__((noinline))
+i2ce_tile_n2_m2(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N2(2u); }
+static void __attribute__((noinline))
+i2ce_tile_n2_m4(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N2(4u); }
+static void __attribute__((noinline))
+i2ce_tile_n4_m1(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N4(1u); }
+static void __attribute__((noinline))
+i2ce_tile_n4_m2(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N4(2u); }
+static void __attribute__((noinline))
+i2ce_tile_n4_m4(I2CE_TILE_PARAMS) { I2CE_TILE_BODY_N4(4u); }
 
 /*
  * Tiled row micro-kernel for the four-learner shared-index compact GEMM.
  *
- * Computes up to MR (1 to 4) sequence rows for one output column. The packed
- * index decode and the four learner codebook lookups are performed ONCE per
- * group of K elements and reused across the MR rows (the shared-index reuse
- * that motivates the register tile). Activations are read from a pre-widened
- * int32 panel laid out as [row][k][4 learners]; results are written to the
+ * Computes up to four sequence rows for one output column. The packed index
+ * decode and the four learner codebook lookups are performed ONCE per group of
+ * K elements and reused across those rows (the shared-index reuse that
+ * motivates the register tile). Activations are read from a pre-widened int32
+ * panel laid out as [row][k][4 learners]; results are written to the
  * interleaved int32 output as [seq][out][4 learners].
  *
  * The codebook must fit in up to four SVE registers per learner
  * (codebook_size <= 4 * svcntw()); the driver guarantees this and otherwise
  * dispatches to the scalar path. Because both codebook_size and the vector
  * length are powers of two, ceil(codebook_size / vl) is 1, 2 or 4.
+ *
+ * The dispatch below is a switch of direct calls rather than a table of
+ * function pointers: this kernel is called once per output feature, and an
+ * indirect branch that often costs a pipeline flush on an in-order core is not
+ * worth the shorter source.
+ *
+ * mr == 3 is served as a two-row tile followed by a one-row tile, so no entry
+ * point ever computes fewer rows than requested.
  */
+#define I2CE_TILE_CALL(fn_, panel_, row_)                                      \
+    fn_((packed_row), (k_elems), (panel_), (panel_row_stride),                 \
+        (codebook_i32_interleaved), (codebook_size), (out_interleaved),        \
+        (row_), (out_col), (ld_out_interleaved), (bias_interleaved),           \
+        (add_bias), (accumulate), (bits_per_cb), (vl))
+
+#define I2CE_TILE_SWITCH(panel_, row_, mrsel_)                                 \
+    do {                                                                       \
+        switch ((nreg_sel) * 3u + (mrsel_)) {                                  \
+        case 0u: I2CE_TILE_CALL(i2ce_tile_n1_m1, (panel_), (row_)); break;     \
+        case 1u: I2CE_TILE_CALL(i2ce_tile_n1_m2, (panel_), (row_)); break;     \
+        case 2u: I2CE_TILE_CALL(i2ce_tile_n1_m4, (panel_), (row_)); break;     \
+        case 3u: I2CE_TILE_CALL(i2ce_tile_n2_m1, (panel_), (row_)); break;     \
+        case 4u: I2CE_TILE_CALL(i2ce_tile_n2_m2, (panel_), (row_)); break;     \
+        case 5u: I2CE_TILE_CALL(i2ce_tile_n2_m4, (panel_), (row_)); break;     \
+        case 6u: I2CE_TILE_CALL(i2ce_tile_n4_m1, (panel_), (row_)); break;     \
+        case 7u: I2CE_TILE_CALL(i2ce_tile_n4_m2, (panel_), (row_)); break;     \
+        default: I2CE_TILE_CALL(i2ce_tile_n4_m4, (panel_), (row_)); break;     \
+        }                                                                      \
+    } while (0)
+
 void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
@@ -2226,34 +2277,25 @@ void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
     }
 
     const uint32_t nreg = (codebook_size + vl - 1u) / vl; /* 1, 2 or 4 */
+    const uint32_t nreg_sel = (nreg <= 1u) ? 0u : ((nreg <= 2u) ? 1u : 2u);
 
-    /*
-     * Load only the codebook slices this (codebook_size, vl) pair needs.
-     * svld4_s32 de-interleaves [cb_index][learner] groups; a partial predicate
-     * zero-fills lanes past codebook_size and never accesses inactive lanes.
-     * Unused slots below reuse an already-live tuple, so they cost no register.
-     */
-    const svint32x4_t s0 = svld4_s32(svwhilelt_b32_u32(0u, codebook_size),
-                                     codebook_i32_interleaved);
-    if (nreg <= 1u) {
-        I2CE_TILE_DISPATCH(s0, s0, s0, s0, 1u);
+    if (mr == 3u) {
+        I2CE_TILE_SWITCH(panel_interleaved, out_row0, 1u);
+        I2CE_TILE_SWITCH(panel_interleaved + (size_t)2u * panel_row_stride,
+                         out_row0 + 2u, 0u);
         return;
     }
 
-    const svint32x4_t s1 = svld4_s32(svwhilelt_b32_u32(vl, codebook_size),
-                                     codebook_i32_interleaved + (size_t)vl * 4u);
-    if (nreg <= 2u) {
-        I2CE_TILE_DISPATCH(s0, s1, s1, s1, 2u);
-        return;
-    }
-
-    const svint32x4_t s2 = svld4_s32(svwhilelt_b32_u32(2u * vl, codebook_size),
-                                     codebook_i32_interleaved + (size_t)2u * vl * 4u);
-    const svint32x4_t s3 = svld4_s32(svwhilelt_b32_u32(3u * vl, codebook_size),
-                                     codebook_i32_interleaved + (size_t)3u * vl * 4u);
-    I2CE_TILE_DISPATCH(s0, s1, s2, s3, 4u);
+    I2CE_TILE_SWITCH(panel_interleaved, out_row0,
+                     (mr >= 4u) ? 2u : ((mr == 2u) ? 1u : 0u));
 }
 
-#undef I2CE_TILE_DISPATCH
+#undef I2CE_TILE_SWITCH
+#undef I2CE_TILE_CALL
+#undef I2CE_TILE_BODY_N4
+#undef I2CE_TILE_BODY_N2
+#undef I2CE_TILE_BODY_N1
+#undef I2CE_TILE_RUN
+#undef I2CE_TILE_PARAMS
 
 #endif /* SIMD */
