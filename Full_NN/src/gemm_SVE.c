@@ -1966,31 +1966,210 @@ void sve_gemm_dense_int8_interleaved_2Learners(
 #ifdef SIMD
 
 /*
- * Look one shared index vector up in a learner codebook that may span up to
- * four SVE registers. svtbl_s32 returns 0 for out-of-range indices, so summing
- * svtbl over the register slices (each rebased by one vector length) yields
- * codebook[idx] without any compare/select. nreg is ceil(codebook_size / vl).
+ * Horizontal reduction and store for one sequence row of the register tile.
  */
-static inline svint32_t sve_cb_lookup_tile_s32(svint32x4_t cb, uint32_t nreg,
-                                               svbool_t pt, svuint32_t idx,
-                                               uint32_t vl) {
-    svint32_t w = svtbl_s32(svget4_s32(cb, 0), idx);
-    if (nreg > 1u) {
-        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 1), svsub_n_u32_x(pt, idx, vl)));
+static inline __attribute__((always_inline)) void
+sve_gemm_tile_store_row_4Learners(svint32_t v0, svint32_t v1, svint32_t v2,
+                                  svint32_t v3, int32_t *out_interleaved,
+                                  uint32_t out_row, uint32_t out_col,
+                                  uint32_t ld_out_interleaved,
+                                  const int32_t *bias_interleaved,
+                                  int add_bias, int accumulate) {
+    const svbool_t pt = svptrue_b32();
+    const int32_t acc[4] = {(int32_t)svaddv_s32(pt, v0), (int32_t)svaddv_s32(pt, v1),
+                            (int32_t)svaddv_s32(pt, v2), (int32_t)svaddv_s32(pt, v3)};
+    int32_t *slot = &out_interleaved[(size_t)out_row * ld_out_interleaved +
+                                     (size_t)out_col * 4u];
+    for (uint32_t l = 0; l < 4u; l++) {
+        int32_t v = acc[l];
+        if (add_bias && bias_interleaved) {
+            v += bias_interleaved[l];
+        }
+        if (accumulate) {
+            slot[l] += v;
+        } else {
+            slot[l] = v;
+        }
     }
-    if (nreg > 2u) {
-        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 2), svsub_n_u32_x(pt, idx, 2u * vl)));
-    }
-    if (nreg > 3u) {
-        w = svadd_s32_x(pt, w, svtbl_s32(svget4_s32(cb, 3), svsub_n_u32_x(pt, idx, 3u * vl)));
-    }
-    return w;
 }
+
+/*
+ * Inner body of the tiled row micro-kernel.
+ *
+ * NREG (SVE registers spanned by one learner codebook) and MR (rows in the
+ * register tile) arrive as compile-time constants from the dispatcher below,
+ * so each instantiation keeps live only the codebook slices and accumulators
+ * it actually uses, and the per-chunk row test is folded away. The codebook is
+ * consumed in the [slice][learner] order svld4_s32 produces; regrouping it
+ * into per-learner tuples would pin four more register quadruples and force
+ * tuple-register moves.
+ *
+ * cb0..cb3 hold codebook slices 0..NREG-1; slots at or above NREG are never
+ * read and the dispatcher passes an already-live tuple for them.
+ */
+static inline __attribute__((always_inline)) void
+sve_gemm_tile_body_4Learners_same_seq(
+    const uint32_t *packed_row, uint32_t k_elems,
+    const int32_t *panel_interleaved, uint32_t panel_row_stride,
+    svint32x4_t cb0, svint32x4_t cb1, svint32x4_t cb2, svint32x4_t cb3,
+    int32_t *out_interleaved, uint32_t out_row0, uint32_t out_col,
+    uint32_t ld_out_interleaved, const int32_t *bias_interleaved,
+    int add_bias, int accumulate, uint8_t bits_per_cb, uint32_t vl,
+    const uint32_t NREG, const uint32_t MR) {
+    const svbool_t pt = svptrue_b32();
+    const uint32_t ipw = 32u / bits_per_cb;
+    const uint32_t mask = (1u << bits_per_cb) - 1u;
+
+    const int32_t *const p0 = panel_interleaved;
+    const int32_t *const p1 = panel_interleaved + (size_t)panel_row_stride;
+    const int32_t *const p2 = panel_interleaved + (size_t)2u * panel_row_stride;
+    const int32_t *const p3 = panel_interleaved + (size_t)3u * panel_row_stride;
+
+    svint32_t a0 = svdup_n_s32(0), a1 = svdup_n_s32(0);
+    svint32_t a2 = svdup_n_s32(0), a3 = svdup_n_s32(0);
+    svint32_t b0 = svdup_n_s32(0), b1 = svdup_n_s32(0);
+    svint32_t b2 = svdup_n_s32(0), b3 = svdup_n_s32(0);
+    svint32_t c0 = svdup_n_s32(0), c1 = svdup_n_s32(0);
+    svint32_t c2 = svdup_n_s32(0), c3 = svdup_n_s32(0);
+    svint32_t d0 = svdup_n_s32(0), d1 = svdup_n_s32(0);
+    svint32_t d2 = svdup_n_s32(0), d3 = svdup_n_s32(0);
+
+    uint32_t k = 0;
+    for (uint32_t w = 0; k < k_elems; w++) {
+        const svuint32_t pw = svdup_n_u32(packed_row[w]);
+        for (uint32_t t = 0; (t < ipw) && (k < k_elems); t += vl) {
+            uint32_t act = ipw - t;
+            if (act > vl) {
+                act = vl;
+            }
+            if (act > k_elems - k) {
+                act = k_elems - k;
+            }
+            const svbool_t pg = svwhilelt_b32_u32(0u, act);
+            const svuint32_t idx =
+                svand_n_u32_x(pt, svlsr_u32_x(pt, pw, svindex_u32(t * bits_per_cb, bits_per_cb)), mask);
+
+            /* Shared decode drives all four learner lookups. */
+            svint32_t w0 = svtbl_s32(svget4_s32(cb0, 0), idx);
+            svint32_t w1 = svtbl_s32(svget4_s32(cb0, 1), idx);
+            svint32_t w2 = svtbl_s32(svget4_s32(cb0, 2), idx);
+            svint32_t w3 = svtbl_s32(svget4_s32(cb0, 3), idx);
+            if (NREG >= 2u) {
+                const svuint32_t i1 = svsub_n_u32_x(pt, idx, vl);
+                w0 = svadd_s32_x(pt, w0, svtbl_s32(svget4_s32(cb1, 0), i1));
+                w1 = svadd_s32_x(pt, w1, svtbl_s32(svget4_s32(cb1, 1), i1));
+                w2 = svadd_s32_x(pt, w2, svtbl_s32(svget4_s32(cb1, 2), i1));
+                w3 = svadd_s32_x(pt, w3, svtbl_s32(svget4_s32(cb1, 3), i1));
+            }
+            if (NREG >= 4u) {
+                const svuint32_t i2 = svsub_n_u32_x(pt, idx, 2u * vl);
+                w0 = svadd_s32_x(pt, w0, svtbl_s32(svget4_s32(cb2, 0), i2));
+                w1 = svadd_s32_x(pt, w1, svtbl_s32(svget4_s32(cb2, 1), i2));
+                w2 = svadd_s32_x(pt, w2, svtbl_s32(svget4_s32(cb2, 2), i2));
+                w3 = svadd_s32_x(pt, w3, svtbl_s32(svget4_s32(cb2, 3), i2));
+                const svuint32_t i3 = svsub_n_u32_x(pt, idx, 3u * vl);
+                w0 = svadd_s32_x(pt, w0, svtbl_s32(svget4_s32(cb3, 0), i3));
+                w1 = svadd_s32_x(pt, w1, svtbl_s32(svget4_s32(cb3, 1), i3));
+                w2 = svadd_s32_x(pt, w2, svtbl_s32(svget4_s32(cb3, 2), i3));
+                w3 = svadd_s32_x(pt, w3, svtbl_s32(svget4_s32(cb3, 3), i3));
+            }
+
+            const svint32x4_t x0 = svld4_s32(pg, p0 + (size_t)k * 4u);
+            a0 = svmla_s32_m(pg, a0, svget4_s32(x0, 0), w0);
+            a1 = svmla_s32_m(pg, a1, svget4_s32(x0, 1), w1);
+            a2 = svmla_s32_m(pg, a2, svget4_s32(x0, 2), w2);
+            a3 = svmla_s32_m(pg, a3, svget4_s32(x0, 3), w3);
+
+            if (MR >= 2u) {
+                const svint32x4_t x1 = svld4_s32(pg, p1 + (size_t)k * 4u);
+                b0 = svmla_s32_m(pg, b0, svget4_s32(x1, 0), w0);
+                b1 = svmla_s32_m(pg, b1, svget4_s32(x1, 1), w1);
+                b2 = svmla_s32_m(pg, b2, svget4_s32(x1, 2), w2);
+                b3 = svmla_s32_m(pg, b3, svget4_s32(x1, 3), w3);
+            }
+            if (MR >= 4u) {
+                const svint32x4_t x2 = svld4_s32(pg, p2 + (size_t)k * 4u);
+                c0 = svmla_s32_m(pg, c0, svget4_s32(x2, 0), w0);
+                c1 = svmla_s32_m(pg, c1, svget4_s32(x2, 1), w1);
+                c2 = svmla_s32_m(pg, c2, svget4_s32(x2, 2), w2);
+                c3 = svmla_s32_m(pg, c3, svget4_s32(x2, 3), w3);
+                const svint32x4_t x3 = svld4_s32(pg, p3 + (size_t)k * 4u);
+                d0 = svmla_s32_m(pg, d0, svget4_s32(x3, 0), w0);
+                d1 = svmla_s32_m(pg, d1, svget4_s32(x3, 1), w1);
+                d2 = svmla_s32_m(pg, d2, svget4_s32(x3, 2), w2);
+                d3 = svmla_s32_m(pg, d3, svget4_s32(x3, 3), w3);
+            }
+
+            k += act;
+        }
+    }
+
+    sve_gemm_tile_store_row_4Learners(a0, a1, a2, a3, out_interleaved, out_row0,
+                                      out_col, ld_out_interleaved,
+                                      bias_interleaved, add_bias, accumulate);
+    if (MR >= 2u) {
+        sve_gemm_tile_store_row_4Learners(b0, b1, b2, b3, out_interleaved,
+                                          out_row0 + 1u, out_col,
+                                          ld_out_interleaved, bias_interleaved,
+                                          add_bias, accumulate);
+    }
+    if (MR >= 4u) {
+        sve_gemm_tile_store_row_4Learners(c0, c1, c2, c3, out_interleaved,
+                                          out_row0 + 2u, out_col,
+                                          ld_out_interleaved, bias_interleaved,
+                                          add_bias, accumulate);
+        sve_gemm_tile_store_row_4Learners(d0, d1, d2, d3, out_interleaved,
+                                          out_row0 + 3u, out_col,
+                                          ld_out_interleaved, bias_interleaved,
+                                          add_bias, accumulate);
+    }
+}
+
+/*
+ * Dispatch one (NREG, MR) instantiation of the body. mr == 3 is served as a
+ * two-row tile followed by a one-row tile, so MR only ever takes the values
+ * 1, 2 and 4 and no instantiation computes fewer rows than requested.
+ */
+#define I2CE_TILE_DISPATCH(cb0_, cb1_, cb2_, cb3_, nreg_)                      \
+    do {                                                                       \
+        if (mr >= 4u) {                                                        \
+            sve_gemm_tile_body_4Learners_same_seq(                             \
+                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
+                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
+                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
+                accumulate, bits_per_cb, vl, (nreg_), 4u);                     \
+        } else if (mr == 3u) {                                                 \
+            sve_gemm_tile_body_4Learners_same_seq(                             \
+                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
+                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
+                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
+                accumulate, bits_per_cb, vl, (nreg_), 2u);                     \
+            sve_gemm_tile_body_4Learners_same_seq(                             \
+                packed_row, k_elems,                                           \
+                panel_interleaved + (size_t)2u * panel_row_stride,             \
+                panel_row_stride, (cb0_), (cb1_), (cb2_), (cb3_),              \
+                out_interleaved, out_row0 + 2u, out_col, ld_out_interleaved,   \
+                bias_interleaved, add_bias, accumulate, bits_per_cb, vl,       \
+                (nreg_), 1u);                                                  \
+        } else if (mr == 2u) {                                                 \
+            sve_gemm_tile_body_4Learners_same_seq(                             \
+                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
+                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
+                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
+                accumulate, bits_per_cb, vl, (nreg_), 2u);                     \
+        } else {                                                               \
+            sve_gemm_tile_body_4Learners_same_seq(                             \
+                packed_row, k_elems, panel_interleaved, panel_row_stride,      \
+                (cb0_), (cb1_), (cb2_), (cb3_), out_interleaved, out_row0,     \
+                out_col, ld_out_interleaved, bias_interleaved, add_bias,       \
+                accumulate, bits_per_cb, vl, (nreg_), 1u);                     \
+        }                                                                      \
+    } while (0)
 
 /*
  * Tiled row micro-kernel for the four-learner shared-index compact GEMM.
  *
- * Computes up to MR (1 or 2) sequence rows for one output column. The packed
+ * Computes up to MR (1 to 4) sequence rows for one output column. The packed
  * index decode and the four learner codebook lookups are performed ONCE per
  * group of K elements and reused across the MR rows (the shared-index reuse
  * that motivates the register tile). Activations are read from a pre-widened
@@ -1999,7 +2178,8 @@ static inline svint32_t sve_cb_lookup_tile_s32(svint32x4_t cb, uint32_t nreg,
  *
  * The codebook must fit in up to four SVE registers per learner
  * (codebook_size <= 4 * svcntw()); the driver guarantees this and otherwise
- * dispatches to the scalar path.
+ * dispatches to the scalar path. Because both codebook_size and the vector
+ * length are powers of two, ceil(codebook_size / vl) is 1, 2 or 4.
  */
 void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
@@ -2020,18 +2200,13 @@ void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
     uint8_t bits_per_cb) {
     (void)n_words_row; /* the K count (k_elems) bounds the packed-word walk */
     const uint32_t vl = (uint32_t)svcntw();
-    const svbool_t pt = svptrue_b32();
 
     if (mr == 0u) {
         return;
     }
-    if (mr > 2u) {
-        mr = 2u;
+    if (mr > 4u) {
+        mr = 4u;
     }
-
-    const int32_t *p0 = panel_interleaved;
-    const int32_t *p1 = (mr > 1u) ? (panel_interleaved + panel_row_stride)
-                                  : panel_interleaved;
 
     /* Empty K: each output slot becomes bias/zero, honoring accumulate. */
     if ((bits_per_cb == 0u) || (k_elems == 0u)) {
@@ -2050,94 +2225,35 @@ void sve_gemm_tile_compact_int8_interleaved_4Learners_same_seq(
         return;
     }
 
-    const uint32_t ipw = 32u / bits_per_cb;
-    const uint32_t mask = (1u << bits_per_cb) - 1u;
-    const uint32_t nreg = (codebook_size + vl - 1u) / vl; /* 1..4 (driver-guaranteed) */
+    const uint32_t nreg = (codebook_size + vl - 1u) / vl; /* 1, 2 or 4 */
 
     /*
-     * Preload the four interleaved learner codebooks into register slices.
-     * svld4_s32 de-interleaves [cb_index][learner] groups; a partial/empty
-     * predicate zero-fills slices past codebook_size and never accesses
-     * inactive lanes, so the higher-slice base addresses are safe.
+     * Load only the codebook slices this (codebook_size, vl) pair needs.
+     * svld4_s32 de-interleaves [cb_index][learner] groups; a partial predicate
+     * zero-fills lanes past codebook_size and never accesses inactive lanes.
+     * Unused slots below reuse an already-live tuple, so they cost no register.
      */
-    const svint32x4_t t0 = svld4_s32(svwhilelt_b32_u32(0u * vl, codebook_size),
-                                     codebook_i32_interleaved + (size_t)0u * vl * 4u);
-    const svint32x4_t t1 = svld4_s32(svwhilelt_b32_u32(1u * vl, codebook_size),
-                                     codebook_i32_interleaved + (size_t)1u * vl * 4u);
-    const svint32x4_t t2 = svld4_s32(svwhilelt_b32_u32(2u * vl, codebook_size),
+    const svint32x4_t s0 = svld4_s32(svwhilelt_b32_u32(0u, codebook_size),
+                                     codebook_i32_interleaved);
+    if (nreg <= 1u) {
+        I2CE_TILE_DISPATCH(s0, s0, s0, s0, 1u);
+        return;
+    }
+
+    const svint32x4_t s1 = svld4_s32(svwhilelt_b32_u32(vl, codebook_size),
+                                     codebook_i32_interleaved + (size_t)vl * 4u);
+    if (nreg <= 2u) {
+        I2CE_TILE_DISPATCH(s0, s1, s1, s1, 2u);
+        return;
+    }
+
+    const svint32x4_t s2 = svld4_s32(svwhilelt_b32_u32(2u * vl, codebook_size),
                                      codebook_i32_interleaved + (size_t)2u * vl * 4u);
-    const svint32x4_t t3 = svld4_s32(svwhilelt_b32_u32(3u * vl, codebook_size),
+    const svint32x4_t s3 = svld4_s32(svwhilelt_b32_u32(3u * vl, codebook_size),
                                      codebook_i32_interleaved + (size_t)3u * vl * 4u);
-    const svint32x4_t cbL0 = svcreate4_s32(svget4_s32(t0, 0), svget4_s32(t1, 0),
-                                           svget4_s32(t2, 0), svget4_s32(t3, 0));
-    const svint32x4_t cbL1 = svcreate4_s32(svget4_s32(t0, 1), svget4_s32(t1, 1),
-                                           svget4_s32(t2, 1), svget4_s32(t3, 1));
-    const svint32x4_t cbL2 = svcreate4_s32(svget4_s32(t0, 2), svget4_s32(t1, 2),
-                                           svget4_s32(t2, 2), svget4_s32(t3, 2));
-    const svint32x4_t cbL3 = svcreate4_s32(svget4_s32(t0, 3), svget4_s32(t1, 3),
-                                           svget4_s32(t2, 3), svget4_s32(t3, 3));
-
-    svint32_t a00 = svdup_n_s32(0), a01 = svdup_n_s32(0), a02 = svdup_n_s32(0), a03 = svdup_n_s32(0);
-    svint32_t a10 = svdup_n_s32(0), a11 = svdup_n_s32(0), a12 = svdup_n_s32(0), a13 = svdup_n_s32(0);
-
-    uint32_t k = 0;
-    for (uint32_t w = 0; k < k_elems; w++) {
-        const svuint32_t pw = svdup_n_u32(packed_row[w]);
-        for (uint32_t t = 0; (t < ipw) && (k < k_elems); t += vl) {
-            uint32_t act = ipw - t;
-            if (act > vl) {
-                act = vl;
-            }
-            if (act > k_elems - k) {
-                act = k_elems - k;
-            }
-            const svbool_t pg = svwhilelt_b32_u32(0u, act);
-            const svuint32_t idx =
-                svand_n_u32_x(pt, svlsr_u32_x(pt, pw, svindex_u32(t * bits_per_cb, bits_per_cb)), mask);
-
-            const svint32_t w0 = sve_cb_lookup_tile_s32(cbL0, nreg, pt, idx, vl);
-            const svint32_t w1 = sve_cb_lookup_tile_s32(cbL1, nreg, pt, idx, vl);
-            const svint32_t w2 = sve_cb_lookup_tile_s32(cbL2, nreg, pt, idx, vl);
-            const svint32_t w3 = sve_cb_lookup_tile_s32(cbL3, nreg, pt, idx, vl);
-
-            const svint32x4_t x0 = svld4_s32(pg, p0 + (size_t)k * 4u);
-            a00 = svmla_s32_m(pg, a00, svget4_s32(x0, 0), w0);
-            a01 = svmla_s32_m(pg, a01, svget4_s32(x0, 1), w1);
-            a02 = svmla_s32_m(pg, a02, svget4_s32(x0, 2), w2);
-            a03 = svmla_s32_m(pg, a03, svget4_s32(x0, 3), w3);
-
-            if (mr > 1u) {
-                const svint32x4_t x1 = svld4_s32(pg, p1 + (size_t)k * 4u);
-                a10 = svmla_s32_m(pg, a10, svget4_s32(x1, 0), w0);
-                a11 = svmla_s32_m(pg, a11, svget4_s32(x1, 1), w1);
-                a12 = svmla_s32_m(pg, a12, svget4_s32(x1, 2), w2);
-                a13 = svmla_s32_m(pg, a13, svget4_s32(x1, 3), w3);
-            }
-
-            k += act;
-        }
-    }
-
-    int32_t r0[4] = {(int32_t)svaddv_s32(pt, a00), (int32_t)svaddv_s32(pt, a01),
-                     (int32_t)svaddv_s32(pt, a02), (int32_t)svaddv_s32(pt, a03)};
-    int32_t r1[4] = {(int32_t)svaddv_s32(pt, a10), (int32_t)svaddv_s32(pt, a11),
-                     (int32_t)svaddv_s32(pt, a12), (int32_t)svaddv_s32(pt, a13)};
-    for (uint32_t r = 0; r < mr; r++) {
-        const int32_t *acc = (r == 0u) ? r0 : r1;
-        int32_t *slot = &out_interleaved[(size_t)(out_row0 + r) * ld_out_interleaved +
-                                         (size_t)out_col * 4u];
-        for (uint32_t l = 0; l < 4u; l++) {
-            int32_t v = acc[l];
-            if (add_bias && bias_interleaved) {
-                v += bias_interleaved[l];
-            }
-            if (accumulate) {
-                slot[l] += v;
-            } else {
-                slot[l] = v;
-            }
-        }
-    }
+    I2CE_TILE_DISPATCH(s0, s1, s2, s3, 4u);
 }
+
+#undef I2CE_TILE_DISPATCH
 
 #endif /* SIMD */
