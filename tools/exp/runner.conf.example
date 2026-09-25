@@ -1,0 +1,39 @@
+# Copy to runner.conf (same directory) and adjust paths for your machine.
+# Everything the runner touches at runtime lives OUTSIDE the repository,
+# under EXP_ROOT, keyed by experiment id.
+
+# Repository clone this runner belongs to (defaults to the repo containing exp.sh)
+#REPO_ROOT=
+
+# Where per-experiment state lives: $EXP_ROOT/<id>/{share,out_*,manifest.tsv}
+EXP_ROOT=$HOME/i2ce/exp
+
+# gem5 binary + the ARM full-system config script it was validated with
+GEM5_BIN=$HOME/i2ce/gem5-tianrui/build/ARM/gem5.fast
+GEM5_CWD=$HOME/i2ce/gem5-tianrui
+GEM5_CFG=configs/example/arm/starter_fs.py
+
+# gem5 SysPaths (bootloader etc.); exp.sh exports this default if unset
+#M5_PATH=$HOME/i2ce/gem5_resources
+
+# Kernel and pristine disk image (disk is opened copy-on-write by starter_fs.py,
+# so concurrent runs may safely share one image file)
+KERNEL=$HOME/i2ce/gem5_resources/binaries/vmlinux.tianrui
+DISK=$HOME/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img
+
+# CPU model for measurement runs and for boot/checkpoint
+RUN_CPU=minor
+BOOT_CPU=atomic
+
+# gem5 memory/CPU settings (kept identical to the E-series runs).
+# Core count is NOT set here: it is per-experiment (overrides column `cores`,
+# falling back to NUM_CORES below).
+GEM5_MACHINE_ARGS="--cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1"
+NUM_CORES=1
+
+# Parallelism for `exp.sh submit`: max concurrent gem5 processes, seconds between starts
+MAX_PARALLEL=4
+STAGGER=20
+
+# Python used for artifact generation (needs numpy + torch + tqdm; CPU is enough)
+GEN_PYTHON=python3

@@ -1,0 +1,18 @@
+# I2CE gem5 experiment table — TAB-separated, 7 columns. Lines starting with # are ignored.
+# id<TAB>cb<TAB>n_learners<TAB>sve_bits<TAB>impl<TAB>overrides<TAB>notes
+#
+# cb          codebook size            build-time  {2,4,8,16,32}
+# n_learners  ensemble size            build-time  {1,2,4}
+# sve_bits    SVE vector length        build+sim   {128,256,512} (256/512 need: ./exp.sh patch-gem5)
+# impl        codebook_int8 | dense_int8
+# overrides   "-" or comma-separated key=value:
+#   build-time (notebook regeneration + rebuild):  seq_len d_model num_heads d_ff d_q
+#              BERT-mini defaults: seq_len=512 d_model=256 num_heads=4 d_ff=1024 d_q=64
+#   sim-time (gem5 flags, same binary):  l1i l1d l2 (cache sizes; stock 48KiB/32KiB/1MiB;
+#              need ./exp.sh patch-gem5)   cores (CPU cores, default 1)
+#
+# examples (remove the leading # to enable):
+#39	8	4	128	codebook_int8	l1d=64KiB,l2=2MiB	bigger caches, same binary as 37
+#40	8	4	128	codebook_int8	seq_len=256,d_model=128,num_heads=2,d_ff=512	small model (untested path: smoke first)
+37	8	4	128	codebook_int8	-	baseline profiling config (matches historical E37)
+38	4	2	128	codebook_int8	-	smaller codebook / ensemble
