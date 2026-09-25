@@ -1,0 +1,25 @@
+#!/bin/sh
+# Guest-side SMOKE script for experiment @ID@ — validates the whole pipeline
+# (checkpoint restore, 9p share, binary presence, weights shadowing,
+# m5 writefile) WITHOUT running the transformer. Finishes in guest-seconds.
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+echo "[guest] ===== SMOKE exp @ID@ ====="
+mkdir -p /mnt
+mount -t 9p -o trans=virtio,version=9p2000.L,aname=@SHARE@ gem5 /mnt \
+  || { echo "[guest] 9p mount FAILED"; /sbin/m5 fail 1; }
+cd /mnt || /sbin/m5 fail 1
+echo "[guest] share listing:"; ls -la
+sha256sum transformer.o || /sbin/m5 fail 2
+[ -d weights/generated_from_notebook ] || { echo "[guest] weights dir MISSING"; /sbin/m5 fail 3; }
+if [ -d /home/thu/TiC-SAT/weights ]; then
+  echo "[guest] NOTE: image has baked-in /home/thu/TiC-SAT/weights (real runs shadow it with the 9p copy)"
+  mount --bind /mnt/weights /home/thu/TiC-SAT/weights \
+    && echo "[guest] weights bind mount works" \
+    || { echo "[guest] weights bind mount FAILED"; /sbin/m5 fail 4; }
+else
+  echo "[guest] image has no baked-in weights; binary will read the 9p copy directly"
+fi
+echo smoke-ok > smoke_result.txt
+/sbin/m5 writefile smoke_result.txt smoke_result.txt
+echo "[guest] SMOKE OK"
+/sbin/m5 exit
