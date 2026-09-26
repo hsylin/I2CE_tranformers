@@ -715,5 +715,29 @@ void test() {
 
 int main() {
     test();
+
+#if CFG_USE_CODEBOOK_REFERENCE
+    /*
+     * Reference-validation builds exist to catch numerically wrong kernels, but
+     * comparePackedBuffers() only printed its findings, so such a build still
+     * exited 0 and the experiment runner reported success. Fail the process
+     * instead, so a mismatch cannot reach the results tables unnoticed.
+     */
+    const std::size_t comparisons = packedBufferComparisonCount();
+    const std::size_t mismatches = packedBufferMismatchCount();
+    std::cout << "[reference] " << comparisons << " buffer comparison(s), "
+              << mismatches << " with mismatches" << std::endl;
+    if (mismatches != 0) {
+        std::cerr << "ERROR: " << mismatches << " of " << comparisons
+                  << " reference comparisons differed; failing the run."
+                  << std::endl;
+        return 1;
+    }
+    if (comparisons == 0) {
+        std::cerr << "ERROR: reference validation was enabled but no comparison"
+                  << " ran; the check is not covering anything." << std::endl;
+        return 1;
+    }
+#endif
     return 0;
 }

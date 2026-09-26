@@ -385,6 +385,20 @@ int8_t unpackPackedValue(const uint32_t *buffer, std::size_t elem_idx) {
     return static_cast<int8_t>((buffer[word_idx] >> (byte_idx * 8)) & 0xFF);
 }
 
+namespace {
+// Process-wide tally of reference comparisons and of those that differed. See
+// the header for why this exists rather than a changed return type.
+std::size_t g_packed_buffer_comparisons = 0;
+std::size_t g_packed_buffer_mismatches = 0;
+}  // namespace
+
+std::size_t packedBufferMismatchCount() { return g_packed_buffer_mismatches; }
+std::size_t packedBufferComparisonCount() { return g_packed_buffer_comparisons; }
+void resetPackedBufferMismatchCount() {
+    g_packed_buffer_comparisons = 0;
+    g_packed_buffer_mismatches = 0;
+}
+
 // Auxiliary function: compare the results of gemm_exec and orginal tranformer code
 void comparePackedBuffers(const char *label,
                           const uint32_t *dense_reference,
@@ -417,7 +431,9 @@ void comparePackedBuffers(const char *label,
 
     std::cout << label << " diff vs Dense reference: max_abs_diff=" << max_abs_diff
               << ", mismatches=" << mismatch_count << "/" << total_values << std::endl;
+    g_packed_buffer_comparisons++;
     if (mismatch_count != 0) {
+        g_packed_buffer_mismatches++;
         std::cout << label << " first mismatch at value[" << first_mismatch << "]: dense="
                   << first_dense_value << ", candidate=" << first_candidate_value << std::endl;
     }

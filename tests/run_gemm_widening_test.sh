@@ -47,6 +47,20 @@ I2CE_TEST_FLAGS=(-std=c++17 -O2 -Wall -Wextra -march=armv8-a+sve -DSIMD
 
 "$I2CE_TEST_QEMU" -cpu max,sve=on,sve-default-vector-length=16 \
   "$I2CE_TEST_OUT/gemm_widening_test" | tee "$I2CE_TEST_OUT/sve128.log"
+
+# Same sources, but compiled against a CB4 generated header so the kernels take
+# the N_SVE_REG_CB_1 codebook path with 2-bit packed indexes. The committed
+# header is CB8/N_SVE_REG_CB_2, so this is the only way to cover the CB4 target
+# configuration -- changing bits_per_cb alone would test the wrong path.
+I2CE_TEST_FLAGS_CB4=(-std=c++17 -O2 -Wall -Wextra -march=armv8-a+sve -DSIMD
+  -I"$I2CE_TEST_ROOT/Full_NN/inc"
+  -I"$I2CE_TEST_ROOT/tests/gemm_definitions_cb4")
+"$I2CE_TEST_CXX" "${I2CE_TEST_FLAGS_CB4[@]}" -static \
+  "$I2CE_TEST_ROOT/tests/gemm_widening_test.cc" \
+  "$I2CE_TEST_ROOT/Full_NN/src/gemm_SVE.c" \
+  -o "$I2CE_TEST_OUT/gemm_widening_test_cb4"
+"$I2CE_TEST_QEMU" -cpu max,sve=on,sve-default-vector-length=16 \
+  "$I2CE_TEST_OUT/gemm_widening_test_cb4" | tee "$I2CE_TEST_OUT/sve128_cb4.log"
 # Only the flat helper is tested at VL256; the generated model remains VL128.
 "$I2CE_TEST_QEMU" -cpu max,sve=on,sve-default-vector-length=32 \
   "$I2CE_TEST_OUT/gemm_widening_test" --helper-only \

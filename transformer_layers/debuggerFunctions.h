@@ -76,4 +76,18 @@ void comparePackedBuffers(const char *label,
                           const uint32_t *candidate,
                           std::size_t packed_size);
 
+/*
+ * comparePackedBuffers() reports differences on stdout but cannot fail a run on
+ * its own, so a numerically wrong build used to exit 0 and its results were
+ * indistinguishable from a correct one. These accessors let the caller turn an
+ * observed mismatch into a non-zero exit status without changing the signature
+ * used by the ~24 existing call sites.
+ *
+ * Counts are process-wide and are not thread-safe; reference comparison is a
+ * single-threaded debug/validation mode.
+ */
+std::size_t packedBufferMismatchCount();
+std::size_t packedBufferComparisonCount();
+void resetPackedBufferMismatchCount();
+
 #endif //FVLLMONTITRANSFORMER_DEBUGGERFUNCTIONS_H
