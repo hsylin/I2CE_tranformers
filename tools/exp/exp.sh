@@ -11,7 +11,8 @@
 #   ./exp.sh smoke   [id]             end-to-end pipeline test WITHOUT the 10 h sim
 #   ./exp.sh status                   running gem5 jobs + last manifest rows
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
-#   ./exp.sh collect <id> [args...]   finished run -> transformer_profiling tables
+#   ./exp.sh collect <id> [args...]   finished run -> tables + refreshed HTML
+#   ./exp.sh report [args...]        all collected experiments -> one offline HTML
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
 #
 # Parameters live in experiments.tsv, one row per experiment:
@@ -40,6 +41,12 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SELF_DIR/../.." && pwd)}"
+# Reporting is read-only with respect to experiments and needs no gem5 paths,
+# machine-specific runner.conf, cross compiler, or running simulator.
+if [[ "${1:-}" == report ]]; then
+  shift
+  exec "${REPORT_PYTHON:-python3}" "$REPO_ROOT/transformer_profiling/report.py" "$@"
+fi
 CONF="$SELF_DIR/runner.conf"
 [[ -f "$CONF" ]] || CONF="$SELF_DIR/runner.conf.example"
 # shellcheck disable=SC1090
@@ -383,6 +390,18 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
   echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final"
   "$GEN_PYTHON" "$AE" "${ARGS[@]}" "$@"
   if [[ " $* " != *" --dry-run "* ]]; then
+    local REPORT_INPUT="$REPO_ROOT/transformer_profiling/final" ARG PREVIOUS=""
+    for ARG in "$@"; do
+      if [[ "$PREVIOUS" == --output-root ]]; then REPORT_INPUT="$ARG"; fi
+      case "$ARG" in --output-root=*) REPORT_INPUT="${ARG#*=}" ;; esac
+      PREVIOUS="$ARG"
+    done
+    echo "[collect $EID] refreshing HTML report"
+    if ! "${REPORT_PYTHON:-$GEN_PYTHON}" "$REPO_ROOT/transformer_profiling/report.py" \
+      --input "$REPORT_INPUT" \
+      --output "${REPORT_OUTPUT:-$REPO_ROOT/transformer_profiling/reports/profiling_report.html}"; then
+      die "tables were saved, but HTML refresh failed. Fix the reported error and rerun exp.sh report --input '$REPORT_INPUT'."
+    fi
     echo
     echo "[collect $EID] tables updated. To publish them:"
     echo "    cd $REPO_ROOT"

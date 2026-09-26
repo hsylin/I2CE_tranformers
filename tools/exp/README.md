@@ -60,7 +60,8 @@ No script changes needed.
 ./exp.sh submit 37 38 39  # build + checkpoint + launch, throttled (MAX_PARALLEL)
 ./exp.sh status           # gem5 processes + last run per experiment (DONE/RUNNING)
 ./exp.sh results 39       # where the latest run's logs/stats are
-./exp.sh collect 39       # finished run -> transformer_profiling/final tables
+./exp.sh collect 39       # finished run -> tables + refreshed HTML report
+./exp.sh report           # all collected experiments -> one offline HTML
 ```
 
 Long jobs are launched with `nohup setsid` (they survive disconnects), but run
@@ -77,10 +78,47 @@ overridden). Extra arguments pass through and win on conflict, e.g.:
 
 ```bash
 ./exp.sh collect 38 --study "Codebook-size scaling" --dry-run   # preview rows
-./exp.sh collect 38 --study "Codebook-size scaling"             # write tables
+./exp.sh collect 38 --study "Codebook-size scaling"             # write tables + HTML
 cd ../.. && git add transformer_profiling/final \
   && git commit -m "chore(profiling): add E38 cb=4 nl=2 sve=128 run" && git push
 ```
+
+## Interactive report
+
+Install the plotting additions once in the existing `gem5_env`, then generate
+all collected experiments with one command (shown from the repository root):
+
+```bash
+python -m pip install -r transformer_profiling/requirements-visualization.txt
+bash tools/exp/exp.sh report
+```
+
+Output: `transformer_profiling/reports/profiling_report.html`. The English page
+contains charts and controls only, with Plotly.js embedded for offline viewing.
+Each invocation scans `transformer_profiling/final/` for individual experiment
+TSVs and the combined table. Individual files take precedence for the same ID,
+so a newly added `e37_*.tsv` is included even if the combined table is stale.
+Reporting works without `runner.conf` or gem5. `REPORT_PYTHON` selects its Python.
+
+Successful `collect` commands now regenerate the report after saving the tables;
+`collect --dry-run` does not. Custom `--output-root` directories are respected.
+Set `REPORT_OUTPUT` to choose the HTML destination during collection. A report
+failure leaves collected tables intact, returns a nonzero status and prints how
+to retry report generation without collecting the same experiment again.
+
+When copying result files into `final/` directly, run `exp.sh report` again or
+leave `exp.sh report --watch` running. Watch mode rebuilds on local result changes;
+stop it with Ctrl-C. Fetch/pull remote results first and reload the generated HTML
+in your browser. A previously downloaded HTML remains a snapshot.
+
+Use `report --output /path/report.html`, `report --experiments E09 E37`, or
+`report --help`. Optional `--tile-results`, `--scaling-results` and `--phase-results`
+add measured tile sweeps, scaling, efficiency, bandwidth and implementation phases
+to the same HTML. Files named `tile_results.csv`, `scaling_results.csv` and
+`phase_results.csv` in the input directory are discovered automatically; tabs
+appear only when measurements exist. See
+[the profiling guide](../../transformer_profiling/README.md) for the complete
+installation, data schemas, formulas, and source-data caveats.
 
 ## Output layout & provenance
 
