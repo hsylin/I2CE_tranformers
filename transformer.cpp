@@ -716,6 +716,9 @@ void test() {
 int main() {
     test();
 
+    // Write the buffered region index now that all measured windows are closed.
+    finalizeTransformerStatsWindow();
+
 #if CFG_USE_CODEBOOK_REFERENCE
     /*
      * Reference-validation builds exist to catch numerically wrong kernels, but
