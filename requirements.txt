@@ -83,12 +83,14 @@ nvidia-nvjitlink-cu12==12.4.127
 nvidia-nvtx-cu12==12.4.127
 overrides==7.7.0
 packaging==26.0
+pandas==2.2.3
 pandocfilters==1.5.1
 parso==0.8.6
 pexpect==4.9.0
 pillow==11.3.0
 pip==26.0.1
 platformdirs==4.4.0
+plotly==6.3.0
 prometheus-client==0.24.1
 prompt-toolkit==3.0.52
 psutil==7.2.2
