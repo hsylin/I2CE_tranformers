@@ -11,8 +11,7 @@
 #   ./exp.sh smoke   [id]             end-to-end pipeline test WITHOUT the 10 h sim
 #   ./exp.sh status                   running gem5 jobs + last manifest rows
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
-#   ./exp.sh collect <id> [args...]   finished run -> tables + refreshed HTML
-#   ./exp.sh report [args...]        all collected experiments -> one offline HTML
+#   ./exp.sh collect <id> [args...]   finished run -> transformer_profiling tables
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
 #
 # Parameters live in experiments.tsv, one row per experiment:
@@ -41,12 +40,6 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SELF_DIR/../.." && pwd)}"
-# Reporting is read-only with respect to experiments and needs no gem5 paths,
-# machine-specific runner.conf, cross compiler, or running simulator.
-if [[ "${1:-}" == report ]]; then
-  shift
-  exec "${REPORT_PYTHON:-python3}" "$REPO_ROOT/transformer_profiling/report.py" "$@"
-fi
 CONF="$SELF_DIR/runner.conf"
 [[ -f "$CONF" ]] || CONF="$SELF_DIR/runner.conf.example"
 # shellcheck disable=SC1090
@@ -100,8 +93,13 @@ load_row() {
   [[ "$NL"  =~ ^(1|2|4)$      ]] || die "[exp $EID] bad n_learners '$NL'"
   [[ "$SVE" =~ ^(128|256|512)$ ]] || die "[exp $EID] bad sve_bits '$SVE'"
   case "$IMPL" in
-    codebook_int8|dense_int8) : ;;
-    *) die "[exp $EID] impl '$IMPL' not supported (codebook_int8 or dense_int8)" ;;
+    codebook_int8) : ;;
+    dense_int8)
+      die "[exp $EID] impl 'dense_int8' is not wired up: build_one always sets" \
+          "USE_CODEBOOK_GEMM_FLAG=1 / DENSE_NO_SIMD_BASELINE_FLAG=0, so this row" \
+          "would build a CODEBOOK binary and collect would then label the result" \
+          "as dense. Add a real dense build path before using this impl." ;;
+    *) die "[exp $EID] impl '$IMPL' not supported (codebook_int8)" ;;
   esac
   SVE_LANES=$(( SVE / 32 ))
   SVE_VL=$(( SVE / 128 ))
@@ -142,6 +140,15 @@ load_row() {
     fi
   done
   if [[ -n "$OV_CORES" && ! "$OV_CORES" =~ ^[1-8]$ ]]; then die "[exp $EID] cores must be 1..8"; fi
+  # The codebook GEMM path has no OpenMP/std::thread worker parallelism, and the
+  # extractor reads single-core stat paths (system.cpu_cluster.cpus.*). Adding
+  # simulated cores would change the machine without dividing the work and would
+  # silently mis-extract per-core counters, so refuse until both are addressed.
+  if [[ -n "$OV_CORES" && "$OV_CORES" != 1 ]]; then
+    die "[exp $EID] cores=$OV_CORES refused: no worker parallelism is implemented" \
+        "in the codebook path, and add_experiment.py reads single-core stat paths." \
+        "Extra simulated cores would idle and the per-core counters would be wrong."
+  fi
 
   # effective model dimensions (BERT-mini defaults from the notebook)
   D_Q_EFF="${OV_D_Q:-64}"; SEQ_EFF="${OV_SEQ_LEN:-512}"; DM_EFF="${OV_D_MODEL:-256}"
@@ -228,7 +235,14 @@ build_one() {
   [[ -f "$HDR_SRC/codebooks_def.h" ]] || die "[exp $EID] headers missing at $HDR_SRC"
   [[ -d "$WGT_SRC" ]] || die "[exp $EID] weights missing at $WGT_SRC"
 
-  # 2. compile under the build lock (headers are swapped inside the repo)
+  # 2. compile under the build lock (headers are swapped inside the repo).
+  # BUILD_FLAGS is a single source of truth: it is both applied to the compile
+  # and recorded in build_config.tsv, so the manifest cannot drift from reality.
+  BUILD_FLAGS="USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1"
+  BUILD_FLAGS="$BUILD_FLAGS RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1"
+  BUILD_FLAGS="$BUILD_FLAGS USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0"
+  BUILD_FLAGS="$BUILD_FLAGS ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1"
+  BUILD_FLAGS="$BUILD_FLAGS GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0"
   echo "[build $EID] compiling (serialized) ..."
   (
     flock -w 1800 9 || die "could not obtain build lock"
@@ -239,12 +253,7 @@ build_one() {
       cp "$HDR_SRC"/*.h Full_NN/gemm_definitions/
     fi
     set +e
-    USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 \
-    RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 \
-    USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 \
-    ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 \
-    GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 \
-      bash ./compile_transformer.sh > "$EDIR/build.log" 2>&1
+    env $BUILD_FLAGS bash ./compile_transformer.sh > "$EDIR/build.log" 2>&1
     RC=$?
     set -e
     if [[ "$IS_DEFAULT_ARTIFACTS" != 1 ]]; then
@@ -268,6 +277,32 @@ build_one() {
       "$SELF_DIR/lib/run.rcS.tmpl" > "$SHARE/run.rcS"
   chmod +x "$SHARE/run.rcS"
   sha256sum "$SHARE/transformer.o" | tee "$SHARE/transformer.o.sha256"
+
+  # Provenance: record what this binary was ACTUALLY built with, so a later
+  # edit to experiments.tsv can never change how an existing run is described.
+  {
+    echo "exp_id\t$EID"
+    echo "built_at\t$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "impl\t$IMPL"
+    echo "codebook_size\t$CB"
+    echo "n_learners\t$NL"
+    echo "sve_bits\t$SVE"
+    echo "sve_lanes\t$SVE_LANES"
+    echo "cores\t$CORES"
+    echo "overrides\t$OVR"
+    echo "model_dims\td_q=$D_Q_EFF seq_len=$SEQ_EFF d_model=$DM_EFF num_heads=$NH_EFF d_ff=$DFF_EFF"
+    echo "default_artifacts\t$IS_DEFAULT_ARTIFACTS"
+    echo "repo_commit\t$(git -C "$REPO_ROOT" rev-parse HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
+    echo "compile_flags\t$BUILD_FLAGS"
+    echo "binary_sha256\t$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
+    echo "codebooks_def_sha256\t$(sha256sum "$HDR_SRC/codebooks_def.h" | cut -d' ' -f1)"
+    echo "gem5_bin\t$GEM5_BIN"
+    echo "gem5_cfg\t$GEM5_CWD/$GEM5_CFG"
+  } > "$SHARE/build_config.tsv"
+  if ! git -C "$REPO_ROOT" diff --quiet; then
+    git -C "$REPO_ROOT" diff > "$SHARE/repo_uncommitted.diff"
+    echo "[build $EID] WARNING: repo has uncommitted changes; saved $SHARE/repo_uncommitted.diff"
+  fi
   echo "[build $EID] share ready: $SHARE"
 }
 
@@ -370,6 +405,27 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
   load_row "$ID"
   local AE="$REPO_ROOT/transformer_profiling/add_experiment.py"
   [[ -f "$AE" ]] || die "add_experiment.py not found at $AE (needs the submission branch)"
+
+  # A row in experiments.tsv can be edited after a run. The binary that actually
+  # produced the stats recorded what it was built with, so verify the table still
+  # describes that build before writing anything into the results tables.
+  local BC="$SHARE/build_config.tsv"
+  if [[ -f "$BC" ]]; then
+    local k v mismatch=0
+    while IFS=$'\t' read -r k v; do
+      case "$k" in
+        codebook_size) [[ "$v" == "$CB"   ]] || { echo "  build says codebook_size=$v, table says $CB" >&2; mismatch=1; } ;;
+        n_learners)    [[ "$v" == "$NL"   ]] || { echo "  build says n_learners=$v, table says $NL" >&2; mismatch=1; } ;;
+        sve_bits)      [[ "$v" == "$SVE"  ]] || { echo "  build says sve_bits=$v, table says $SVE" >&2; mismatch=1; } ;;
+        impl)          [[ "$v" == "$IMPL" ]] || { echo "  build says impl=$v, table says $IMPL" >&2; mismatch=1; } ;;
+        overrides)     [[ "$v" == "$OVR"  ]] || { echo "  build says overrides=$v, table says $OVR" >&2; mismatch=1; } ;;
+      esac
+    done < "$BC"
+    [[ $mismatch -eq 0 ]] || die "[collect $EID] experiments.tsv no longer matches the binary that produced this run (see $BC). Refusing to mislabel the results."
+    echo "[collect $EID] build_config.tsv matches the table row"
+  else
+    echo "[collect $EID] WARNING: no build_config.tsv (run predates provenance recording); labels come from experiments.tsv and are unverified" >&2
+  fi
   local OUT; OUT="$(ls -dt "$EDIR"/out_* 2>/dev/null | head -1)" || true
   [[ -n "${OUT:-}" ]] || die "no measurement runs recorded for exp $EID"
   [[ -s "$OUT/stats.txt" && -s "$OUT/gem5_profile_regions.tsv" ]] \
@@ -390,18 +446,6 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
   echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final"
   "$GEN_PYTHON" "$AE" "${ARGS[@]}" "$@"
   if [[ " $* " != *" --dry-run "* ]]; then
-    local REPORT_INPUT="$REPO_ROOT/transformer_profiling/final" ARG PREVIOUS=""
-    for ARG in "$@"; do
-      if [[ "$PREVIOUS" == --output-root ]]; then REPORT_INPUT="$ARG"; fi
-      case "$ARG" in --output-root=*) REPORT_INPUT="${ARG#*=}" ;; esac
-      PREVIOUS="$ARG"
-    done
-    echo "[collect $EID] refreshing HTML report"
-    if ! "${REPORT_PYTHON:-$GEN_PYTHON}" "$REPO_ROOT/transformer_profiling/report.py" \
-      --input "$REPORT_INPUT" \
-      --output "${REPORT_OUTPUT:-$REPO_ROOT/transformer_profiling/reports/profiling_report.html}"; then
-      die "tables were saved, but HTML refresh failed. Fix the reported error and rerun exp.sh report --input '$REPORT_INPUT'."
-    fi
     echo
     echo "[collect $EID] tables updated. To publish them:"
     echo "    cd $REPO_ROOT"

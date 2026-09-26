@@ -120,11 +120,24 @@ struct Variant {
   PublicGemm legacy;
 };
 
+// Derive the packed-index width from the generated header instead of hard-coding
+// it. CB_SIZE also fixes which N_SVE_REG_CB_* path the kernels compile, so the
+// two must agree: a CB8 header with bits_per_cb=2 would exercise the wrong
+// codebook-register path. Building this file against a different generated
+// header is therefore the only correct way to cover another codebook size.
+constexpr uint8_t BitsForCodebook(uint32_t entries) {
+  uint8_t bits = 0;
+  while ((1u << bits) < entries) ++bits;
+  return bits;
+}
+
 void TestGemmCase(const Variant& variant, gemm_t shape, bool use_bias,
                   bool use_cached_codebook, int workspace_mode) {
-  constexpr uint8_t kBits = 3;
-  constexpr uint32_t kEntries = 1u << kBits;
+  constexpr uint8_t kBits = BitsForCodebook(CB_SIZE);
+  constexpr uint32_t kEntries = CB_SIZE;
   constexpr uint32_t kIndicesPerWord = 32u / kBits;
+  static_assert(kEntries == (1u << kBits),
+                "CB_SIZE must be a power of two for packed-index coverage");
   const uint32_t learners = variant.learners;
   const uint32_t input_count = shape.seq_len * shape.input_size * learners;
   const uint32_t output_count = shape.seq_len * shape.output_size * learners;
@@ -241,7 +254,9 @@ int main(int argc, char** argv) {
   TestWideningTails();
   TestOverlappingBuffers();
   if (!helper_only) TestGemmWrappers();
-  std::printf("PASS: %u cases; SVE=%llu bits; %s\n", checks,
-              static_cast<unsigned long long>(svcntb() * 8),
+  std::printf("PASS: %u cases; SVE=%llu bits; CB_SIZE=%d (%d-bit indexes); %s\n",
+              checks, static_cast<unsigned long long>(svcntb() * 8),
+              static_cast<int>(CB_SIZE),
+              static_cast<int>(BitsForCodebook(CB_SIZE)),
               helper_only ? "helper only" : "helper and three GEMM wrappers");
 }
