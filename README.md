@@ -59,6 +59,23 @@ You can follow the instructions in Section 8 of [this document](gem5_X_Technical
 
 Please note that to change the configuration of the accelerator, you also need to modify the configuration on the software in [this file](accelerator/smm_gem.cpp). For instance, the systolic array size in this file, should be identical to the size assigned in the gem5-X-TiC-SAT.
 
+## Transformer experiment reports
+
+The [experiment runner](tools/exp/README.md) collects completed runs into the
+profiling tables. After installing the
+[visualization dependencies](transformer_profiling/README.md#python-environment),
+generate one offline HTML containing all collected experiments with:
+
+```bash
+bash tools/exp/exp.sh report
+```
+
+The output is `transformer_profiling/reports/profiling_report.html`, an English
+chart-only page. `collect` refreshes it automatically. Use `report --watch` to
+rebuild when result files are added or updated locally in `final/`.
+See the [profiling guide](transformer_profiling/README.md) for chart controls,
+new experiments, optional tile/multicore sweeps, and measurement definitions.
+
 ## Reference
 If you have used TiC-SAT, we would appreciate it if you cite the following papers in your academic articles:
 
@@ -71,4 +88,3 @@ arXiv preprint arXiv:2312.13000 (2023).
 
 ## Acknowledgements
 This work has been supported by the EC H2020 WiPLASH (GA No. 863337) and the EC H2020 FVLLMONTI (GA No. 101016776) projects.
-
