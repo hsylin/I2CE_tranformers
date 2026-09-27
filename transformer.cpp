@@ -11,16 +11,8 @@
 #include "transformer_layers/run_mode_config.h"
 #include <codebooks_def.h>
 
-// Optional command-line override for TILE_L1_SIZE, matching the same override
-// applied at the top of Full_NN/src/gemm_exec.c so both translation units see
-// the same TILE_L1_SIZE value. See compile_transformer.sh for the
-// TILE_L1_SIZE_FLAG -> -DTILE_L1_SIZE_OVERRIDE plumbing. When the override is
-// unset, TILE_L1_SIZE keeps the notebook value from codebooks_def.h and the
-// banner below prints it unchanged.
-#ifdef TILE_L1_SIZE_OVERRIDE
-#undef TILE_L1_SIZE
-#define TILE_L1_SIZE TILE_L1_SIZE_OVERRIDE
-#endif
+// TILE_L1_SIZE / TILE_L2_SIZE come solely from codebooks_def.h; the banner
+// below prints whatever the notebook generated. No command-line override.
 
 #if CFG_USE_CODEBOOK_GEMM
 #include "transformer_layers/registry_adapter.h"
