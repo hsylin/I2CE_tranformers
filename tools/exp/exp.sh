@@ -15,6 +15,7 @@
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
 #   ./exp.sh build-libm5              build gem5's libm5.a for the aarch64 guest
 #   ./exp.sh gc-src                   drop the worktrees `--at` created
+#   ./exp.sh gc-builds                drop build directories no run points at
 #
 # Any of build/submit/dryrun/checkpoint/run also accepts `--at <commit-ish>`:
 # the binary is built from a worktree of that commit, while the runner, the
@@ -95,6 +96,17 @@ gem5_count() { pgrep -x "$(basename "$GEM5_BIN")" 2>/dev/null | wc -l; }
 gem5_pid_for() { # $1 = outdir
   local p b; b="$(basename "$GEM5_BIN")"
   for p in $(pgrep -f -- "-d $1 " 2>/dev/null); do
+    [[ "$(cat "/proc/$p/comm" 2>/dev/null)" == "$b" ]] && { echo "$p"; return 0; }
+  done
+  return 1
+}
+
+# Which live gem5, if any, has this directory mounted as its 9p share? The
+# share is a filesystem a running guest reads from, so anything that rewrites
+# one has to know whether a simulation is still looking at it.
+run_using_share() { # $1 = build directory -> prints the pid of a live user
+  local p b; b="$(basename "$GEM5_BIN")"
+  for p in $(pgrep -f -- "--vio-9p=$1 " 2>/dev/null); do
     [[ "$(cat "/proc/$p/comm" 2>/dev/null)" == "$b" ]] && { echo "$p"; return 0; }
   done
   return 1
@@ -238,6 +250,29 @@ preflight() { # $1 = sve_bits (optional), then load_row's OV_* are consulted
 # ---------------------------------------------------------------- build
 build_one() {
   load_row "$1"; preflight "$SVE"
+
+  # One share per BUILD, not per experiment row. The share is a live 9p mount
+  # for as long as a run lasts, so a single directory per row meant rebuilding
+  # replaced the binary and weights a running guest was reading -- which is
+  # exactly what comparing two commits under one row asks for. A build gets a
+  # directory of its own, never reused, and $EDIR/share points at the latest.
+  local BUILD_ID
+  BUILD_ID="$(date +%Y%m%d_%H%M%S)_$(git -C "$REPO_ROOT" rev-parse --short=8 HEAD 2>/dev/null || echo nogit)"
+  git -C "$REPO_ROOT" diff --quiet 2>/dev/null || BUILD_ID="${BUILD_ID}d"
+
+  # A pre-existing plain directory is from before this change; keep it (older
+  # runs fall back to its build_config.tsv) but get it out of the way first.
+  if [[ -d "$EDIR/share" && ! -L "$EDIR/share" ]]; then
+    local INUSE
+    if INUSE="$(run_using_share "$EDIR/share")"; then
+      die "[build $EID] $EDIR/share is the old shared directory and gem5 pid $INUSE is still using it. Wait for that run to finish; the next build will move it aside and switch to per-build directories."
+    fi
+    mkdir -p "$EDIR/builds"
+    mv "$EDIR/share" "$EDIR/builds/legacy_$(date +%Y%m%d_%H%M%S)"
+    echo "[build $EID] moved the old shared directory into builds/ (one directory per build from now on)"
+  fi
+
+  SHARE="$EDIR/builds/$BUILD_ID"
   mkdir -p "$SHARE" "$STAGE" "$EXP_ROOT/_locks"
 
   # 1. artifacts
@@ -341,7 +376,7 @@ build_one() {
     printf 'repo_commit_full\t%s\n'  "$(git -C "$REPO_ROOT" rev-parse HEAD)"
     # Subject only, tabs and newlines flattened: this ends up in a TSV cell.
     printf 'commit_subject\t%s\n' \
-           "$(git -C "$REPO_ROOT" log -1 --format=%s | tr '\t\n' '  ')"
+           "$(git -C "$REPO_ROOT" log -1 --format=%s | tr -d '\n' | tr '\t' ' ')"
     printf 'compile_flags\t%s\n'        "$BUILD_FLAGS"
     printf 'binary_sha256\t%s\n'        "$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
     if [[ "$USE_LIBM5" == 1 ]]; then
@@ -350,12 +385,17 @@ build_one() {
     printf 'codebooks_def_sha256\t%s\n' "$(sha256sum "$HDR_SRC/codebooks_def.h" | cut -d' ' -f1)"
     printf 'gem5_bin\t%s\n'             "$GEM5_BIN"
     printf 'gem5_cfg\t%s\n'             "$GEM5_CWD/$GEM5_CFG"
+    printf 'build_dir\t%s\n'            "$SHARE"
   } > "$SHARE/build_config.tsv"
   if ! git -C "$REPO_ROOT" diff --quiet; then
     git -C "$REPO_ROOT" diff > "$SHARE/repo_uncommitted.diff"
     echo "[build $EID] WARNING: repo has uncommitted changes; saved $SHARE/repo_uncommitted.diff"
   fi
+  # Point $EDIR/share at this build, atomically, so `run <id>` and anything
+  # else that knows only the experiment finds the newest one.
+  ln -sfn "$SHARE" "$EDIR/.share.new" && mv -Tf "$EDIR/.share.new" "$EDIR/share"
   echo "[build $EID] share ready: $SHARE"
+  echo "[build $EID] $EDIR/share -> $BUILD_ID"
 }
 
 # ------------------------------------------------------------ checkpoint
@@ -405,6 +445,16 @@ checkpoint_one() {
 launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   load_row "$1"
   local RCS="$2" PREFIX="$3" CPU="$4"
+  # Resolve the symlink now: gem5 is given an absolute path, so a later build
+  # retargeting $EDIR/share cannot move this run's mount out from under it.
+  local SHARE_REAL
+  SHARE_REAL="$(cd "$SHARE" 2>/dev/null && pwd -P)" \
+    || die "[exp $EID] no build to run — run: ./exp.sh build $EID"
+  SHARE="$SHARE_REAL"
+  local BUSY
+  if BUSY="$(run_using_share "$SHARE")"; then
+    die "[exp $EID] gem5 pid $BUSY is already running from this build ($SHARE). Both guests write gem5_profile_regions.tsv into it and would overwrite each other. Build again to get a fresh directory, or wait."
+  fi
   local CPT; CPT="$(ls -d "$CPT_DIR"/cpt.* 2>/dev/null | head -1)"
   [[ -n "$CPT" ]] || die "[exp $EID] no checkpoint for sve$SVE cores=$CORES — run: ./exp.sh checkpoint $EID"
   [[ -f "$SHARE/transformer.o" ]] || die "[exp $EID] no binary — run: ./exp.sh build $EID"
@@ -415,6 +465,7 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   # -- overwrites it, and a run still in flight would afterwards be collected
   # against a build that is not its own.
   [[ -f "$SHARE/build_config.tsv" ]] && cp "$SHARE/build_config.tsv" "$OUT/build_config.tsv"
+  printf '%s\n' "$SHARE" > "$OUT/build_dir"
   gem5_extra run
   ( cd "$GEM5_CWD" && nohup setsid \
     "$GEM5_BIN" -d "$OUT" --stats-file=stats.txt --dump-config=config.ini \
@@ -690,6 +741,32 @@ src_tree_for() { # $1 = commit-ish  ->  prints the worktree path
   echo "$dir"
 }
 
+# Build directories accumulate: one per build, ~35 MB of binary and weights.
+# Anything a recorded run points at, and the current $EDIR/share, is kept.
+cmd_gc_builds() {
+  local e d real target ref removed=0 kept=0
+  for e in "$EXP_ROOT"/*; do
+    [[ -d "$e/builds" ]] || continue
+    target=""
+    [[ -L "$e/share" ]] && target="$(cd "$e/share" 2>/dev/null && pwd -P)"
+    local refs=""
+    for ref in "$e"/out_*/build_dir "$e"/smoke_*/build_dir; do
+      [[ -f "$ref" ]] && refs="$refs$(cat "$ref")"$'\n'
+    done
+    for d in "$e"/builds/*; do
+      [[ -d "$d" ]] || continue
+      real="$(cd "$d" 2>/dev/null && pwd -P)" || continue
+      if [[ "$real" == "$target" ]] || grep -qxF "$real" <<<"$refs" \
+         || run_using_share "$real" >/dev/null; then
+        kept=$((kept+1)); continue
+      fi
+      echo "[gc-builds] removing $d"
+      rm -rf "$d"; removed=$((removed+1))
+    done
+  done
+  echo "[gc-builds] removed $removed, kept $kept"
+}
+
 cmd_gc_src() {
   compgen -G "$EXP_ROOT/_src/*" >/dev/null || { echo "[gc-src] nothing to remove"; return 0; }
   local d
@@ -779,5 +856,6 @@ case "${1:-}" in
   patch-gem5)  cmd_patch_gem5 ;;
   build-libm5) cmd_build_libm5 ;;
   gc-src)      cmd_gc_src ;;
-  *) sed -n '3,38p' "$0"; exit 1 ;;
+  gc-builds)   cmd_gc_builds ;;
+  *) sed -n '3,39p' "$0"; exit 1 ;;
 esac

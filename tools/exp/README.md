@@ -86,6 +86,7 @@ No script changes needed.
 ./exp.sh collect 39 --run 20260927_231044   # ... or a specific run
 ./exp.sh report           # all collected experiments -> one offline HTML
 ./exp.sh gc-src           # drop the worktrees --at created
+./exp.sh gc-builds        # drop build directories no run points at
 ```
 
 ### Running a specific commit
@@ -103,6 +104,31 @@ tree is untouched and two commits can be built side by side. The runner,
 `experiments.tsv` and `add_experiment.py` always come from the checkout you
 invoked — **the measured code is the variable, the measuring apparatus is the
 constant.** `--at` is refused on `collect` for that reason.
+
+### Two commits under one experiment row
+
+Every build gets its own directory, `$EXP_ROOT/<id>/builds/<timestamp>_<sha>/`,
+and `$EXP_ROOT/<id>/share` is a symlink to the newest. That is what makes this
+safe:
+
+```bash
+./exp.sh submit 38 --at shaA     # builds A, launches a run that mounts A
+./exp.sh submit 38 --at shaB     # builds B; A's run is untouched
+```
+
+A run's share is a live 9p filesystem: the guest executes `transformer.o` from
+it, which Linux demand-pages for the whole run, and bind-mounts `weights/` out
+of it. With one directory per experiment row the second build replaced both
+under the first run. A launch also resolves the symlink to an absolute path, so
+a later build retargeting it cannot move a running mount.
+
+Two runs of *the same* build at once are still refused: both guests write
+`gem5_profile_regions.tsv` into the shared directory and would overwrite each
+other. Build again to get a fresh directory.
+
+`./exp.sh gc-builds` deletes build directories no recorded run points at (each
+run stores its own in `build_dir`), keeping the current one. Roughly 35 MB of
+binary and weights per build, so it is worth running after a sweep.
 
 The worktree is a sparse checkout of just what a build reads — roughly 60 MB
 rather than the ~2 GB a full checkout of this repository costs, most of which
