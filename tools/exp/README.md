@@ -80,7 +80,7 @@ No script changes needed.
 ./exp.sh dryrun 39        # resolve every step incl. gem5 flags; touches nothing
 ./exp.sh smoke [id]       # end-to-end pipeline test in minutes (no full sim)
 ./exp.sh submit 37 38 39  # build + checkpoint + launch, throttled (MAX_PARALLEL)
-./exp.sh status           # gem5 processes + last run per experiment (DONE/RUNNING)
+./exp.sh status           # gem5 processes + one row per run (see States below)
 ./exp.sh results 39       # where the latest run's logs/stats are
 ./exp.sh collect 39       # newest finished run -> tables + refreshed HTML report
 ./exp.sh collect 39 --run 20260927_231044   # ... or a specific run
@@ -88,6 +88,35 @@ No script changes needed.
 ./exp.sh gc-src           # drop the worktrees --at created
 ./exp.sh gc-builds        # drop build directories no run points at
 ```
+
+### States reported by `status`
+
+`status` prints one row per *run*, not per experiment id: every run still in
+flight, plus the newest row of each id. Several runs of one id can be live at
+once — that is the point of per-build shares — and a view that showed only the
+last row hid the rest. The commit column is the commit the binary was built
+from, so two rows of the same id are told apart by the thing that differs.
+
+| state | meaning |
+|---|---|
+| `RUNNING` | a gem5 process is alive for this output directory |
+| `DONE -> collect <id>` | `stats.txt` and `gem5_profile_regions.tsv` are both written; ready to harvest (with `--run <ts>` when the id has more than one row shown) |
+| `COLLECTED E<n>` | already harvested, and which table row it became |
+| `SMOKE-OK` | a `smoke` run that reached its end |
+| `INCOMPLETE` | no live process and no complete output — look at `gem5_stdout.log` and `system.terminal` |
+
+`RUNNING` is decided first by a live process whose command line carries this
+run's `-d` directory. Failing that, and only for a run that was never harvested,
+the pid recorded at launch counts if it still belongs to the gem5 binary — on its
+own that pid is not trusted, because over a ten-hour simulation the kernel can
+hand the number to something else.
+
+`COLLECTED` comes from `collected_as`, which `collect` writes into the run
+directory *after* `add_experiment.py` has returned 0, holding the assigned id.
+It is deliberately not keyed on `provenance.tsv`: that file is an **input** to
+`add_experiment.py`, so it exists before the harvest and survives a failed one.
+Runs harvested before this marker existed are still recognised, by the run
+timestamp their per-run table file carries.
 
 ### Running a specific commit
 

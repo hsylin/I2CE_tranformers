@@ -9,7 +9,7 @@
 #   ./exp.sh run     <id>             launch one measurement run (background)
 #   ./exp.sh submit  <id...>          build+checkpoint+run several, throttled
 #   ./exp.sh smoke   [id]             end-to-end pipeline test WITHOUT the 10 h sim
-#   ./exp.sh status                   running gem5 jobs + last manifest rows
+#   ./exp.sh status                   running gem5 jobs + one row per live run
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
 #   ./exp.sh collect <id> [--run <ts>] [args...]  a finished run -> the tables
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
@@ -41,8 +41,10 @@
 #     copy-on-write by starter_fs.py; checkpoints are only read at restore
 #   - boot checkpoints are cached per (sve_bits, cores) — cache-size and
 #     model-dimension changes reuse them (atomic boot has no caches)
-#   - each experiment's 9p share is private, so guest-side outputs
-#     (gem5_profile_regions.tsv) cannot interleave across experiments.
+#   - every build gets its own 9p share, so guest-side outputs
+#     (gem5_profile_regions.tsv) cannot interleave -- neither across
+#     experiments, nor across concurrent runs of one experiment id built
+#     from different commits.
 
 set -euo pipefail
 
@@ -85,6 +87,9 @@ export M5_PATH
 # The repo tracks Full_NN/generators/__pycache__; never rewrite it.
 export PYTHONDONTWRITEBYTECODE=1
 TABLE="$SELF_DIR/experiments.tsv"
+# Same reasoning as $AE in collect_one: the tables belong to the checkout that
+# was invoked, never to a `--at <sha>` worktree.
+FINAL_DIR="$SELF_DIR/../../transformer_profiling/final"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 note() { printf '  %-18s %s\n' "$1" "$2"; }
@@ -451,11 +456,34 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   SHARE_REAL="$(cd "$SHARE" 2>/dev/null && pwd -P)" \
     || die "[exp $EID] no build to run — run: ./exp.sh build $EID"
   SHARE="$SHARE_REAL"
+  # The guest script needs the same treatment. gem5 opens --script lazily, when
+  # the guest runs `m5 readfile` after the restore, so a path through
+  # $EDIR/share would be read after a later build had already retargeted that
+  # symlink -- and the guest would mount the other build's aname and run the
+  # other build's binary.
+  RCS="$SHARE/$(basename "$RCS")"
+  [[ -f "$RCS" ]] \
+    || die "[exp $EID] $RCS is missing from the build — run: ./exp.sh build $EID"
+  # The guest mounts with `aname=<the share it was built against>`, baked in at
+  # build time, and diod refuses an attach for anything but the directory gem5
+  # exports. A guest script from before per-build shares carries the `share`
+  # symlink instead (the one `builds/legacy_*` kept), and the mismatch surfaces
+  # minutes later as a bare `9p mount FAILED` inside system.terminal.
+  # Only a mismatch that is actually there stops the launch: an rcS with no
+  # aname to find, or a future template this pattern does not match, must not
+  # be able to block every run on a string that moved.
+  local RCS_ANAME
+  RCS_ANAME="$(sed -n 's/.*[ ,]aname=\([^ ,]*\).*/\1/p' "$RCS" | head -1)"
+  [[ -z "$RCS_ANAME" || "$RCS_ANAME" == "$SHARE" ]] \
+    || die "[exp $EID] $RCS mounts aname=$RCS_ANAME but this run exports $SHARE, so the guest's 9p mount would be refused. That script was built for another share — build again: ./exp.sh build $EID"
   local BUSY
   if BUSY="$(run_using_share "$SHARE")"; then
     die "[exp $EID] gem5 pid $BUSY is already running from this build ($SHARE). Both guests write gem5_profile_regions.tsv into it and would overwrite each other. Build again to get a fresh directory, or wait."
   fi
-  local CPT; CPT="$(ls -d "$CPT_DIR"/cpt.* 2>/dev/null | head -1)"
+  # `|| true` on every one of these: `set -o pipefail` turns a glob that matches
+  # nothing into a failing pipeline, and `set -e` then aborts with no message at
+  # all -- so the explanation on the next line never gets printed.
+  local CPT; CPT="$(ls -d "$CPT_DIR"/cpt.* 2>/dev/null | head -1 || true)"
   [[ -n "$CPT" ]] || die "[exp $EID] no checkpoint for sve$SVE cores=$CORES — run: ./exp.sh checkpoint $EID"
   [[ -f "$SHARE/transformer.o" ]] || die "[exp $EID] no binary — run: ./exp.sh build $EID"
   local TS OUT; TS="$(date +%Y%m%d_%H%M%S)"; OUT="$EDIR/${PREFIX}_$TS"
@@ -494,7 +522,8 @@ smoke_one() {
   sed -e "s|@ID@|$EID|g" -e "s|@SHARE@|$SHARE|g" \
       "$SELF_DIR/lib/smoke.rcS.tmpl" > "$SHARE/smoke.rcS"
   launch_one "$EID" "$SHARE/smoke.rcS" smoke "$BOOT_CPU"
-  local OUT; OUT="$(ls -d "$EDIR"/smoke_* | sort | tail -1)"
+  local OUT; OUT="$(ls -d "$EDIR"/smoke_* 2>/dev/null | sort | tail -1 || true)"
+  [[ -n "$OUT" ]] || die "[smoke $EID] the launch left no smoke_* directory in $EDIR"
   echo "[smoke] waiting (checkpoint restore + guest script, a few minutes) ..."
   local i=0
   while kill -0 "$(cat "$OUT/pid")" 2>/dev/null; do
@@ -580,14 +609,27 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   else
     echo "[collect $EID] WARNING: no build_config.tsv (run predates provenance recording); labels come from experiments.tsv and are unverified" >&2
   fi
-  [[ -s "$OUT/stats.txt" && -s "$OUT/gem5_profile_regions.tsv" ]] \
-    || die "exp $EID latest run is not finished ($OUT): needs non-empty stats.txt and gem5_profile_regions.tsv"
+  # Name the run that was actually examined and how it was chosen: with several
+  # runs of one id in flight, "the latest run" is not enough to act on.
+  if [[ ! -s "$OUT/stats.txt" || ! -s "$OUT/gem5_profile_regions.tsv" ]]; then
+    local WHICH MISSING="" LIVE
+    if [[ -n "$WANT_RUN" ]]; then WHICH="run '$WANT_RUN' (selected with --run)"
+    else                         WHICH="the newest run of exp $EID"; fi
+    [[ -s "$OUT/stats.txt" ]]                || MISSING="$MISSING stats.txt"
+    [[ -s "$OUT/gem5_profile_regions.tsv" ]] || MISSING="$MISSING gem5_profile_regions.tsv"
+    if LIVE="$(gem5_pid_for "$OUT")"; then
+      die "[collect $EID] $WHICH is still running (gem5 pid $LIVE) in $OUT. Missing or empty:$MISSING. Wait for it: ./exp.sh status"
+    fi
+    die "[collect $EID] $WHICH did not finish, in $OUT. Missing or empty:$MISSING. Look at $OUT/gem5_stdout.log and $OUT/system.terminal."
+  fi
 
   # Everything the runner knows about this run, in one file committed beside the
   # tables: parameters that have no column of their own stay recoverable.
   local PROV="$OUT/provenance.tsv"
   local GEM5_ARGS
-  GEM5_ARGS="$(sed -n 's/^command line: //p' "$OUT/gem5_stdout.log" 2>/dev/null | head -1)"
+  # A run directory without gem5_stdout.log still has usable stats; recording
+  # "-" for the command line beats aborting the whole collection over it.
+  GEM5_ARGS="$(sed -n 's/^command line: //p' "$OUT/gem5_stdout.log" 2>/dev/null | head -1 || true)"
   {
     [[ -f "$BC" ]] && cat "$BC"
     printf 'collected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -597,27 +639,48 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
 
   # No --exp-id: add_experiment.py assigns the next free one, so ids never have
   # to be remembered. --runner-id keeps the link back to the experiments.tsv row.
-  local ARGS=( --stats "$OUT/stats.txt" --n-learners "$NL" --sve-bits "$SVE"
-               --study "Runner" --runner-id "$EID"
-               --repo-commit "$BC_COMMIT" --commit-subject "$BC_SUBJECT"
-               --binary-sha256 "$BC_BINSHA" --compile-flags "$BC_FLAGS"
-               --overrides "$OVR" --cores "$CORES"
-               --l1i "${OV_L1I:-$STOCK_L1I}" --l1d "${OV_L1D:-$STOCK_L1D}"
-               --l2 "${OV_L2:-$STOCK_L2}"
-               --provenance "$PROV" )
+  # --flag=value, not --flag value: a provenance value that begins with a dash
+  # -- a commit subject like "-Wall everywhere", a compile_flags list that starts
+  # with -O3 -- is taken for the next option in the two-token form, and argparse
+  # then rejects the whole invocation with a usage dump and collects nothing.
+  local ARGS=( --stats="$OUT/stats.txt" --n-learners="$NL" --sve-bits="$SVE"
+               --study=Runner --runner-id="$EID"
+               --repo-commit="$BC_COMMIT" --commit-subject="$BC_SUBJECT"
+               --binary-sha256="$BC_BINSHA" --compile-flags="$BC_FLAGS"
+               --overrides="$OVR" --cores="$CORES"
+               --l1i="${OV_L1I:-$STOCK_L1I}" --l1d="${OV_L1D:-$STOCK_L1D}"
+               --l2="${OV_L2:-$STOCK_L2}"
+               --provenance="$PROV" )
   case "$IMPL" in
     dense*) ARGS+=( --dense ) ;;
-    *)      ARGS+=( --codebook-size "$CB" ) ;;
+    *)      ARGS+=( --codebook-size="$CB" ) ;;
   esac
   if [[ "$MODEL_IS_DEFAULT" == 1 ]]; then
-    ARGS+=( --model BERT-mini )
+    ARGS+=( --model=BERT-mini )
   else
-    ARGS+=( --model "custom-q${D_Q_EFF}-s${SEQ_EFF}-m${DM_EFF}-h${NH_EFF}-f${DFF_EFF}"
+    # --dims takes five values, so it has to stay in the multi-token form.
+    ARGS+=( --model="custom-q${D_Q_EFF}-s${SEQ_EFF}-m${DM_EFF}-h${NH_EFF}-f${DFF_EFF}"
             --dims "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF" )
   fi
   echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final" >&2
-  "$GEN_PYTHON" "$AE" "${ARGS[@]}" "$@"
+  # provenance.tsv cannot mark a run as harvested: add_experiment.py *reads* it,
+  # so it has to exist before the harvest and survives a failed one. The marker
+  # below is written only once add_experiment.py has returned 0, and records the
+  # table row the run became, so a second collect of the same run is visible as
+  # the mistake it usually is rather than silently appending another row.
+  # Not `set -e`'s silent abort: say that the tables were left alone, and leave no
+  # empty log behind. The log holds add_experiment.py's stdout, which is where the
+  # assigned id is printed; its errors are on the terminal.
+  local LOG="$OUT/collect.log" RC=0
+  "$GEN_PYTHON" "$AE" "${ARGS[@]}" "$@" | tee "$LOG" || RC=$?
+  [[ -s "$LOG" ]] || rm -f "$LOG"
+  (( RC == 0 )) || die "[collect $EID] add_experiment.py exited $RC; the tables were not changed and $OUT is untouched. Fix the cause and collect again."
   if [[ " $* " != *" --dry-run "* ]]; then
+    # `E43: wrote e43_...tsv` -> `E43<TAB>e43_...tsv`. If add_experiment.py ever
+    # stops printing that, the marker still gets written, just without the id:
+    # losing the cross-reference is a smaller failure than losing the mark.
+    local ROW; ROW="$(sed -n 's/^\(E[0-9]\{1,\}\): wrote \(.*\)$/\1\t\2/p' "$LOG" | tail -1)"
+    printf '%s\n' "${ROW:-$'-\t-'}" > "$OUT/collected_as"
     echo
     echo "[collect $EID] tables updated. To publish them:"
     echo "    cd $REPO_ROOT"
@@ -667,19 +730,109 @@ cmd_submit() {
   echo; echo "submitted: $*   (watch: ./exp.sh status; harvest: ./exp.sh collect <id>)"
 }
 
+# `kill -0 $pid` is not enough to call a run live: over a ten-hour simulation the
+# pid recorded at launch can be recycled by an unrelated process, and status would
+# then report a dead run as RUNNING for as long as that process lived.
+pid_is_gem5() { # $1 = pid
+  [[ -n "${1:-}" && "$1" != "-" ]] || return 1
+  [[ "$(cat "/proc/$1/comm" 2>/dev/null)" == "$(basename "$GEM5_BIN")" ]]
+}
+
+# The table row a run became, or nothing if it was never harvested. Not
+# provenance.tsv: add_experiment.py takes that as an input, so it is written
+# before the harvest and stays behind after a failed one -- keying "collected"
+# off it would hide a run that still needs collecting.
+collected_as() { # $1 = outdir
+  if [[ -s "$1/collected_as" ]]; then
+    local id; id="$(cut -f1 "$1/collected_as" | head -1)"
+    [[ "$id" == "-" ]] && id=""
+    printf '%s\n' "$id"; return 0
+  fi
+  # Harvested before the marker existed: the per-run table file's name carries
+  # the run timestamp, which is the run directory's name minus its prefix.
+  local ts f; ts="${1##*/}"; ts="${ts#*_}"
+  for f in "$FINAL_DIR"/e*_run_"$ts".tsv; do
+    [[ -f "$f" ]] || continue
+    f="${f##*/}"; f="${f%%_*}"; printf 'E%s\n' "${f#e}"; return 0
+  done
+  return 1
+}
+
+# One word for what a recorded run is doing now.
+run_state() { # $1 = outdir  $2 = pid recorded at launch
+  # A process whose command line carries this output directory is ground truth
+  # about the present, and outranks everything: status filters on this word, and
+  # a run in flight must never be the row that gets dropped.
+  gem5_pid_for "$1" >/dev/null 2>&1 && { echo RUNNING; return; }
+  # Then: a run already turned into a table row is finished business, and
+  # reporting it as "DONE -> collect" forever invites collecting it twice.
+  local ROW
+  ROW="$(collected_as "$1")" && { echo "COLLECTED${ROW:+ $ROW}"; return; }
+  # The pid recorded at launch is a weaker signal than the command-line match --
+  # ten hours is long enough for the kernel to recycle it -- so it is consulted
+  # only for a run that was never harvested, where it cannot mislead into
+  # hiding anything.
+  pid_is_gem5 "$2" && { echo RUNNING; return; }
+  # DONE needs both artifacts: gem5 dumps stats.txt periodically, so a partial
+  # run has a non-empty one, while gem5_profile_regions.tsv arrives via
+  # `m5 writefile` at the very end.
+  if   [[ -s "$1/smoke_result.txt" ]];                              then echo SMOKE-OK
+  elif [[ -s "$1/stats.txt" && -s "$1/gem5_profile_regions.tsv" ]]; then echo DONE
+  else echo INCOMPLETE
+  fi
+}
+
+# Every run of this experiment id that is still in flight, plus the newest row.
+# One row per run, not per id: since each build has its own share, an id can have
+# several runs going at once from different commits, and printing only the last
+# row of the manifest hid every one of them but the last launched.
+status_rows_for() { # $1 = manifest.tsv
+  local ts id params commit sha cpt out pid
+  local -a AID=() APAR=() ACOM=() AOUT=() APID=() ATS=()
+  local n=0
+  while IFS=$'\t' read -r ts id params commit sha cpt out pid; do
+    [[ -n "${out:-}" ]] || continue
+    AID[n]="$id"; APAR[n]="$params"; ACOM[n]="${commit:--}"
+    AOUT[n]="$out"; APID[n]="${pid:--}"; ATS[n]="$ts"
+    n=$((n+1))
+  done < "$1"
+  (( n > 0 )) || return 0
+
+  # Which rows print, before printing any: whether `collect <id>` needs a --run
+  # to be unambiguous depends on how many rows of this id are about to be shown.
+  local i state
+  local -a SHOW=() STATE=()
+  for (( i=0; i<n; i++ )); do
+    state="$(run_state "${AOUT[i]}" "${APID[i]}")"
+    [[ "$state" == RUNNING ]] || (( i == n-1 )) || continue
+    SHOW+=( "$i" ); STATE+=( "$state" )
+  done
+
+  # The label is last and variable-width; everything before it is a fixed column,
+  # so the rows line up however long a label gets.
+  local k label
+  for (( k=0; k<${#SHOW[@]}; k++ )); do
+    i="${SHOW[k]}"; label="${STATE[k]}"
+    if [[ "$label" == DONE ]]; then
+      label="DONE -> collect ${AID[i]}"
+      (( ${#SHOW[@]} > 1 )) && label="$label --run ${ATS[i]}"
+    fi
+    printf '  exp %-4s %-27s %-9s %-26s pid=%-7s %s\n' \
+      "${AID[i]}" "${APAR[i]}" "${ACOM[i]}" "${AOUT[i]#"$EXP_ROOT"/}" \
+      "${APID[i]}" "$label"
+  done
+}
+
 cmd_status() {
   echo "== gem5 processes =="
   ps -o pid,stat,etime,pcpu,args -C "$(basename "$GEM5_BIN")" 2>/dev/null | cut -c1-140 || echo "  none"
-  echo; echo "== latest manifest rows =="
-  local m ts id params commit sha cpt out pid state
+  echo; echo "== runs under $EXP_ROOT (every one still in flight, plus the newest per id) =="
+  local m
   for m in "$EXP_ROOT"/*/manifest.tsv; do
+    # `|| continue`, not `&&`: with no experiments yet the glob stays literal and
+    # a trailing false test would make `status` itself exit non-zero.
     [[ -f "$m" ]] || continue
-    IFS=$'\t' read -r ts id params commit sha cpt out pid < <(tail -1 "$m") || continue
-    if [[ -s "$out/stats.txt" && -s "$out/gem5_profile_regions.tsv" ]]; then state="DONE -> collect $id"
-    elif [[ -s "$out/smoke_result.txt" ]]; then state="SMOKE-OK"
-    elif kill -0 "$pid" 2>/dev/null || gem5_pid_for "$out" >/dev/null; then state="RUNNING"
-    else state="INCOMPLETE"; fi
-    printf '  exp %-4s %-38s pid=%-8s %-18s %s\n' "$id" "$params" "$pid" "$state" "$out"
+    status_rows_for "$m"
   done
 }
 
