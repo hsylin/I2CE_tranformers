@@ -281,23 +281,28 @@ build_one() {
   # Provenance: record what this binary was ACTUALLY built with, so a later
   # edit to experiments.tsv can never change how an existing run is described.
   {
-    echo "exp_id\t$EID"
-    echo "built_at\t$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "impl\t$IMPL"
-    echo "codebook_size\t$CB"
-    echo "n_learners\t$NL"
-    echo "sve_bits\t$SVE"
-    echo "sve_lanes\t$SVE_LANES"
-    echo "cores\t$CORES"
-    echo "overrides\t$OVR"
-    echo "model_dims\td_q=$D_Q_EFF seq_len=$SEQ_EFF d_model=$DM_EFF num_heads=$NH_EFF d_ff=$DFF_EFF"
-    echo "default_artifacts\t$IS_DEFAULT_ARTIFACTS"
-    echo "repo_commit\t$(git -C "$REPO_ROOT" rev-parse HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
-    echo "compile_flags\t$BUILD_FLAGS"
-    echo "binary_sha256\t$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
-    echo "codebooks_def_sha256\t$(sha256sum "$HDR_SRC/codebooks_def.h" | cut -d' ' -f1)"
-    echo "gem5_bin\t$GEM5_BIN"
-    echo "gem5_cfg\t$GEM5_CWD/$GEM5_CFG"
+    # printf, not echo: bash's echo does not expand \t, which silently produced
+    # a file with literal backslash-t and made the collect guard below match
+    # nothing while still reporting success.
+    printf 'exp_id\t%s\n'               "$EID"
+    printf 'built_at\t%s\n'             "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'impl\t%s\n'                 "$IMPL"
+    printf 'codebook_size\t%s\n'        "$CB"
+    printf 'n_learners\t%s\n'           "$NL"
+    printf 'sve_bits\t%s\n'             "$SVE"
+    printf 'sve_lanes\t%s\n'            "$SVE_LANES"
+    printf 'cores\t%s\n'                "$CORES"
+    printf 'overrides\t%s\n'            "$OVR"
+    printf 'model_dims\td_q=%s seq_len=%s d_model=%s num_heads=%s d_ff=%s\n' \
+           "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF"
+    printf 'default_artifacts\t%s\n'    "$IS_DEFAULT_ARTIFACTS"
+    printf 'repo_commit\t%s\n' \
+           "$(git -C "$REPO_ROOT" rev-parse HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
+    printf 'compile_flags\t%s\n'        "$BUILD_FLAGS"
+    printf 'binary_sha256\t%s\n'        "$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
+    printf 'codebooks_def_sha256\t%s\n' "$(sha256sum "$HDR_SRC/codebooks_def.h" | cut -d' ' -f1)"
+    printf 'gem5_bin\t%s\n'             "$GEM5_BIN"
+    printf 'gem5_cfg\t%s\n'             "$GEM5_CWD/$GEM5_CFG"
   } > "$SHARE/build_config.tsv"
   if ! git -C "$REPO_ROOT" diff --quiet; then
     git -C "$REPO_ROOT" diff > "$SHARE/repo_uncommitted.diff"
@@ -411,18 +416,20 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
   # describes that build before writing anything into the results tables.
   local BC="$SHARE/build_config.tsv"
   if [[ -f "$BC" ]]; then
-    local k v mismatch=0
+    local k v mismatch=0 checked=0
     while IFS=$'\t' read -r k v; do
       case "$k" in
-        codebook_size) [[ "$v" == "$CB"   ]] || { echo "  build says codebook_size=$v, table says $CB" >&2; mismatch=1; } ;;
-        n_learners)    [[ "$v" == "$NL"   ]] || { echo "  build says n_learners=$v, table says $NL" >&2; mismatch=1; } ;;
-        sve_bits)      [[ "$v" == "$SVE"  ]] || { echo "  build says sve_bits=$v, table says $SVE" >&2; mismatch=1; } ;;
-        impl)          [[ "$v" == "$IMPL" ]] || { echo "  build says impl=$v, table says $IMPL" >&2; mismatch=1; } ;;
-        overrides)     [[ "$v" == "$OVR"  ]] || { echo "  build says overrides=$v, table says $OVR" >&2; mismatch=1; } ;;
+        codebook_size) checked=$((checked+1)); [[ "$v" == "$CB"   ]] || { echo "  build says codebook_size=$v, table says $CB" >&2; mismatch=1; } ;;
+        n_learners) checked=$((checked+1)); [[ "$v" == "$NL"   ]] || { echo "  build says n_learners=$v, table says $NL" >&2; mismatch=1; } ;;
+        sve_bits) checked=$((checked+1)); [[ "$v" == "$SVE"  ]] || { echo "  build says sve_bits=$v, table says $SVE" >&2; mismatch=1; } ;;
+        impl) checked=$((checked+1)); [[ "$v" == "$IMPL" ]] || { echo "  build says impl=$v, table says $IMPL" >&2; mismatch=1; } ;;
+        overrides) checked=$((checked+1)); [[ "$v" == "$OVR"  ]] || { echo "  build says overrides=$v, table says $OVR" >&2; mismatch=1; } ;;
       esac
     done < "$BC"
     [[ $mismatch -eq 0 ]] || die "[collect $EID] experiments.tsv no longer matches the binary that produced this run (see $BC). Refusing to mislabel the results."
-    echo "[collect $EID] build_config.tsv matches the table row"
+    # A malformed file whose keys never match would otherwise "pass" silently.
+    [[ $checked -ge 5 ]] || die "[collect $EID] only $checked of 5 fields could be read from $BC; the file is malformed and the labels cannot be trusted."
+    echo "[collect $EID] build_config.tsv matches the table row ($checked fields verified)"
   else
     echo "[collect $EID] WARNING: no build_config.tsv (run predates provenance recording); labels come from experiments.tsv and are unverified" >&2
   fi
