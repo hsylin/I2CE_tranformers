@@ -91,6 +91,43 @@ if [ -n "${TILE_L1_SIZE_FLAG:-}" ]; then
   EXTRA_DEFS="$EXTRA_DEFS -DTILE_L1_SIZE_OVERRIDE=${TILE_L1_SIZE_FLAG}"
 fi
 
+# --- libm5: issue m5 ops as instructions instead of forking a guest shell ----
+# Without this, profile.cc reaches gem5 through std::system("m5 dumpstats").
+# That forks /bin/sh in the guest and execs two binaries BEFORE the m5 op runs,
+# so the process creation -- and the L1/L2/TLB/branch-predictor damage it does
+# -- is charged to the region being measured, and the next region starts cold.
+# Linking gem5's libm5.a turns each boundary into a few instructions.
+#
+# Opt-in: a checkout without a gem5 source tree still builds (and still
+# measures, just with the shell overhead baked into every region).
+LIBM5_LINK=""
+if [ "${I2CE_USE_LIBM5_FLAG:-0}" = "1" ]; then
+  if [ -z "${LIBM5_A:-}" ] || [ -z "${M5_INC:-}" ]; then
+    if [ -z "${GEM5_ROOT:-}" ]; then
+      echo "ERROR: I2CE_USE_LIBM5_FLAG=1 needs GEM5_ROOT (a gem5 source tree)," >&2
+      echo "       or LIBM5_A + M5_INC set explicitly." >&2
+      exit 1
+    fi
+    LIBM5_A="${LIBM5_A:-$GEM5_ROOT/util/m5/build/arm64/out/libm5.a}"
+    M5_INC="${M5_INC:-$GEM5_ROOT/include}"
+  fi
+  if [ ! -f "$LIBM5_A" ]; then
+    echo "ERROR: libm5.a not found at $LIBM5_A" >&2
+    echo "       build it with:  (cd \$GEM5_ROOT/util/m5 && \\" >&2
+    echo "         scons arm64.CROSS_COMPILE=aarch64-conda-linux-gnu- \\" >&2
+    echo "               build/arm64/out/libm5.a)" >&2
+    echo "       or:  tools/exp/exp.sh build-libm5" >&2
+    exit 1
+  fi
+  if [ ! -f "$M5_INC/gem5/m5ops.h" ]; then
+    echo "ERROR: gem5/m5ops.h not found under $M5_INC" >&2
+    exit 1
+  fi
+  EXTRA_DEFS="$EXTRA_DEFS -DI2CE_USE_LIBM5"
+  EXTRA_CXXFLAGS="$EXTRA_CXXFLAGS -I$M5_INC"
+  LIBM5_LINK="$LIBM5_A"   # static archive: must follow the objects that use it
+fi
+
 echo "Compile options:"
 echo "  RELOAD_WEIGHT_FLAG=${RELOAD_WEIGHT_FLAG:-1}"
 echo "  USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=${USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG:-1}"
@@ -105,6 +142,7 @@ echo "  DENSE_NO_SIMD_BASELINE_FLAG=${DENSE_NO_SIMD_BASELINE_FLAG:-0}"
 echo "  SIMD_FLAG=${SIMD_FLAG:-0}"
 echo "  CORE_NUM (build)=${CORE_NUM_VALUE}"
 echo "  TILE_L1_SIZE_FLAG=${TILE_L1_SIZE_FLAG:-<unset, using notebook TILE_L1_SIZE>}"
+echo "  I2CE_USE_LIBM5_FLAG=${I2CE_USE_LIBM5_FLAG:-0}${LIBM5_LINK:+  ($LIBM5_LINK)}"
 
 
 
@@ -126,6 +164,7 @@ echo "  TILE_L1_SIZE_FLAG=${TILE_L1_SIZE_FLAG:-<unset, using notebook TILE_L1_SI
   -fopenmp \
   -static \
   -o transformer.o \
+  $LIBM5_LINK \
   -Wl,--start-group \
   -lgomp \
   -ldl \
