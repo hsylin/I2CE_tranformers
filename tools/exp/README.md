@@ -11,12 +11,34 @@ runs into the `transformer_profiling` tables.
 cd tools/exp
 cp runner.conf.example runner.conf     # edit paths for your machine
 conda activate gem5_env                # aarch64 cross compiler; regeneration needs numpy+torch+tqdm
+./exp.sh build-libm5                   # REQUIRED: gem5's libm5.a for the guest
 ./exp.sh patch-gem5                    # only needed for sve_bits != 128 or cache-size overrides
 ```
+
+`build-libm5` compiles `$GEM5_ROOT/util/m5` for arm64 with the same cross
+toolchain the transformer is built with, producing
+`build/arm64/out/libm5.a`. The guest binary links it statically so
+`profile.cc` issues `m5_dump_stats()` / `m5_reset_stats()` directly.
 
 `patch-gem5` adds `--sve-vl`, `--l1i-size`, `--l1d-size`, `--l2-size` options
 to the gem5 tree's `starter_fs.py` (idempotent; original kept as `.orig`).
 Without it, 128-bit runs with stock cache sizes work as-is.
+
+## Why libm5 is not optional for measurement
+
+The fallback is `std::system("m5 dumpstats")` at every region boundary. The
+fork of `/bin/sh` and the two `exec`s happen **before** the m5 op executes, so
+those cycles land in the region that is about to be dumped; the shell also
+evicts L1/L2 and TLB entries, so the *next* region starts cold and pays the
+misses. The overhead is roughly constant per boundary, which means it distorts
+small regions (`Projection`, `non_GEMM_*`) far more than large ones — it
+changes the ratios between regions, not just the totals.
+
+`USE_LIBM5=0` in `runner.conf` restores the shell path for a machine with no
+gem5 sources. **Runs built with `USE_LIBM5=1` and `USE_LIBM5=0` are not
+comparable.** `build_config.tsv` records `I2CE_USE_LIBM5_FLAG` inside
+`compile_flags`, plus `libm5_sha256`, so which path a run used is always
+recoverable from the run itself.
 
 ## Parameters
 
@@ -126,6 +148,8 @@ installation, data schemas, formulas, and source-data caveats.
 $EXP_ROOT/<id>/share/       binary + weights snapshot + run.rcS (private 9p share)
 $EXP_ROOT/<id>/out_<ts>/    one gem5 run: stats.txt, gem5_profile_regions.tsv,
                             gem5_stdout.log, system.terminal, config.ini
+$EXP_ROOT/<id>/share/build_config.tsv  what the binary was ACTUALLY built with
+                            (compile_flags, binary/libm5/codebooks sha256, commit)
 $EXP_ROOT/<id>/manifest.tsv one row per launch: timestamp, id, params, repo
                             commit(+dirty), binary sha256, checkpoint, outdir, pid
 $EXP_ROOT/_cpt/sve<b>[_c<n>]/  boot checkpoints, shared per (sve_bits, cores)

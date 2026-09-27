@@ -13,6 +13,7 @@
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
 #   ./exp.sh collect <id> [args...]   finished run -> transformer_profiling tables
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
+#   ./exp.sh build-libm5              build gem5's libm5.a for the aarch64 guest
 #
 # Parameters live in experiments.tsv, one row per experiment:
 #   id  cb  n_learners  sve_bits  impl  overrides  notes
@@ -58,6 +59,13 @@ NUM_CORES="${NUM_CORES:-1}"
 MAX_PARALLEL="${MAX_PARALLEL:-4}"
 STAGGER="${STAGGER:-20}"
 GEN_PYTHON="${GEN_PYTHON:-python3}"
+# libm5: gem5's m5 ops as linked instructions instead of std::system("m5 ...").
+# USE_LIBM5=0 falls back to the shell, which charges a guest fork + exec to
+# every measured region -- only for a tree with no gem5 sources to build from.
+GEM5_ROOT="${GEM5_ROOT:-$GEM5_CWD}"
+LIBM5_A="${LIBM5_A:-$GEM5_ROOT/util/m5/build/arm64/out/libm5.a}"
+M5_INC="${M5_INC:-$GEM5_ROOT/include}"
+USE_LIBM5="${USE_LIBM5:-1}"
 # gem5 SysPaths (bootloader etc.) need M5_PATH; export a sane default.
 M5_PATH="${M5_PATH:-$HOME/i2ce/gem5_resources}"
 export M5_PATH
@@ -243,6 +251,12 @@ build_one() {
   BUILD_FLAGS="$BUILD_FLAGS USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0"
   BUILD_FLAGS="$BUILD_FLAGS ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1"
   BUILD_FLAGS="$BUILD_FLAGS GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0"
+  BUILD_FLAGS="$BUILD_FLAGS I2CE_USE_LIBM5_FLAG=$USE_LIBM5"
+  # Fail before the lock, with the remedy, rather than deep inside build.log.
+  if [[ "$USE_LIBM5" == 1 ]]; then
+    [[ -f "$LIBM5_A" ]] || die "[build $EID] libm5.a missing at $LIBM5_A -- run '$SELF_DIR/exp.sh build-libm5' first. (USE_LIBM5=0 in runner.conf falls back to std::system(\"m5 ...\"), which forks a guest shell inside every measured region; runs built either way are NOT comparable.)"
+    [[ -f "$M5_INC/gem5/m5ops.h" ]] || die "[build $EID] gem5/m5ops.h missing under $M5_INC -- is GEM5_ROOT ($GEM5_ROOT) a gem5 source tree?"
+  fi
   echo "[build $EID] compiling (serialized) ..."
   (
     flock -w 1800 9 || die "could not obtain build lock"
@@ -253,7 +267,8 @@ build_one() {
       cp "$HDR_SRC"/*.h Full_NN/gemm_definitions/
     fi
     set +e
-    env $BUILD_FLAGS bash ./compile_transformer.sh > "$EDIR/build.log" 2>&1
+    env $BUILD_FLAGS GEM5_ROOT="$GEM5_ROOT" LIBM5_A="$LIBM5_A" M5_INC="$M5_INC" \
+      bash ./compile_transformer.sh > "$EDIR/build.log" 2>&1
     RC=$?
     set -e
     if [[ "$IS_DEFAULT_ARTIFACTS" != 1 ]]; then
@@ -300,6 +315,9 @@ build_one() {
            "$(git -C "$REPO_ROOT" rev-parse HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
     printf 'compile_flags\t%s\n'        "$BUILD_FLAGS"
     printf 'binary_sha256\t%s\n'        "$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
+    if [[ "$USE_LIBM5" == 1 ]]; then
+      printf 'libm5_sha256\t%s\n'       "$(sha256sum "$LIBM5_A" | cut -d' ' -f1)"
+    fi
     printf 'codebooks_def_sha256\t%s\n' "$(sha256sum "$HDR_SRC/codebooks_def.h" | cut -d' ' -f1)"
     printf 'gem5_bin\t%s\n'             "$GEM5_BIN"
     printf 'gem5_cfg\t%s\n'             "$GEM5_CWD/$GEM5_CFG"
@@ -534,6 +552,40 @@ cmd_patch_gem5() {
   "$GEN_PYTHON" "$SELF_DIR/lib/apply_gem5_opts.py" "$GEM5_CWD/$GEM5_CFG"
 }
 
+# Build gem5's static m5 op library for the guest, with the SAME cross toolchain
+# compile_transformer.sh will use, so archive and binary come from one compiler.
+cmd_build_libm5() {
+  [[ -f "$GEM5_ROOT/util/m5/SConstruct" ]] \
+    || die "no $GEM5_ROOT/util/m5/SConstruct -- set GEM5_ROOT to a gem5 source tree"
+  command -v scons >/dev/null 2>&1 \
+    || die "scons not found; activate the environment gem5 itself was built in"
+
+  local cxx prefix
+  cxx="${A64CXX:-}"
+  if [[ -z "$cxx" ]]; then
+    if [[ -n "${CONDA_PREFIX:-}" && -x "$CONDA_PREFIX/bin/aarch64-conda-linux-gnu-g++" ]]; then
+      cxx="$CONDA_PREFIX/bin/aarch64-conda-linux-gnu-g++"
+    elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
+      cxx="$(command -v aarch64-linux-gnu-g++)"
+    elif command -v aarch64-conda-linux-gnu-g++ >/dev/null 2>&1; then
+      cxx="$(command -v aarch64-conda-linux-gnu-g++)"
+    else
+      die "no aarch64 C++ compiler found; set A64CXX to your cross compiler"
+    fi
+  fi
+  prefix="${cxx%g++}"
+  [[ -x "${prefix}gcc" ]] || die "expected ${prefix}gcc next to $cxx; set A64CXX"
+
+  echo "[libm5] gem5 tree : $GEM5_ROOT"
+  echo "[libm5] toolchain : ${prefix}gcc"
+  ( cd "$GEM5_ROOT/util/m5" \
+    && scons "arm64.CROSS_COMPILE=$prefix" build/arm64/out/libm5.a )
+  [[ -f "$LIBM5_A" ]] || die "scons reported success but $LIBM5_A is missing"
+  echo "[libm5] ok: $(sha256sum "$LIBM5_A")"
+  echo "[libm5] binaries built from here on issue m5 ops inline; runs are NOT"
+  echo "        comparable with runs built before this. Re-baseline."
+}
+
 # ---------------------------------------------------------------- main
 case "${1:-}" in
   list)        cmd_list ;;
@@ -547,5 +599,6 @@ case "${1:-}" in
   results)     cmd_results "${2:?usage: exp.sh results <id>}" ;;
   collect)     shift; [[ $# -ge 1 ]] || die "usage: exp.sh collect <id> [add_experiment.py args...]"; collect_one "$@" ;;
   patch-gem5)  cmd_patch_gem5 ;;
-  *) sed -n '3,31p' "$0"; exit 1 ;;
+  build-libm5) cmd_build_libm5 ;;
+  *) sed -n '3,32p' "$0"; exit 1 ;;
 esac

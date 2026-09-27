@@ -16,6 +16,19 @@ GEM5_CFG=configs/example/arm/starter_fs.py
 # gem5 SysPaths (bootloader etc.); exp.sh exports this default if unset
 #M5_PATH=$HOME/i2ce/gem5_resources
 
+# gem5 SOURCE tree, used for libm5 (defaults to GEM5_CWD above). The guest
+# binary links $GEM5_ROOT/util/m5/build/arm64/out/libm5.a so profile.cc can
+# issue m5 ops as instructions; build it once with `./exp.sh build-libm5`.
+#GEM5_ROOT=$HOME/i2ce/gem5-tianrui
+#LIBM5_A=$GEM5_ROOT/util/m5/build/arm64/out/libm5.a
+#M5_INC=$GEM5_ROOT/include
+
+# USE_LIBM5=0 reverts to std::system("m5 ...") at every region boundary, which
+# forks a shell inside the guest and charges the process creation -- plus the
+# cache/TLB it evicts -- to the region being measured. Only for a machine with
+# no gem5 sources. Runs built with 1 and with 0 are NOT comparable.
+#USE_LIBM5=1
+
 # Kernel and pristine disk image (disk is opened copy-on-write by starter_fs.py,
 # so concurrent runs may safely share one image file)
 KERNEL=$HOME/i2ce/gem5_resources/binaries/vmlinux.tianrui
