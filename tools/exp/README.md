@@ -82,9 +82,45 @@ No script changes needed.
 ./exp.sh submit 37 38 39  # build + checkpoint + launch, throttled (MAX_PARALLEL)
 ./exp.sh status           # gem5 processes + last run per experiment (DONE/RUNNING)
 ./exp.sh results 39       # where the latest run's logs/stats are
-./exp.sh collect 39       # finished run -> tables + refreshed HTML report
+./exp.sh collect 39       # newest finished run -> tables + refreshed HTML report
+./exp.sh collect 39 --run 20260927_231044   # ... or a specific run
 ./exp.sh report           # all collected experiments -> one offline HTML
+./exp.sh gc-src           # drop the worktrees --at created
 ```
+
+### Running a specific commit
+
+`build`, `submit`, `dryrun`, `checkpoint` and `run` accept `--at <commit-ish>`:
+
+```bash
+./exp.sh submit 38 --at v0.3        # the binary comes from that commit
+./exp.sh submit 38                  # ... and this one from the current checkout
+./exp.sh collect 38                 # both collected with today's tooling
+```
+
+The commit is built in a `git worktree` under `$EXP_ROOT/_src/`, so your working
+tree is untouched and two commits can be built side by side. The runner,
+`experiments.tsv` and `add_experiment.py` always come from the checkout you
+invoked — **the measured code is the variable, the measuring apparatus is the
+constant.** `--at` is refused on `collect` for that reason.
+
+The worktree is a sparse checkout of just what a build reads — roughly 60 MB
+rather than the ~2 GB a full checkout of this repository costs, most of which
+(`executable archive/`, `gem5-X-TiC-SAT/`, `weights/multiple_learner_outputs/`)
+no build touches. `./exp.sh gc-src` removes them when done. On a git too old
+for `sparse-checkout` the full tree is taken instead, with a warning.
+
+Because `$EXP_ROOT/<id>/share` belongs to the experiment id and not to the run,
+the next build of that id overwrites it. Each launch therefore snapshots
+`build_config.tsv` into its own run directory, and `collect` reads the run's
+copy — so a run still in flight when you build another commit is still
+described by the build it actually used. Runs are also selected by name rather
+than modification time, since collecting one writes into it.
+
+A tree old enough to predate a build flag would otherwise be recorded as
+something it is not, so `build` checks the binary against the configuration
+before recording anything: with `USE_LIBM5=1` a binary that still contains the
+`std::system("m5 ...")` string is rejected outright.
 
 Long jobs are launched with `nohup setsid` (they survive disconnects), but run
 `submit` itself inside `screen`/`tmux` when it has to regenerate artifacts or
@@ -97,6 +133,20 @@ When `status` shows `DONE`, `./exp.sh collect <id>` calls
 parameters (`--stats … --n-learners … --codebook-size|--dense … --sve-bits …
 --exp-id E<id>`, plus `--model/--dims` when the model dimensions were
 overridden). Extra arguments pass through and win on conflict, e.g.:
+
+Experiment IDs are assigned automatically (the next free one in
+`manifest.tsv`), so there is nothing to remember; `--exp-id E38 --replace`
+re-collects an existing one. Because IDs are automatic, collecting the same run
+twice is caught by its stats file rather than its ID — pass `--force-new` if a
+second row really is wanted.
+
+Every row records how it was produced: `runner_id`, `repo_commit`,
+`commit_subject`, `binary_sha256`, `compile_flags`, `overrides`, `cores` and
+the three cache sizes. Two runs with identical parameters but different code
+are therefore distinguishable, and the commit appears in the file name too. The
+run's full `build_config.tsv` plus the gem5 command line is copied to
+`final/provenance/<exp_id>.tsv`, so settings with no column of their own stay
+recorded.
 
 ```bash
 ./exp.sh collect 38 --study "Codebook-size scaling" --dry-run   # preview rows

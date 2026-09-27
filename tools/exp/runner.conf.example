@@ -29,6 +29,13 @@ GEM5_CFG=configs/example/arm/starter_fs.py
 # no gem5 sources. Runs built with 1 and with 0 are NOT comparable.
 #USE_LIBM5=1
 
+# Cache sizes gem5 uses when a row passes no l1i/l1d/l2 override. They are
+# recorded with every run, so they must match the gem5 tree's
+# configs/example/arm/devices.py; change them here if that tree differs.
+#STOCK_L1I=48KiB
+#STOCK_L1D=32KiB
+#STOCK_L2=1MiB
+
 # Kernel and pristine disk image (disk is opened copy-on-write by starter_fs.py,
 # so concurrent runs may safely share one image file)
 KERNEL=$HOME/i2ce/gem5_resources/binaries/vmlinux.tianrui

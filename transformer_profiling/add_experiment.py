@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import shutil
 import re
 import sys
 import tempfile
@@ -79,6 +80,25 @@ ADD_METRICS = [
 
 BTB_HIT_RATIO_STAT = "system.cpu_cluster.cpus.branchPred.BTBHitRatio"
 
+# Provenance columns, appended to both tables. They are always written; a run
+# whose runner could not supply one records LEGACY_FILL rather than an empty
+# cell, so "not recorded" is visibly different from "recorded as empty".
+PROVENANCE_COLUMNS = [
+    "runner_id",        # experiments.tsv row this run came from
+    "repo_commit",      # short sha, with +dirty when the tree was modified
+    "commit_subject",   # first line of that commit's message
+    "binary_sha256",    # the binary that actually ran: the ground truth
+    "compile_flags",    # BUILD_FLAGS the binary was compiled with
+    "overrides",        # raw overrides string from experiments.tsv
+    "cores",
+    "l1i",
+    "l1d",
+    "l2",
+]
+
+# Written into provenance cells the caller did not supply.
+LEGACY_FILL = "-"
+
 OUTPUT_COLUMNS = [
     "exp_id",
     "study",
@@ -108,6 +128,7 @@ OUTPUT_COLUMNS = [
     "l2_demand_miss_rate",
     "branch_misprediction_rate",
     "btb_hit_ratio",
+    *PROVENANCE_COLUMNS,
 ]
 
 MANIFEST_COLUMNS = [
@@ -122,6 +143,7 @@ MANIFEST_COLUMNS = [
     "output_file",
     "stats_blocks",
     "rows_written",
+    *PROVENANCE_COLUMNS,
 ]
 
 # name -> (d_q, d_seq, d_model, num_head, d_ff), matching transformer.h
@@ -161,6 +183,7 @@ class Experiment:
     stats_file: str
     is_dense: bool
     scale_first_learner: bool
+    provenance: Dict[str, str]
 
     @property
     def number(self) -> int:
@@ -168,9 +191,14 @@ class Experiment:
 
     @property
     def output_name(self) -> str:
+        # The commit goes in the name so two runs with identical parameters but
+        # different code are told apart in a directory listing, not only by
+        # opening the file.
+        commit = commit_slug(self.provenance.get("repo_commit", LEGACY_FILL))
         return (
             f"e{self.number:02d}_{slugify_study(self.study)}_n{self.n_learners}_"
-            f"cb{self.codebook_size}_sve{self.sve_bits}_{self.gem5_timestamp}.tsv"
+            f"cb{self.codebook_size}_sve{self.sve_bits}_"
+            f"{commit}{self.gem5_timestamp}.tsv"
         )
 
 
@@ -250,6 +278,33 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="overwrite an experiment ID that already exists",
     )
     parser.add_argument(
+        "--force-new", action="store_true",
+        help="collect a stats file that is already in the tables again, under a "
+             "new experiment ID (the duplicate check exists because experiment "
+             "IDs are assigned automatically)",
+    )
+    prov = parser.add_argument_group(
+        "provenance",
+        "Recorded verbatim so a row can be traced back to the code and settings "
+        "that produced it. Anything not supplied is written as '-'.",
+    )
+    prov.add_argument("--runner-id", help="experiments.tsv row id this run came from")
+    prov.add_argument("--repo-commit", help="short sha, '+dirty' suffix when modified")
+    prov.add_argument("--commit-subject", help="first line of that commit's message")
+    prov.add_argument("--binary-sha256", help="sha256 of the binary that ran")
+    prov.add_argument("--compile-flags", help="BUILD_FLAGS the binary was compiled with")
+    prov.add_argument("--overrides", help="raw overrides string from experiments.tsv")
+    prov.add_argument("--cores", help="simulated core count")
+    prov.add_argument("--l1i", help="L1 instruction cache size")
+    prov.add_argument("--l1d", help="L1 data cache size")
+    prov.add_argument("--l2", help="L2 cache size")
+    prov.add_argument(
+        "--provenance", type=Path,
+        help="key/value file (build_config.tsv and friends) copied verbatim to "
+             "final/provenance/<exp_id>.tsv, so settings with no column of their "
+             "own are still recorded in the repository",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="print the rows to stdout and write nothing",
     )
@@ -271,6 +326,36 @@ def exp_number(exp_id: str) -> int:
 def normalize_exp_id(exp_id: str) -> str:
     label = exp_id.strip().upper()
     return f"E{exp_number(label if label.startswith('E') else 'E' + label):02d}"
+
+
+def sanitize_subject(text: str) -> str:
+    """One line, no tabs, bounded length — a commit subject has to survive TSV."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) > 72:
+        collapsed = collapsed[:69].rstrip() + "..."
+    return collapsed or LEGACY_FILL
+
+
+def short_commit(value: str) -> str:
+    """Uniform width in the column: older runners recorded the full 40-char sha."""
+    if not value or value == LEGACY_FILL:
+        return LEGACY_FILL
+    head, sep, rest = value.partition("+")
+    head = head.strip()
+    if len(head) > 12 and all(c in "0123456789abcdefABCDEF" for c in head):
+        head = head[:12].lower()
+    return head + sep + rest
+
+
+def commit_slug(repo_commit: str) -> str:
+    """'1497c139+dirty' -> '1497c139d_'; unknown -> '' so the name is unchanged."""
+    if not repo_commit or repo_commit == LEGACY_FILL:
+        return ""
+    head = repo_commit.split("+", 1)[0].strip().lower()
+    short = "".join(ch for ch in head if ch in "0123456789abcdef")[:8]
+    if not short:
+        return ""
+    return f"{short}{'d' if '+dirty' in repo_commit else ''}_"
 
 
 def slugify_study(study: str) -> str:
@@ -339,6 +424,26 @@ def build_experiment(args: argparse.Namespace) -> Experiment:
         f"{executable_impl}_SVE_{args.sve_bits}.o"
     )
 
+    provenance = {
+        "runner_id": args.runner_id,
+        "repo_commit": short_commit(args.repo_commit) if args.repo_commit else None,
+        "commit_subject": sanitize_subject(args.commit_subject) if args.commit_subject else None,
+        "binary_sha256": args.binary_sha256,
+        "compile_flags": args.compile_flags,
+        "overrides": args.overrides,
+        "cores": args.cores,
+        "l1i": args.l1i,
+        "l1d": args.l1d,
+        "l2": args.l2,
+    }
+    provenance = {
+        key: (str(value).strip() or LEGACY_FILL) if value is not None else LEGACY_FILL
+        for key, value in provenance.items()
+    }
+    for key, value in provenance.items():
+        if "\t" in value or "\n" in value:
+            raise ExtractionError(f"--{key.replace('_', '-')} must not contain tabs or newlines")
+
     stats_path = args.stats.expanduser().resolve()
     manifest_path = args.output_root / "manifest.tsv"
     exp_id = normalize_exp_id(args.exp_id) if args.exp_id else next_exp_id(manifest_path)
@@ -359,6 +464,7 @@ def build_experiment(args: argparse.Namespace) -> Experiment:
         executable=executable,
         gem5_timestamp=derive_gem5_timestamp(stats_path, args.gem5_timestamp),
         stats_file=args.recorded_stats_path or str(stats_path),
+        provenance=provenance,
         is_dense=args.dense,
         scale_first_learner=args.scale_first_learner,
     )
@@ -557,6 +663,7 @@ def base_row(exp: Experiment, row_index: int, row_kind: str, dump_index: int) ->
             "dump_index": str(dump_index),
             "checkpoint": checkpoint,
             "interval": interval,
+            **exp.provenance,
         }
     )
     return row
@@ -639,9 +746,26 @@ def build_rows(exp: Experiment, all_blocks: List[Block], start_block: int) -> Li
 def read_tsv(path: Path, expected_columns: List[str]) -> List[Dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
-        if reader.fieldnames != expected_columns:
-            raise ExtractionError(f"{path} does not have the expected columns")
-        return list(reader)
+        names = reader.fieldnames
+        if names == expected_columns:
+            return list(reader)
+        # A file written before columns were appended is still readable, as long
+        # as what it has is an exact prefix of the current schema: the missing
+        # cells are filled in and the next write stores the full schema. Any
+        # other difference is a real mismatch and must not be guessed at.
+        if names is not None and expected_columns[: len(names)] == list(names):
+            missing = expected_columns[len(names):]
+            print(
+                f"note: {path} predates {len(missing)} column(s) "
+                f"({', '.join(missing)}); filling them with '{LEGACY_FILL}'",
+                file=sys.stderr,
+            )
+            rows = []
+            for row in reader:
+                row.update({column: LEGACY_FILL for column in missing})
+                rows.append(row)
+            return rows
+        raise ExtractionError(f"{path} does not have the expected columns")
 
 
 def write_tsv(path: Path, columns: List[str], rows: List[Dict[str, str]]) -> None:
@@ -671,7 +795,13 @@ def merge_rows(
 
 
 def add_experiment(
-    exp: Experiment, rows: List[Dict[str, str]], stats_blocks: int, output_root: Path, replace: bool
+    exp: Experiment,
+    rows: List[Dict[str, str]],
+    stats_blocks: int,
+    output_root: Path,
+    replace: bool,
+    force_new: bool = False,
+    provenance_file: Optional[Path] = None,
 ) -> Path:
     manifest_path = output_root / "manifest.tsv"
     combined_path = output_root / "final_all_experiments.tsv"
@@ -682,6 +812,22 @@ def add_experiment(
     if previous and not replace:
         raise ExtractionError(
             f"{exp.exp_id} already exists in {manifest_path}; pass --replace to overwrite it"
+        )
+
+    # With IDs assigned automatically, "the ID is taken" no longer catches a run
+    # collected twice -- it would just get the next ID and silently duplicate the
+    # data. Key the check on the stats file instead, which identifies the run.
+    duplicates = [
+        row for row in manifest
+        if row.get("stats_file") == exp.stats_file and row["exp_id"] != exp.exp_id
+    ]
+    if duplicates and not (replace or force_new):
+        ids = ", ".join(sorted({row["exp_id"] for row in duplicates}))
+        raise ExtractionError(
+            f"this run is already in {manifest_path} as {ids} "
+            f"(same stats file: {exp.stats_file}). Re-collect it with "
+            f"--exp-id {ids.split(',')[0]} --replace, or pass --force-new to add "
+            f"it a second time under a new ID."
         )
 
     output_path = output_root.resolve() / exp.output_name
@@ -707,7 +853,15 @@ def add_experiment(
         "output_file": str(output_path),
         "stats_blocks": str(stats_blocks),
         "rows_written": str(len(rows)),
+        **exp.provenance,
     }
+    if provenance_file is not None:
+        # Columns cover what gets grouped and plotted; this keeps everything
+        # else, so a parameter added later is still recorded for older runs.
+        prov_dir = output_root.resolve() / "provenance"
+        prov_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(provenance_file, prov_dir / f"{exp.exp_id}.tsv")
+
     write_tsv(combined_path, OUTPUT_COLUMNS, merge_rows(combined, exp.exp_id, rows))
     write_tsv(manifest_path, MANIFEST_COLUMNS, merge_rows(manifest, exp.exp_id, [manifest_row]))
     return output_path
@@ -730,7 +884,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             writer.writerows(rows)
             return 0
 
-        output_path = add_experiment(exp, rows, len(blocks), args.output_root, args.replace)
+        if args.provenance is not None and not args.provenance.is_file():
+            raise ExtractionError(f"--provenance file not found: {args.provenance}")
+        output_path = add_experiment(
+            exp, rows, len(blocks), args.output_root, args.replace,
+            force_new=args.force_new, provenance_file=args.provenance,
+        )
     except ExtractionError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
