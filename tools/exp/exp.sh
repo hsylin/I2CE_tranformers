@@ -11,9 +11,15 @@
 #   ./exp.sh smoke   [id]             end-to-end pipeline test WITHOUT the 10 h sim
 #   ./exp.sh status                   running gem5 jobs + last manifest rows
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
-#   ./exp.sh collect <id> [args...]   finished run -> transformer_profiling tables
+#   ./exp.sh collect <id> [--run <ts>] [args...]  a finished run -> the tables
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
 #   ./exp.sh build-libm5              build gem5's libm5.a for the aarch64 guest
+#   ./exp.sh gc-src                   drop the worktrees `--at` created
+#
+# Any of build/submit/dryrun/checkpoint/run also accepts `--at <commit-ish>`:
+# the binary is built from a worktree of that commit, while the runner, the
+# experiment table and the collector stay on the invoking checkout. That is what
+# makes two runs comparable -- only the measured code changes.
 #
 # Parameters live in experiments.tsv, one row per experiment:
 #   id  cb  n_learners  sve_bits  impl  overrides  notes
@@ -66,6 +72,12 @@ GEM5_ROOT="${GEM5_ROOT:-$GEM5_CWD}"
 LIBM5_A="${LIBM5_A:-$GEM5_ROOT/util/m5/build/arm64/out/libm5.a}"
 M5_INC="${M5_INC:-$GEM5_ROOT/include}"
 USE_LIBM5="${USE_LIBM5:-1}"
+# Cache sizes gem5 uses when no override is passed. They are recorded with each
+# run, so they must match the gem5 tree's configs/example/arm/devices.py; set
+# them in runner.conf if that tree differs.
+STOCK_L1I="${STOCK_L1I:-48KiB}"
+STOCK_L1D="${STOCK_L1D:-32KiB}"
+STOCK_L2="${STOCK_L2:-1MiB}"
 # gem5 SysPaths (bootloader etc.) need M5_PATH; export a sane default.
 M5_PATH="${M5_PATH:-$HOME/i2ce/gem5_resources}"
 export M5_PATH
@@ -291,6 +303,17 @@ build_one() {
       -e "s|@SVE@|$SVE|g" -e "s|@SHARE@|$SHARE|g" \
       "$SELF_DIR/lib/run.rcS.tmpl" > "$SHARE/run.rcS"
   chmod +x "$SHARE/run.rcS"
+  # Verify the binary matches the flags we are about to record. An older tree
+  # (`--at <sha>`) can predate I2CE_USE_LIBM5_FLAG and ignore it completely,
+  # which would otherwise be recorded as a libm5 run and quietly compared
+  # against runs that really are one.
+  if [[ "$USE_LIBM5" == 1 ]]; then
+    grep -qa 'm5 dumpstats' "$SHARE/transformer.o" \
+      && die "[build $EID] the tree at $(git -C "$REPO_ROOT" rev-parse --short HEAD) ignored I2CE_USE_LIBM5_FLAG and built the std::system(\"m5 ...\") path. Its numbers are not comparable with libm5 runs; rebuild from a commit that supports the flag, or set USE_LIBM5=0 for the whole comparison."
+  else
+    grep -qa 'm5 dumpstats' "$SHARE/transformer.o" \
+      || die "[build $EID] USE_LIBM5=0 but the binary has no std::system(\"m5 ...\") call; the build did not do what the configuration says."
+  fi
   sha256sum "$SHARE/transformer.o" | tee "$SHARE/transformer.o.sha256"
 
   # Provenance: record what this binary was ACTUALLY built with, so a later
@@ -311,8 +334,14 @@ build_one() {
     printf 'model_dims\td_q=%s seq_len=%s d_model=%s num_heads=%s d_ff=%s\n' \
            "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF"
     printf 'default_artifacts\t%s\n'    "$IS_DEFAULT_ARTIFACTS"
+    # 12 chars: unambiguous, and the same width add_experiment.py normalises
+    # older full-sha records to, so the column reads uniformly.
     printf 'repo_commit\t%s\n' \
-           "$(git -C "$REPO_ROOT" rev-parse HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
+           "$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)$(git -C "$REPO_ROOT" diff --quiet || echo '+dirty')"
+    printf 'repo_commit_full\t%s\n'  "$(git -C "$REPO_ROOT" rev-parse HEAD)"
+    # Subject only, tabs and newlines flattened: this ends up in a TSV cell.
+    printf 'commit_subject\t%s\n' \
+           "$(git -C "$REPO_ROOT" log -1 --format=%s | tr '\t\n' '  ')"
     printf 'compile_flags\t%s\n'        "$BUILD_FLAGS"
     printf 'binary_sha256\t%s\n'        "$(cut -d' ' -f1 "$SHARE/transformer.o.sha256")"
     if [[ "$USE_LIBM5" == 1 ]]; then
@@ -381,6 +410,11 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   [[ -f "$SHARE/transformer.o" ]] || die "[exp $EID] no binary — run: ./exp.sh build $EID"
   local TS OUT; TS="$(date +%Y%m%d_%H%M%S)"; OUT="$EDIR/${PREFIX}_$TS"
   mkdir -p "$OUT"
+  # Snapshot the build description into the run. $SHARE is per experiment id, so
+  # the next build of this id -- a different commit via --at, or just a rebuild
+  # -- overwrites it, and a run still in flight would afterwards be collected
+  # against a build that is not its own.
+  [[ -f "$SHARE/build_config.tsv" ]] && cp "$SHARE/build_config.tsv" "$OUT/build_config.tsv"
   gem5_extra run
   ( cd "$GEM5_CWD" && nohup setsid \
     "$GEM5_BIN" -d "$OUT" --stats-file=stats.txt --dump-config=config.ini \
@@ -409,7 +443,7 @@ smoke_one() {
   sed -e "s|@ID@|$EID|g" -e "s|@SHARE@|$SHARE|g" \
       "$SELF_DIR/lib/smoke.rcS.tmpl" > "$SHARE/smoke.rcS"
   launch_one "$EID" "$SHARE/smoke.rcS" smoke "$BOOT_CPU"
-  local OUT; OUT="$(ls -dt "$EDIR"/smoke_* | head -1)"
+  local OUT; OUT="$(ls -d "$EDIR"/smoke_* | sort | tail -1)"
   echo "[smoke] waiting (checkpoint restore + guest script, a few minutes) ..."
   local i=0
   while kill -0 "$(cat "$OUT/pid")" 2>/dev/null; do
@@ -423,16 +457,54 @@ smoke_one() {
 }
 
 # --------------------------------------------------------------- collect
-collect_one() { # <id> [extra add_experiment.py args...] — extras win on conflict
+collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   local ID="$1"; shift
   load_row "$ID"
-  local AE="$REPO_ROOT/transformer_profiling/add_experiment.py"
+  # --run selects a run other than the newest; everything else is passed through
+  # to add_experiment.py, where it wins on conflict.
+  local WANT_RUN="" _PASS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --run)   WANT_RUN="${2:?usage: collect <id> --run <timestamp|outdir>}"; shift 2 ;;
+      --run=*) WANT_RUN="${1#--run=}"; shift ;;
+      *)       _PASS+=("$1"); shift ;;
+    esac
+  done
+  set -- "${_PASS[@]+"${_PASS[@]}"}"
+
+  local OUT
+  if [[ -n "$WANT_RUN" ]]; then
+    if   [[ -d "$WANT_RUN" ]];            then OUT="$WANT_RUN"
+    elif [[ -d "$EDIR/out_$WANT_RUN" ]];  then OUT="$EDIR/out_$WANT_RUN"
+    elif [[ -d "$EDIR/$WANT_RUN" ]];      then OUT="$EDIR/$WANT_RUN"
+    else die "[collect $EID] no run '$WANT_RUN'. Available: $(cd "$EDIR" 2>/dev/null && echo out_* )"
+    fi
+  else
+    # By name, not by mtime: collect writes provenance.tsv into the run it
+    # harvests, which would otherwise make the run it just collected look like
+    # the newest one and get picked again. out_YYYYMMDD_HHMMSS sorts correctly.
+    OUT="$(ls -d "$EDIR"/out_* 2>/dev/null | sort | tail -1)" || true
+    [[ -n "${OUT:-}" ]] || die "no measurement runs recorded for exp $EID"
+  fi
+  # Deliberately NOT $REPO_ROOT: with `--at <sha>` that points at a checkout of
+  # some older commit. The code under test is the variable; the tool that
+  # records results has to be the constant, or two runs are not comparable.
+  local AE="$SELF_DIR/../../transformer_profiling/add_experiment.py"
   [[ -f "$AE" ]] || die "add_experiment.py not found at $AE (needs the submission branch)"
 
   # A row in experiments.tsv can be edited after a run. The binary that actually
   # produced the stats recorded what it was built with, so verify the table still
   # describes that build before writing anything into the results tables.
-  local BC="$SHARE/build_config.tsv"
+  # The run's own snapshot is authoritative; the share copy describes the most
+  # recent build of this id, which may be a different commit entirely.
+  local BC="$OUT/build_config.tsv"
+  if [[ ! -f "$BC" ]]; then
+    BC="$SHARE/build_config.tsv"
+    [[ -f "$BC" ]] && echo "[collect $EID] NOTE: this run predates per-run build_config.tsv; falling back to $SHARE/build_config.tsv, which describes the LATEST build of exp $EID and may not be this run's" >&2
+  fi
+  # Defaults matter: a run predating a field records "-", which is visibly
+  # different from a field that was recorded empty.
+  local BC_COMMIT="-" BC_SUBJECT="-" BC_BINSHA="-" BC_FLAGS="-"
   if [[ -f "$BC" ]]; then
     local k v mismatch=0 checked=0
     while IFS=$'\t' read -r k v; do
@@ -442,22 +514,46 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
         sve_bits) checked=$((checked+1)); [[ "$v" == "$SVE"  ]] || { echo "  build says sve_bits=$v, table says $SVE" >&2; mismatch=1; } ;;
         impl) checked=$((checked+1)); [[ "$v" == "$IMPL" ]] || { echo "  build says impl=$v, table says $IMPL" >&2; mismatch=1; } ;;
         overrides) checked=$((checked+1)); [[ "$v" == "$OVR"  ]] || { echo "  build says overrides=$v, table says $OVR" >&2; mismatch=1; } ;;
+        repo_commit)    BC_COMMIT="$v" ;;
+        commit_subject) BC_SUBJECT="$v" ;;
+        binary_sha256)  BC_BINSHA="$v" ;;
+        compile_flags)  BC_FLAGS="$v" ;;
       esac
     done < "$BC"
     [[ $mismatch -eq 0 ]] || die "[collect $EID] experiments.tsv no longer matches the binary that produced this run (see $BC). Refusing to mislabel the results."
     # A malformed file whose keys never match would otherwise "pass" silently.
     [[ $checked -ge 5 ]] || die "[collect $EID] only $checked of 5 fields could be read from $BC; the file is malformed and the labels cannot be trusted."
-    echo "[collect $EID] build_config.tsv matches the table row ($checked fields verified)"
+    # stderr: stdout carries the TSV that --dry-run prints, and a caller
+    # redirecting it to a file must not get progress lines mixed in.
+    echo "[collect $EID] build_config.tsv matches the table row ($checked fields verified)" >&2
   else
     echo "[collect $EID] WARNING: no build_config.tsv (run predates provenance recording); labels come from experiments.tsv and are unverified" >&2
   fi
-  local OUT; OUT="$(ls -dt "$EDIR"/out_* 2>/dev/null | head -1)" || true
-  [[ -n "${OUT:-}" ]] || die "no measurement runs recorded for exp $EID"
   [[ -s "$OUT/stats.txt" && -s "$OUT/gem5_profile_regions.tsv" ]] \
     || die "exp $EID latest run is not finished ($OUT): needs non-empty stats.txt and gem5_profile_regions.tsv"
 
+  # Everything the runner knows about this run, in one file committed beside the
+  # tables: parameters that have no column of their own stay recoverable.
+  local PROV="$OUT/provenance.tsv"
+  local GEM5_ARGS
+  GEM5_ARGS="$(sed -n 's/^command line: //p' "$OUT/gem5_stdout.log" 2>/dev/null | head -1)"
+  {
+    [[ -f "$BC" ]] && cat "$BC"
+    printf 'collected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'outdir\t%s\n'       "$OUT"
+    printf 'gem5_args\t%s\n'    "${GEM5_ARGS:--}"
+  } > "$PROV"
+
+  # No --exp-id: add_experiment.py assigns the next free one, so ids never have
+  # to be remembered. --runner-id keeps the link back to the experiments.tsv row.
   local ARGS=( --stats "$OUT/stats.txt" --n-learners "$NL" --sve-bits "$SVE"
-               --exp-id "E$EID" --study "Runner" )
+               --study "Runner" --runner-id "$EID"
+               --repo-commit "$BC_COMMIT" --commit-subject "$BC_SUBJECT"
+               --binary-sha256 "$BC_BINSHA" --compile-flags "$BC_FLAGS"
+               --overrides "$OVR" --cores "$CORES"
+               --l1i "${OV_L1I:-$STOCK_L1I}" --l1d "${OV_L1D:-$STOCK_L1D}"
+               --l2 "${OV_L2:-$STOCK_L2}"
+               --provenance "$PROV" )
   case "$IMPL" in
     dense*) ARGS+=( --dense ) ;;
     *)      ARGS+=( --codebook-size "$CB" ) ;;
@@ -468,14 +564,14 @@ collect_one() { # <id> [extra add_experiment.py args...] — extras win on confl
     ARGS+=( --model "custom-q${D_Q_EFF}-s${SEQ_EFF}-m${DM_EFF}-h${NH_EFF}-f${DFF_EFF}"
             --dims "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF" )
   fi
-  echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final"
+  echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final" >&2
   "$GEN_PYTHON" "$AE" "${ARGS[@]}" "$@"
   if [[ " $* " != *" --dry-run "* ]]; then
     echo
     echo "[collect $EID] tables updated. To publish them:"
     echo "    cd $REPO_ROOT"
     echo "    git add transformer_profiling/final"
-    echo "    git commit -m \"chore(profiling): add E$EID cb=$CB nl=$NL sve=$SVE run\""
+    echo "    git commit -m \"chore(profiling): add exp $EID cb=$CB nl=$NL sve=$SVE run at $BC_COMMIT\""
     echo "    git push"
   fi
 }
@@ -538,7 +634,7 @@ cmd_status() {
 
 cmd_results() {
   load_row "$1"
-  local OUT; OUT="$(ls -dt "$EDIR"/out_* 2>/dev/null | head -1)" || true
+  local OUT; OUT="$(ls -d "$EDIR"/out_* 2>/dev/null | sort | tail -1)" || true
   [[ -n "${OUT:-}" ]] || die "no runs recorded for exp $EID"
   echo "latest run: $OUT"
   for f in stats.txt gem5_profile_regions.tsv gem5_stdout.log system.terminal config.ini; do
@@ -546,6 +642,64 @@ cmd_results() {
     else printf '  %-28s MISSING/EMPTY\n' "$f"; fi
   done
   [[ -s "$OUT/gem5_profile_regions.tsv" ]] && { echo "  --- region index ---"; sed 's/^/    /' "$OUT/gem5_profile_regions.tsv"; }
+}
+
+# Build tree for `--at <sha>`: a git worktree of that commit under $EXP_ROOT,
+# sharing the main clone's object store. A plain `git checkout` would disturb
+# whatever the user is editing and would make two commits impossible to build
+# side by side.
+src_tree_for() { # $1 = commit-ish  ->  prints the worktree path
+  local ref="$1" sha short dir
+  sha="$(git -C "$REPO_ROOT_MAIN" rev-parse --verify "${ref}^{commit}" 2>/dev/null)" \
+    || die "not a commit in $REPO_ROOT_MAIN: $ref"
+  short="${sha:0:12}"
+  dir="$EXP_ROOT/_src/$short"
+  if [[ -e "$dir/.git" ]]; then echo "$dir"; return 0; fi
+  mkdir -p "$EXP_ROOT/_src"
+
+  # A full checkout of this repository is ~2 GB, most of it material a build
+  # never reads ("executable archive", gem5-X-TiC-SAT, the multi-learner
+  # outputs). Check out only what compile_transformer.sh and the generator
+  # touch -- about 60 MB -- so several commits can coexist on a full disk.
+  local sparse=(
+    /compile_transformer.sh /transformer.cpp /transformer.h
+    "/transformer_layers/**" "/accelerator/**" "/Full_NN/**"
+    "/weights/generated_from_notebook/**"
+  )
+  if git -C "$REPO_ROOT_MAIN" sparse-checkout list >/dev/null 2>&1 \
+     || git -C "$REPO_ROOT_MAIN" sparse-checkout --help >/dev/null 2>&1; then
+    git -C "$REPO_ROOT_MAIN" worktree add --no-checkout --detach "$dir" "$sha" >&2 \
+      || die "could not create a worktree for $sha at $dir"
+    if git -C "$dir" sparse-checkout set --no-cone "${sparse[@]}" >&2 \
+       && git -C "$dir" checkout >&2; then
+      :
+    else
+      # Older git without usable sparse-checkout: take the whole tree instead
+      # of failing, and say what that costs.
+      echo "[--at] sparse checkout unavailable; checking out the full tree (~2 GB)" >&2
+      git -C "$dir" sparse-checkout disable >/dev/null 2>&1 || true
+      git -C "$dir" checkout >&2 || die "could not check out $sha at $dir"
+    fi
+  else
+    echo "[--at] this git has no sparse-checkout; the worktree will be ~2 GB" >&2
+    git -C "$REPO_ROOT_MAIN" worktree add --detach "$dir" "$sha" >&2 \
+      || die "could not create a worktree for $sha at $dir"
+  fi
+  [[ -f "$dir/compile_transformer.sh" ]] \
+    || die "worktree at $dir has no compile_transformer.sh; that commit cannot be built"
+  echo "$dir"
+}
+
+cmd_gc_src() {
+  compgen -G "$EXP_ROOT/_src/*" >/dev/null || { echo "[gc-src] nothing to remove"; return 0; }
+  local d
+  for d in "$EXP_ROOT"/_src/*; do
+    [[ -d "$d" ]] || continue
+    echo "[gc-src] removing $d"
+    git -C "$REPO_ROOT_MAIN" worktree remove --force "$d" 2>/dev/null || rm -rf "$d"
+  done
+  git -C "$REPO_ROOT_MAIN" worktree prune
+  echo "[gc-src] done"
 }
 
 cmd_patch_gem5() {
@@ -586,6 +740,30 @@ cmd_build_libm5() {
   echo "        comparable with runs built before this. Re-baseline."
 }
 
+# ------------------------------------------------------- --at <commit-ish>
+# Pulled out before the subcommand dispatch so it can appear anywhere.
+REPO_ROOT_MAIN="$REPO_ROOT"
+AT_COMMIT=""
+_ARGV=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --at)   AT_COMMIT="${2:?usage: --at <commit-ish>}"; shift 2 ;;
+    --at=*) AT_COMMIT="${1#--at=}"; shift ;;
+    *)      _ARGV+=("$1"); shift ;;
+  esac
+done
+set -- "${_ARGV[@]+"${_ARGV[@]}"}"
+
+if [[ -n "$AT_COMMIT" ]]; then
+  case "${1:-}" in
+    build|submit|dryrun|checkpoint|run) : ;;
+    *) die "--at applies to build/submit/dryrun/checkpoint/run, not '${1:-}'. Results are always collected with the current tooling." ;;
+  esac
+  REPO_ROOT="$(src_tree_for "$AT_COMMIT")"
+  echo "[--at] $AT_COMMIT -> building from $REPO_ROOT"
+  echo "[--at] $(git -C "$REPO_ROOT" log -1 --format='%h %s')"
+fi
+
 # ---------------------------------------------------------------- main
 case "${1:-}" in
   list)        cmd_list ;;
@@ -600,5 +778,6 @@ case "${1:-}" in
   collect)     shift; [[ $# -ge 1 ]] || die "usage: exp.sh collect <id> [add_experiment.py args...]"; collect_one "$@" ;;
   patch-gem5)  cmd_patch_gem5 ;;
   build-libm5) cmd_build_libm5 ;;
-  *) sed -n '3,32p' "$0"; exit 1 ;;
+  gc-src)      cmd_gc_src ;;
+  *) sed -n '3,38p' "$0"; exit 1 ;;
 esac
