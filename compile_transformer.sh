@@ -75,21 +75,15 @@ if [ "${SIMD_FLAG:-0}" = "1" ]; then
 fi
 
 # --- Optional experiment overrides -------------------------------------------
-# Both defaults preserve today's behavior exactly:
-#   * CORE_NUM_FLAG unset  -> -DCORE_NUM=1   (same value the script always used)
-#   * TILE_L1_SIZE_FLAG unset -> no -D added; the notebook-generated
-#     Full_NN/gemm_definitions/codebooks_def.h keeps sole authority over
-#     TILE_L1_SIZE (currently 1 = no tile).
-# When the caller sets either flag, its value is propagated as a -D macro.
-# TILE_L1_SIZE_FLAG plumbs TILE_L1_SIZE_OVERRIDE, which gemm_exec.c applies
-# with #undef/#define AFTER including codebooks_def.h so the precedence is
-# unambiguous: notebook value first, override wins if present.
-# TILE_L2_SIZE is intentionally not exposed while no codebook GEMM code path
-# consumes it.
+# CORE_NUM_FLAG unset -> -DCORE_NUM=1, the value this script has always used.
+#
+# Tile sizes are intentionally NOT settable here. TILE_L1_SIZE and
+# TILE_L2_SIZE come solely from the notebook-generated
+# Full_NN/gemm_definitions/codebooks_def.h (both 1 = no tiling). A
+# -DTILE_L1_SIZE_OVERRIDE path used to exist, but the runner never set it and
+# no tiling strategy has been designed against it, so it was removed rather
+# than kept as a knob nothing drives.
 CORE_NUM_VALUE="${CORE_NUM_FLAG:-1}"
-if [ -n "${TILE_L1_SIZE_FLAG:-}" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DTILE_L1_SIZE_OVERRIDE=${TILE_L1_SIZE_FLAG}"
-fi
 
 # --- libm5: issue m5 ops as instructions instead of forking a guest shell ----
 # Without this, profile.cc reaches gem5 through std::system("m5 dumpstats").
@@ -141,7 +135,6 @@ echo "  USE_FP32_TRANSFORMER_FLAG=${USE_FP32_TRANSFORMER_FLAG:-0}"
 echo "  DENSE_NO_SIMD_BASELINE_FLAG=${DENSE_NO_SIMD_BASELINE_FLAG:-0}"
 echo "  SIMD_FLAG=${SIMD_FLAG:-0}"
 echo "  CORE_NUM (build)=${CORE_NUM_VALUE}"
-echo "  TILE_L1_SIZE_FLAG=${TILE_L1_SIZE_FLAG:-<unset, using notebook TILE_L1_SIZE>}"
 echo "  I2CE_USE_LIBM5_FLAG=${I2CE_USE_LIBM5_FLAG:-0}${LIBM5_LINK:+  ($LIBM5_LINK)}"
 
 

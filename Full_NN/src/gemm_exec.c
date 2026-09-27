@@ -42,20 +42,12 @@
 #include <gemm_exec_internal.h>
 
 /*
- * Optional command-line override for TILE_L1_SIZE, plumbed from
- * compile_transformer.sh (TILE_L1_SIZE_FLAG env var -> -DTILE_L1_SIZE_OVERRIDE).
- *
- * codebooks_def.h above defines TILE_L1_SIZE from the notebook-generated
- * configuration. When TILE_L1_SIZE_OVERRIDE is present it wins with an
- * explicit #undef/#define so command-line tile-size experiments do not
- * require regenerating weights. When unset, TILE_L1_SIZE keeps the
- * notebook value unchanged. TILE_L2_SIZE has no such override because
- * no codebook GEMM code path consumes it yet.
+ * TILE_L1_SIZE and TILE_L2_SIZE come solely from the notebook-generated
+ * codebooks_def.h included above (both currently 1, which the kernels read as
+ * "use the full dimension"). There is deliberately no command-line override:
+ * no tiling strategy has been designed yet, and a knob that silently does
+ * nothing is worse than no knob.
  */
-#ifdef TILE_L1_SIZE_OVERRIDE
-#undef TILE_L1_SIZE
-#define TILE_L1_SIZE TILE_L1_SIZE_OVERRIDE
-#endif
 #endif
 
 /**
