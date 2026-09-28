@@ -208,13 +208,14 @@ void TestGemmCase(const Variant& variant, gemm_t shape, bool use_bias,
   }
   Check(output.front() == kCanary && output.back() == kCanary, "output canary");
   Check(input == original_input, "GEMM changed input");
-  const bool uses_workspace = workspace_mode >= 2 && workspace_mode <= 3 &&
-                              shape.seq_len != 0 && shape.output_size != 0 &&
-                              shape.input_size != 0;
+  // The SVE wrappers no longer widen activations into a caller-owned int32
+  // buffer: the kernels read the interleaved int8 matrix in place and
+  // sign-extend in registers. The workspace parameter is still accepted so the
+  // _ex ABI is unchanged, but nothing writes to it, so every element -- canary
+  // and body alike -- must come back exactly as it went in. This assertion is
+  // now what would catch an accidental reintroduction of the staging buffer.
   for (size_t i = 0; i < workspace.size(); ++i) {
-    const int32_t value = uses_workspace && i > 0 && i <= input_count
-                              ? static_cast<int32_t>(input[i - 1]) : kCanary;
-    Check(workspace[i] == value, "workspace content or canary");
+    Check(workspace[i] == kCanary, "workspace must be left untouched");
   }
   ++checks;
 }

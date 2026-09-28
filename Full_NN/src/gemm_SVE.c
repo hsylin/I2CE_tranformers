@@ -57,13 +57,13 @@ void sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(const uint32_t *pa
 void sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Int8/int32 compact row kernels for interleaved outputs. */
-void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Dense interleaved int8/int32 GEMM helpers. */
-void sve_gemm_dense_int8_interleaved_4Learners(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
-void sve_gemm_dense_int8_interleaved_2Learners(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
+void sve_gemm_dense_int8_interleaved_4Learners(const int8_t *lhs_interleaved, const int8_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
+void sve_gemm_dense_int8_interleaved_2Learners(const int8_t *lhs_interleaved, const int8_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
 
 /*
  * Build a bit mask for one packed codebook index.
@@ -74,6 +74,44 @@ void sve_gemm_dense_int8_interleaved_2Learners(const int32_t *lhs_interleaved, c
  */
 static uint32_t gemm_sve_idx_mask(uint8_t bits_per_cb) {
     return (bits_per_cb >= 32u) ? UINT32_MAX : ((1u << bits_per_cb) - 1u);
+}
+
+/*
+ * Load L interleaved int8 activations per K position and sign-extend them to
+ * int32, without materialising an int32 copy of the matrix first.
+ *
+ * The interleaved layout puts the L learner values for one K position in L
+ * adjacent bytes, so for L=4 those bytes are exactly one 32-bit word and for
+ * L=2 exactly one 16-bit halfword. One contiguous load therefore brings in a
+ * whole K position per lane, and each learner is recovered by shifting its byte
+ * into the sign position and arithmetic-shifting it back down. This replaces
+ * svld4_s32/svld2_s32 over a widened buffer: same lanes, same values, a quarter
+ * of the memory traffic.
+ *
+ * Byte j of memory is bits [8j+7:8j] of the loaded element on little-endian
+ * AArch64, which is what makes the shift amounts below the learner order.
+ *
+ * Alignment: the 32-bit form needs a 4-byte aligned base and the 16-bit form a
+ * 2-byte aligned base. Row bases are ld_in_interleaved apart, and that stride
+ * is a multiple of L, so checking the matrix base once is enough; the callers
+ * in gemm_exec.c do exactly that and fall back to the scalar path otherwise.
+ */
+static svint32x4_t gemm_load_in4_s8(svbool_t pg, const int8_t *row_in_i8) {
+    const svint32_t packed =
+        svreinterpret_s32_u32(svld1_u32(pg, (const uint32_t *)(const void *)row_in_i8));
+    return svcreate4_s32(
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 24), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 16), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 8), 24),
+        svasr_n_s32_x(pg, packed, 24));
+}
+
+static svint32x2_t gemm_load_in2_s8(svbool_t pg, const int8_t *row_in_i8) {
+    const svint32_t packed =
+        svreinterpret_s32_u32(svld1uh_u32(pg, (const uint16_t *)(const void *)row_in_i8));
+    return svcreate2_s32(
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 24), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 16), 24));
 }
 
 #if defined(N_SVE_REG_CB_2)
@@ -1087,7 +1125,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1206,7 +1244,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
         svint32_t acc_v3 = svdup_s32(0);
         uint32_t input_idx = 0;
 
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         for (uint32_t cw = 0; (cw < n_words_row) && (input_idx < k_elems);
              cw += n_lanes) {
@@ -1253,7 +1291,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
                     cb_idxs3 = svand_u32_z(bits_pg, cb_idxs3, idx_mask_v);
 
                     svint32x4_t in_vals =
-                        svld4_s32(bits_pg, &row_in[input_idx * 4u]);
+                        gemm_load_in4_s8(bits_pg, &row_in[input_idx * 4u]);
                     svint32_t in0 = svget4_s32(in_vals, 0);
                     svint32_t in1 = svget4_s32(in_vals, 1);
                     svint32_t in2 = svget4_s32(in_vals, 2);
@@ -1334,7 +1372,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1439,7 +1477,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
          * two interleaved streams, so row_in[input_idx * 2] addresses the next
          * logical K element.
          */
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         /*
          * cw walks the packed weight row in groups of SVE lanes. The final
@@ -1496,7 +1534,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                      *   in1 = stream 1 values
                      */
                     svint32x2_t in_vals =
-                        svld2_s32(bits_pg, &row_in[input_idx * 2u]);
+                        gemm_load_in2_s8(bits_pg, &row_in[input_idx * 2u]);
                     svint32_t in0 = svget2_s32(in_vals, 0);
                     svint32_t in1 = svget2_s32(in_vals, 1);
 
@@ -1575,7 +1613,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1705,7 +1743,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
          * logical K element occupies four adjacent int32 values, one per
          * interleaved stream.
          */
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         /*
          * Read packed index words in SVE-width chunks. The same packed row is
@@ -1759,7 +1797,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
                      * [s0, s1, s2, s3] into four independent SVE vectors.
                      */
                     svint32x4_t in_vals =
-                        svld4_s32(bits_pg, &row_in[input_idx * 4u]);
+                        gemm_load_in4_s8(bits_pg, &row_in[input_idx * 4u]);
                     svint32_t in0 = svget4_s32(in_vals, 0);
                     svint32_t in1 = svget4_s32(in_vals, 1);
                     svint32_t in2 = svget4_s32(in_vals, 2);
@@ -1856,8 +1894,8 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
  * interleaved dot products are accumulated for every (row, column) pair.
  */
 void sve_gemm_dense_int8_interleaved_4Learners(
-    const int32_t *lhs_interleaved,
-    const int32_t *rhs_by_col_interleaved,
+    const int8_t *lhs_interleaved,
+    const int8_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
     uint32_t rhs_cols,
     uint32_t k_elems,
@@ -1872,10 +1910,10 @@ void sve_gemm_dense_int8_interleaved_4Learners(
      * - out_interleaved stores four reduced dot products for each matrix cell.
      */
     for (uint32_t row = 0; row < lhs_rows; row++) {
-        const int32_t *lhs_row = &lhs_interleaved[row * k_elems * 4u];
+        const int8_t *lhs_row = &lhs_interleaved[row * k_elems * 4u];
 
         for (uint32_t col = 0; col < rhs_cols; col++) {
-            const int32_t *rhs_col = &rhs_by_col_interleaved[col * k_elems * 4u];
+            const int8_t *rhs_col = &rhs_by_col_interleaved[col * k_elems * 4u];
             svint32_t acc_v0 = svdup_s32(0);
             svint32_t acc_v1 = svdup_s32(0);
             svint32_t acc_v2 = svdup_s32(0);
@@ -1888,8 +1926,8 @@ void sve_gemm_dense_int8_interleaved_4Learners(
                  * products.
                  */
                 svbool_t pg = svwhilelt_b32((uint64_t)k, (uint64_t)k_elems);
-                svint32x4_t lhs_vals = svld4_s32(pg, &lhs_row[k * 4u]);
-                svint32x4_t rhs_vals = svld4_s32(pg, &rhs_col[k * 4u]);
+                svint32x4_t lhs_vals = gemm_load_in4_s8(pg, &lhs_row[k * 4u]);
+                svint32x4_t rhs_vals = gemm_load_in4_s8(pg, &rhs_col[k * 4u]);
 
                 acc_v0 = svmla_s32_m(pg, acc_v0, svget4_s32(lhs_vals, 0), svget4_s32(rhs_vals, 0));
                 acc_v1 = svmla_s32_m(pg, acc_v1, svget4_s32(lhs_vals, 1), svget4_s32(rhs_vals, 1));
@@ -1914,8 +1952,8 @@ void sve_gemm_dense_int8_interleaved_4Learners(
  * values per logical matrix element.
  */
 void sve_gemm_dense_int8_interleaved_2Learners(
-    const int32_t *lhs_interleaved,
-    const int32_t *rhs_by_col_interleaved,
+    const int8_t *lhs_interleaved,
+    const int8_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
     uint32_t rhs_cols,
     uint32_t k_elems,
@@ -1928,17 +1966,17 @@ void sve_gemm_dense_int8_interleaved_2Learners(
      * accumulators are reduced into the output cell.
      */
     for (uint32_t row = 0; row < lhs_rows; row++) {
-        const int32_t *lhs_row = &lhs_interleaved[row * k_elems * 2u];
+        const int8_t *lhs_row = &lhs_interleaved[row * k_elems * 2u];
 
         for (uint32_t col = 0; col < rhs_cols; col++) {
-            const int32_t *rhs_col = &rhs_by_col_interleaved[col * k_elems * 2u];
+            const int8_t *rhs_col = &rhs_by_col_interleaved[col * k_elems * 2u];
             svint32_t acc_v0 = svdup_s32(0);
             svint32_t acc_v1 = svdup_s32(0);
 
             for (uint32_t k = 0; k < k_elems; k += n_lanes) {
                 svbool_t pg = svwhilelt_b32((uint64_t)k, (uint64_t)k_elems);
-                svint32x2_t lhs_vals = svld2_s32(pg, &lhs_row[k * 2u]);
-                svint32x2_t rhs_vals = svld2_s32(pg, &rhs_col[k * 2u]);
+                svint32x2_t lhs_vals = gemm_load_in2_s8(pg, &lhs_row[k * 2u]);
+                svint32x2_t rhs_vals = gemm_load_in2_s8(pg, &rhs_col[k * 2u]);
 
                 acc_v0 = svmla_s32_m(pg, acc_v0, svget2_s32(lhs_vals, 0), svget2_s32(rhs_vals, 0));
                 acc_v1 = svmla_s32_m(pg, acc_v1, svget2_s32(lhs_vals, 1), svget2_s32(rhs_vals, 1));

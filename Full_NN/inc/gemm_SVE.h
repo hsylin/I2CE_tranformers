@@ -267,7 +267,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -313,7 +313,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -359,7 +359,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -390,8 +390,8 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
  *                        [lhs_rows][rhs_cols][4 learners].
  */
 void sve_gemm_dense_int8_interleaved_4Learners(
-    const int32_t *lhs_interleaved,
-    const int32_t *rhs_by_col_interleaved,
+    const int8_t *lhs_interleaved,
+    const int8_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
     uint32_t rhs_cols,
     uint32_t k_elems,
@@ -413,8 +413,8 @@ void sve_gemm_dense_int8_interleaved_4Learners(
  *                        [lhs_rows][rhs_cols][2 learners].
  */
 void sve_gemm_dense_int8_interleaved_2Learners(
-    const int32_t *lhs_interleaved,
-    const int32_t *rhs_by_col_interleaved,
+    const int8_t *lhs_interleaved,
+    const int8_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
     uint32_t rhs_cols,
     uint32_t k_elems,
