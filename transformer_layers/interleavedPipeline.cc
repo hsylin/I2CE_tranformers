@@ -8,7 +8,6 @@
 #endif
 
 #include <algorithm>
-#include <cstdint>
 #include <vector>
 
 namespace {
@@ -209,37 +208,19 @@ void matmulInterleaved4LearnersToInt8(const int8_t* lhs_interleaved,
     std::vector<int32_t> output_acc(total_out, 0);
 
 #if CFG_SIMD
-    // The SVE backend now reads these interleaved int8 values in place: it
-    // recovers one whole K position per lane from a single 32-bit load and
-    // sign-extends the learner bytes in registers. The two int32 staging
-    // vectors that used to be allocated and filled on every call are gone. For
-    // Q*K^T with seq_len 512 and 4 learners each of them was
-    // 512 * 64 * 4 * 4 bytes, built once per call and then re-read for every
-    // output column.
+    // The SVE backend reads these interleaved int8 values in place. It
+    // de-interleaves them at byte width and feeds svdot_s32, which accumulates
+    // four K positions per 32-bit lane, so neither a widened copy nor a
+    // repacking pass is needed. The two int32 staging vectors this used to
+    // allocate and fill on every call are gone -- for Q*K^T with seq_len 512
+    // and 4 learners each was 512 * 64 * 4 * 4 bytes, built once per call
+    // and then re-read for every output column.
     //
-    // The load needs a 4-byte aligned base. Buffers that reach here from
-    // the pipeline's own std::vector<int8_t> always satisfy that, but the
-    // parameters are raw pointers, so a misaligned one is copied into an
-    // aligned buffer first -- a byte copy, a quarter of the traffic the old
-    // widening cost, on a path that normally never runs.
-    const int8_t* lhs_src = lhs_interleaved;
-    const int8_t* rhs_src = rhs_by_col_interleaved;
-    std::vector<int8_t> lhs_aligned;
-    std::vector<int8_t> rhs_aligned;
-    if ((reinterpret_cast<std::uintptr_t>(lhs_src) & 3u) != 0u) {
-        lhs_aligned.assign(lhs_interleaved,
-                           lhs_interleaved + (lhs_rows * k_elems * 4u));
-        lhs_src = lhs_aligned.data();
-    }
-    if ((reinterpret_cast<std::uintptr_t>(rhs_src) & 3u) != 0u) {
-        rhs_aligned.assign(rhs_by_col_interleaved,
-                           rhs_by_col_interleaved + (rhs_cols * k_elems * 4u));
-        rhs_src = rhs_aligned.data();
-    }
-
+    // Byte loads have no alignment requirement, so these pointers are passed
+    // through exactly as they arrive.
     sve_gemm_dense_int8_interleaved_4Learners(
-        lhs_src,
-        rhs_src,
+        lhs_interleaved,
+        rhs_by_col_interleaved,
         static_cast<uint32_t>(lhs_rows),
         static_cast<uint32_t>(rhs_cols),
         static_cast<uint32_t>(k_elems),
@@ -303,37 +284,19 @@ void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
     std::vector<int32_t> output_acc(total_out, 0);
 
 #if CFG_SIMD
-    // The SVE backend now reads these interleaved int8 values in place: it
-    // recovers one whole K position per lane from a single 16-bit load and
-    // sign-extends the learner bytes in registers. The two int32 staging
-    // vectors that used to be allocated and filled on every call are gone. For
-    // Q*K^T with seq_len 512 and 2 learners each of them was
-    // 512 * 64 * 2 * 4 bytes, built once per call and then re-read for every
-    // output column.
+    // The SVE backend reads these interleaved int8 values in place. It
+    // de-interleaves them at byte width and feeds svdot_s32, which accumulates
+    // four K positions per 32-bit lane, so neither a widened copy nor a
+    // repacking pass is needed. The two int32 staging vectors this used to
+    // allocate and fill on every call are gone -- for Q*K^T with seq_len 512
+    // and 2 learners each was 512 * 64 * 2 * 4 bytes, built once per call
+    // and then re-read for every output column.
     //
-    // The load needs a 2-byte aligned base. Buffers that reach here from
-    // the pipeline's own std::vector<int8_t> always satisfy that, but the
-    // parameters are raw pointers, so a misaligned one is copied into an
-    // aligned buffer first -- a byte copy, a quarter of the traffic the old
-    // widening cost, on a path that normally never runs.
-    const int8_t* lhs_src = lhs_interleaved;
-    const int8_t* rhs_src = rhs_by_col_interleaved;
-    std::vector<int8_t> lhs_aligned;
-    std::vector<int8_t> rhs_aligned;
-    if ((reinterpret_cast<std::uintptr_t>(lhs_src) & 1u) != 0u) {
-        lhs_aligned.assign(lhs_interleaved,
-                           lhs_interleaved + (lhs_rows * k_elems * 2u));
-        lhs_src = lhs_aligned.data();
-    }
-    if ((reinterpret_cast<std::uintptr_t>(rhs_src) & 1u) != 0u) {
-        rhs_aligned.assign(rhs_by_col_interleaved,
-                           rhs_by_col_interleaved + (rhs_cols * k_elems * 2u));
-        rhs_src = rhs_aligned.data();
-    }
-
+    // Byte loads have no alignment requirement, so these pointers are passed
+    // through exactly as they arrive.
     sve_gemm_dense_int8_interleaved_2Learners(
-        lhs_src,
-        rhs_src,
+        lhs_interleaved,
+        rhs_by_col_interleaved,
         static_cast<uint32_t>(lhs_rows),
         static_cast<uint32_t>(rhs_cols),
         static_cast<uint32_t>(k_elems),

@@ -1900,7 +1900,8 @@ void sve_gemm_dense_int8_interleaved_4Learners(
     uint32_t rhs_cols,
     uint32_t k_elems,
     int32_t *out_interleaved) {
-    const uint32_t n_lanes = (uint32_t)svcntw();
+    /* K positions consumed per iteration: one byte per position per stream. */
+    const uint32_t k_per_iter = (uint32_t)svcntb();
 
     /*
      * Dense layout notes:
@@ -1919,20 +1920,32 @@ void sve_gemm_dense_int8_interleaved_4Learners(
             svint32_t acc_v2 = svdup_s32(0);
             svint32_t acc_v3 = svdup_s32(0);
 
-            for (uint32_t k = 0; k < k_elems; k += n_lanes) {
-                /*
-                 * Predicated loads handle the K tail. svld4_s32 splits the
-                 * interleaved streams into four vectors ready for parallel dot
-                 * products.
-                 */
-                svbool_t pg = svwhilelt_b32((uint64_t)k, (uint64_t)k_elems);
-                svint32x4_t lhs_vals = gemm_load_in4_s8(pg, &lhs_row[k * 4u]);
-                svint32x4_t rhs_vals = gemm_load_in4_s8(pg, &rhs_col[k * 4u]);
+            /*
+             * One svdot_s32 per stream replaces one svmla_s32 per stream, and
+             * covers four K positions per 32-bit lane instead of one.
+             *
+             * svld4_s8 de-interleaves at byte width, so each stream's vector
+             * holds svcntb() consecutive K values. svdot_s32 reads each 32-bit
+             * lane as four int8 pairs and accumulates their four products into
+             * that lane, which makes lane j cover K = 4j..4j+3 -- exactly the
+             * grouping the de-interleaved load just produced. No repacking is
+             * needed: the interleaved layout already has the right shape.
+             *
+             * The loop therefore advances by svcntb() K positions rather than
+             * svcntw(), a quarter of the iterations for the same work. The
+             * predicate is a byte predicate for the same reason; inactive
+             * elements load as zero and contribute zero products, so the tail
+             * needs no special case and svdot_s32 needs no predicate of its own.
+             */
+            for (uint32_t k = 0; k < k_elems; k += k_per_iter) {
+                svbool_t pg = svwhilelt_b8((uint64_t)k, (uint64_t)k_elems);
+                svint8x4_t lhs_vals = svld4_s8(pg, &lhs_row[k * 4u]);
+                svint8x4_t rhs_vals = svld4_s8(pg, &rhs_col[k * 4u]);
 
-                acc_v0 = svmla_s32_m(pg, acc_v0, svget4_s32(lhs_vals, 0), svget4_s32(rhs_vals, 0));
-                acc_v1 = svmla_s32_m(pg, acc_v1, svget4_s32(lhs_vals, 1), svget4_s32(rhs_vals, 1));
-                acc_v2 = svmla_s32_m(pg, acc_v2, svget4_s32(lhs_vals, 2), svget4_s32(rhs_vals, 2));
-                acc_v3 = svmla_s32_m(pg, acc_v3, svget4_s32(lhs_vals, 3), svget4_s32(rhs_vals, 3));
+                acc_v0 = svdot_s32(acc_v0, svget4_s8(lhs_vals, 0), svget4_s8(rhs_vals, 0));
+                acc_v1 = svdot_s32(acc_v1, svget4_s8(lhs_vals, 1), svget4_s8(rhs_vals, 1));
+                acc_v2 = svdot_s32(acc_v2, svget4_s8(lhs_vals, 2), svget4_s8(rhs_vals, 2));
+                acc_v3 = svdot_s32(acc_v3, svget4_s8(lhs_vals, 3), svget4_s8(rhs_vals, 3));
             }
 
             int32_t *out_slot = &out_interleaved[(row * rhs_cols + col) * 4u];
@@ -1958,7 +1971,7 @@ void sve_gemm_dense_int8_interleaved_2Learners(
     uint32_t rhs_cols,
     uint32_t k_elems,
     int32_t *out_interleaved) {
-    const uint32_t n_lanes = (uint32_t)svcntw();
+    const uint32_t k_per_iter = (uint32_t)svcntb();
 
     /*
      * Two-stream dense variant. It follows the same row/column/K traversal as
@@ -1973,13 +1986,16 @@ void sve_gemm_dense_int8_interleaved_2Learners(
             svint32_t acc_v0 = svdup_s32(0);
             svint32_t acc_v1 = svdup_s32(0);
 
-            for (uint32_t k = 0; k < k_elems; k += n_lanes) {
-                svbool_t pg = svwhilelt_b32((uint64_t)k, (uint64_t)k_elems);
-                svint32x2_t lhs_vals = gemm_load_in2_s8(pg, &lhs_row[k * 2u]);
-                svint32x2_t rhs_vals = gemm_load_in2_s8(pg, &rhs_col[k * 2u]);
+            /* Two-stream form of the same svdot_s32 traversal; see the
+             * 4Learners kernel above for why the interleaved layout feeds
+             * svdot_s32 without repacking. */
+            for (uint32_t k = 0; k < k_elems; k += k_per_iter) {
+                svbool_t pg = svwhilelt_b8((uint64_t)k, (uint64_t)k_elems);
+                svint8x2_t lhs_vals = svld2_s8(pg, &lhs_row[k * 2u]);
+                svint8x2_t rhs_vals = svld2_s8(pg, &rhs_col[k * 2u]);
 
-                acc_v0 = svmla_s32_m(pg, acc_v0, svget2_s32(lhs_vals, 0), svget2_s32(rhs_vals, 0));
-                acc_v1 = svmla_s32_m(pg, acc_v1, svget2_s32(lhs_vals, 1), svget2_s32(rhs_vals, 1));
+                acc_v0 = svdot_s32(acc_v0, svget2_s8(lhs_vals, 0), svget2_s8(rhs_vals, 0));
+                acc_v1 = svdot_s32(acc_v1, svget2_s8(lhs_vals, 1), svget2_s8(rhs_vals, 1));
             }
 
             int32_t *out_slot = &out_interleaved[(row * rhs_cols + col) * 2u];
