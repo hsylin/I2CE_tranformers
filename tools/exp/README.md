@@ -80,13 +80,43 @@ No script changes needed.
 ./exp.sh dryrun 39        # resolve every step incl. gem5 flags; touches nothing
 ./exp.sh smoke [id]       # end-to-end pipeline test in minutes (no full sim)
 ./exp.sh submit 37 38 39  # build + checkpoint + launch, throttled (MAX_PARALLEL)
-./exp.sh status           # gem5 processes + last run per experiment (DONE/RUNNING)
+./exp.sh status           # gem5 processes + one row per run (see States below)
 ./exp.sh results 39       # where the latest run's logs/stats are
 ./exp.sh collect 39       # newest finished run -> tables + refreshed HTML report
 ./exp.sh collect 39 --run 20260927_231044   # ... or a specific run
 ./exp.sh report           # all collected experiments -> one offline HTML
 ./exp.sh gc-src           # drop the worktrees --at created
+./exp.sh gc-builds        # drop build directories no run points at
 ```
+
+### States reported by `status`
+
+`status` prints one row per *run*, not per experiment id: every run still in
+flight, plus the newest row of each id. Several runs of one id can be live at
+once — that is the point of per-build shares — and a view that showed only the
+last row hid the rest. The commit column is the commit the binary was built
+from, so two rows of the same id are told apart by the thing that differs.
+
+| state | meaning |
+|---|---|
+| `RUNNING` | a gem5 process is alive for this output directory |
+| `DONE -> collect <id>` | `stats.txt` and `gem5_profile_regions.tsv` are both written; ready to harvest (with `--run <ts>` when the id has more than one row shown) |
+| `COLLECTED E<n>` | already harvested, and which table row it became |
+| `SMOKE-OK` | a `smoke` run that reached its end |
+| `INCOMPLETE` | no live process and no complete output — look at `gem5_stdout.log` and `system.terminal` |
+
+`RUNNING` is decided first by a live process whose command line carries this
+run's `-d` directory. Failing that, and only for a run that was never harvested,
+the pid recorded at launch counts if it still belongs to the gem5 binary — on its
+own that pid is not trusted, because over a ten-hour simulation the kernel can
+hand the number to something else.
+
+`COLLECTED` comes from `collected_as`, which `collect` writes into the run
+directory *after* `add_experiment.py` has returned 0, holding the assigned id.
+It is deliberately not keyed on `provenance.tsv`: that file is an **input** to
+`add_experiment.py`, so it exists before the harvest and survives a failed one.
+Runs harvested before this marker existed are still recognised, by the run
+timestamp their per-run table file carries.
 
 ### Running a specific commit
 
@@ -103,6 +133,31 @@ tree is untouched and two commits can be built side by side. The runner,
 `experiments.tsv` and `add_experiment.py` always come from the checkout you
 invoked — **the measured code is the variable, the measuring apparatus is the
 constant.** `--at` is refused on `collect` for that reason.
+
+### Two commits under one experiment row
+
+Every build gets its own directory, `$EXP_ROOT/<id>/builds/<timestamp>_<sha>/`,
+and `$EXP_ROOT/<id>/share` is a symlink to the newest. That is what makes this
+safe:
+
+```bash
+./exp.sh submit 38 --at shaA     # builds A, launches a run that mounts A
+./exp.sh submit 38 --at shaB     # builds B; A's run is untouched
+```
+
+A run's share is a live 9p filesystem: the guest executes `transformer.o` from
+it, which Linux demand-pages for the whole run, and bind-mounts `weights/` out
+of it. With one directory per experiment row the second build replaced both
+under the first run. A launch also resolves the symlink to an absolute path, so
+a later build retargeting it cannot move a running mount.
+
+Two runs of *the same* build at once are still refused: both guests write
+`gem5_profile_regions.tsv` into the shared directory and would overwrite each
+other. Build again to get a fresh directory.
+
+`./exp.sh gc-builds` deletes build directories no recorded run points at (each
+run stores its own in `build_dir`), keeping the current one. Roughly 35 MB of
+binary and weights per build, so it is worth running after a sweep.
 
 The worktree is a sparse checkout of just what a build reads — roughly 60 MB
 rather than the ~2 GB a full checkout of this repository costs, most of which
