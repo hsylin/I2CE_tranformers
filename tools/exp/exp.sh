@@ -519,9 +519,18 @@ smoke_one() {
   load_row "${1:-37}"
   build_one "$EID"
   checkpoint_one "$EID"
-  sed -e "s|@ID@|$EID|g" -e "s|@SHARE@|$SHARE|g" \
-      "$SELF_DIR/lib/smoke.rcS.tmpl" > "$SHARE/smoke.rcS"
-  launch_one "$EID" "$SHARE/smoke.rcS" smoke "$BOOT_CPU"
+  # Resolve the share before baking it into the guest script. $SHARE cannot be
+  # trusted here: build_one sets it to the new build directory, but the
+  # checkpoint_one call above re-runs load_row, which resets it to the $EDIR/share
+  # symlink. launch_one exports the resolved directory, and the guest mounts with
+  # the aname baked in below, so the two have to be the same string or diod
+  # refuses the attach.
+  local SMOKE_SHARE
+  SMOKE_SHARE="$(cd "$SHARE" 2>/dev/null && pwd -P)" \
+    || die "[smoke $EID] no build to smoke — run: ./exp.sh build $EID"
+  sed -e "s|@ID@|$EID|g" -e "s|@SHARE@|$SMOKE_SHARE|g" \
+      "$SELF_DIR/lib/smoke.rcS.tmpl" > "$SMOKE_SHARE/smoke.rcS"
+  launch_one "$EID" "$SMOKE_SHARE/smoke.rcS" smoke "$BOOT_CPU"
   local OUT; OUT="$(ls -d "$EDIR"/smoke_* 2>/dev/null | sort | tail -1 || true)"
   [[ -n "$OUT" ]] || die "[smoke $EID] the launch left no smoke_* directory in $EDIR"
   echo "[smoke] waiting (checkpoint restore + guest script, a few minutes) ..."
