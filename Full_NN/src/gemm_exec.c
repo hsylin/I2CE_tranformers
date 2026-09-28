@@ -135,7 +135,7 @@ static uint32_t get_packed_index_interleaved_nd(
  * guarantee for in-place expansion. Count and workspace capacity are elements,
  * while the overlap check compares byte ranges on the AArch64 address space.
  */
-static void gemm_widen_input_sve(const int8_t *src,
+__attribute__((unused)) static void gemm_widen_input_sve(const int8_t *src,
                                 int32_t *dst,
                                 uint32_t count) {
     if (count == 0u) {
@@ -1348,37 +1348,35 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     }
 
     /*
-     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
-     * caller-owned workspace when it exists and is large enough; otherwise
-     * malloc a temporary as the pre-refactor code did. The
-     * allocation-failure fallback is preserved.
+     * Step 7: hand the kernel the int8 activations as they are. The kernel
+     * recovers the four learner values of each K position from a single
+     * 32-bit load and sign-extends them in registers, so this path no
+     * longer materialises an int32 copy of the activation matrix and performs
+     * no allocation at all.
+     *
+     * The one precondition is that the load be 4-byte aligned. Row bases
+     * are ld_in_interleaved apart and that stride is a multiple of 4, so the
+     * alignment of the matrix base settles it for every row; checking it once
+     * here is enough. A caller whose buffer is not aligned keeps the scalar
+     * path rather than issuing a load the C standard does not define.
+     *
+     * input_i32_workspace_opt / input_i32_workspace_capacity are no longer
+     * needed here. They stay in the signature so this commit does not change
+     * the _ex ABI; a follow-up removes them along with the caller-side
+     * workspaces that feed them.
      */
-    const uint32_t input_count =
-        (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 4u;
-    int32_t *input_i32_interleaved;
-    int using_workspace = 0;
-    if ((input_i32_workspace_opt != NULL) &&
-        (input_i32_workspace_capacity >= input_count)) {
-        input_i32_interleaved = input_i32_workspace_opt;
-        using_workspace = 1;
-    } else {
-        input_i32_interleaved =
-            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-        if (input_i32_interleaved == NULL) {
-            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-            gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
-                                                          in_interleaved,
-                                                          weight_idx_interleaved,
-                                                          codebook_interleaved,
-                                                          bias_interleaved,
-                                                          out_interleaved,
-                                                          bits_per_cb);
-            return;
-        }
+    (void)input_i32_workspace_opt;
+    (void)input_i32_workspace_capacity;
+    if ((((uintptr_t)in_interleaved) & 3u) != 0u) {
+        gemm_exec_compact_int_interleaved_4Learners_diff_seq(gemm_layer,
+                                                      in_interleaved,
+                                                      weight_idx_interleaved,
+                                                      codebook_interleaved,
+                                                      bias_interleaved,
+                                                      out_interleaved,
+                                                      bits_per_cb);
+        return;
     }
-
-    /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
@@ -1421,7 +1419,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
                     &packed_rows[w0 * 4u],
                     tile_words,
                     k_tile,
-                    &input_i32_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 4u],
+                    &in_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 4u],
                     seq_tile,
                     gemm_layer.input_size * 4u,
                     codebook_i32_interleaved,
@@ -1440,10 +1438,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
-    if (!using_workspace) {
-        free(input_i32_interleaved);
-    }
+    /* No temporary input buffer was allocated, so there is nothing to release. */
 }
 
 /**
@@ -1540,37 +1535,35 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     }
 
     /*
-     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
-     * caller-owned workspace when it exists and is large enough; otherwise
-     * malloc a temporary as the pre-refactor code did. The
-     * allocation-failure fallback is preserved.
+     * Step 7: hand the kernel the int8 activations as they are. The kernel
+     * recovers the two learner values of each K position from a single
+     * 16-bit load and sign-extends them in registers, so this path no
+     * longer materialises an int32 copy of the activation matrix and performs
+     * no allocation at all.
+     *
+     * The one precondition is that the load be 2-byte aligned. Row bases
+     * are ld_in_interleaved apart and that stride is a multiple of 2, so the
+     * alignment of the matrix base settles it for every row; checking it once
+     * here is enough. A caller whose buffer is not aligned keeps the scalar
+     * path rather than issuing a load the C standard does not define.
+     *
+     * input_i32_workspace_opt / input_i32_workspace_capacity are no longer
+     * needed here. They stay in the signature so this commit does not change
+     * the _ex ABI; a follow-up removes them along with the caller-side
+     * workspaces that feed them.
      */
-    const uint32_t input_count =
-        (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 2u;
-    int32_t *input_i32_interleaved;
-    int using_workspace = 0;
-    if ((input_i32_workspace_opt != NULL) &&
-        (input_i32_workspace_capacity >= input_count)) {
-        input_i32_interleaved = input_i32_workspace_opt;
-        using_workspace = 1;
-    } else {
-        input_i32_interleaved =
-            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-        if (input_i32_interleaved == NULL) {
-            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-            gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
-                                                          in_interleaved,
-                                                          weight_idx,
-                                                          codebook_interleaved,
-                                                          bias_interleaved,
-                                                          out_interleaved,
-                                                          bits_per_cb);
-            return;
-        }
+    (void)input_i32_workspace_opt;
+    (void)input_i32_workspace_capacity;
+    if ((((uintptr_t)in_interleaved) & 1u) != 0u) {
+        gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_layer,
+                                                      in_interleaved,
+                                                      weight_idx,
+                                                      codebook_interleaved,
+                                                      bias_interleaved,
+                                                      out_interleaved,
+                                                      bits_per_cb);
+        return;
     }
-
-    /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
@@ -1613,7 +1606,7 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
                     &packed_row[w0],
                     tile_words,
                     k_tile,
-                    &input_i32_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 2u],
+                    &in_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 2u],
                     seq_tile,
                     gemm_layer.input_size * 2u,
                     codebook_i32_interleaved,
@@ -1632,10 +1625,7 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
-    if (!using_workspace) {
-        free(input_i32_interleaved);
-    }
+    /* No temporary input buffer was allocated, so there is nothing to release. */
 }
 
 /**
@@ -1732,37 +1722,35 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
     }
 
     /*
-     * Step 7: obtain an int32 copy of the interleaved input. Prefer the
-     * caller-owned workspace when it exists and is large enough; otherwise
-     * malloc a temporary as the pre-refactor code did. The
-     * allocation-failure fallback is preserved.
+     * Step 7: hand the kernel the int8 activations as they are. The kernel
+     * recovers the four learner values of each K position from a single
+     * 32-bit load and sign-extends them in registers, so this path no
+     * longer materialises an int32 copy of the activation matrix and performs
+     * no allocation at all.
+     *
+     * The one precondition is that the load be 4-byte aligned. Row bases
+     * are ld_in_interleaved apart and that stride is a multiple of 4, so the
+     * alignment of the matrix base settles it for every row; checking it once
+     * here is enough. A caller whose buffer is not aligned keeps the scalar
+     * path rather than issuing a load the C standard does not define.
+     *
+     * input_i32_workspace_opt / input_i32_workspace_capacity are no longer
+     * needed here. They stay in the signature so this commit does not change
+     * the _ex ABI; a follow-up removes them along with the caller-side
+     * workspaces that feed them.
      */
-    const uint32_t input_count =
-        (uint32_t)gemm_layer.seq_len * (uint32_t)gemm_layer.input_size * 4u;
-    int32_t *input_i32_interleaved;
-    int using_workspace = 0;
-    if ((input_i32_workspace_opt != NULL) &&
-        (input_i32_workspace_capacity >= input_count)) {
-        input_i32_interleaved = input_i32_workspace_opt;
-        using_workspace = 1;
-    } else {
-        input_i32_interleaved =
-            (int32_t *)malloc((size_t)input_count * sizeof(int32_t));
-        if (input_i32_interleaved == NULL) {
-            /* Step 8: allocation failure keeps correctness by using scalar fallback. */
-            gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
-                                                          in_interleaved,
-                                                          weight_idx,
-                                                          codebook_interleaved,
-                                                          bias_interleaved,
-                                                          out_interleaved,
-                                                          bits_per_cb);
-            return;
-        }
+    (void)input_i32_workspace_opt;
+    (void)input_i32_workspace_capacity;
+    if ((((uintptr_t)in_interleaved) & 3u) != 0u) {
+        gemm_exec_compact_int_interleaved_4Learners_same_seq(gemm_layer,
+                                                      in_interleaved,
+                                                      weight_idx,
+                                                      codebook_interleaved,
+                                                      bias_interleaved,
+                                                      out_interleaved,
+                                                      bits_per_cb);
+        return;
     }
-
-    /* Step 9: copy/sign-extend each interleaved input element to int32. */
-    gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
@@ -1805,7 +1793,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
                     &packed_row[w0],
                     tile_words,
                     k_tile,
-                    &input_i32_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 4u],
+                    &in_interleaved[((seq0 * gemm_layer.input_size) + processed_k) * 4u],
                     seq_tile,
                     gemm_layer.input_size * 4u,
                     codebook_i32_interleaved,
@@ -1824,9 +1812,6 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
         }
     }
 
-    /* Step 17: release the temporary expanded input buffer (only if we owned it). */
-    if (!using_workspace) {
-        free(input_i32_interleaved);
-    }
+    /* No temporary input buffer was allocated, so there is nothing to release. */
 }
 #endif
