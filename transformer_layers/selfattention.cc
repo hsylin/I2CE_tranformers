@@ -12,6 +12,7 @@
 #include "codebookDense.h"
 #include "interleavedCodebookDenseValidator.h"
 #include "interleavedPipeline.h"
+#include "profile.h"
 
 #include <stdexcept>
 #include <vector>
@@ -750,6 +751,13 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
         seq_len,
         head_hidden_size);
 
+    // Region boundary: everything above is the codebook Q/K/V projection, the
+    // only GEMM in this function that reads a compressed weight index stream.
+    // Below it are the two dense activation-by-activation matmuls. Keeping them
+    // apart is what lets a change to one kernel be attributed to that kernel;
+    // see transformer_profiling/hsylin/README.md.
+    dumpTransformerStatsCheckpointIfProfiling("after_qkv_h", "MHA_QKV");
+
     // Attention score matrix for two learners: each learner gets a seq_len x seq_len score matrix.
     std::vector<int8_t> attention_scores(seq_len * seq_len * 2u, 0);
     matmulInterleaved2LearnersToInt8(
@@ -767,6 +775,11 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
         seq_len,
         seq_len);
 
+    // Region boundary: Q * K^T alone. This is the dense interleaved kernel with
+    // no other work in the interval, so it is the clean signal for a change to
+    // that kernel.
+    dumpTransformerStatsCheckpointIfProfiling("after_qk_h", "MHA_QK");
+
     // Softmax is applied independently per learner while preserving the 2-learner interleaved storage layout.
     heads[0]->softmax_->computeInterleaved2Learners(attention_scores.data(), seq_len); // softmax_approx((QK^T) / 8)
 
@@ -776,6 +789,10 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
         attention_scores.data(),
         seq_len,
         seq_len);
+
+    // Region boundary: softmax is neither GEMM, so it is measured on its own
+    // rather than diluting either dense interval.
+    dumpTransformerStatsCheckpointIfProfiling("after_softmax_h", "MHA_softmax");
 
     // Put V into column-major learner-interleaved layout so the final scores * V matmul can stream columns.
     std::vector<int8_t> value_by_col(head_hidden_size * seq_len * 2u, 0);
@@ -942,6 +959,9 @@ void SingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len,
         head_hidden_size);
 
     // Attention score matrix for four learners: each learner gets a seq_len x seq_len score matrix.
+    // Region boundary: see computeInterleaved2Learners().
+    dumpTransformerStatsCheckpointIfProfiling("after_qkv_h", "MHA_QKV");
+
     std::vector<int8_t> attention_scores(seq_len * seq_len * 4u, 0);
     matmulInterleaved4LearnersToInt8(
         query_out.data(),
@@ -959,6 +979,9 @@ void SingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len,
         seq_len);
 
     // Softmax is applied independently per learner while preserving the 4-learner interleaved storage layout.
+    // Region boundary: Q * K^T alone, the dense interleaved kernel.
+    dumpTransformerStatsCheckpointIfProfiling("after_qk_h", "MHA_QK");
+
     heads[0]->softmax_->computeInterleaved4Learners(attention_scores.data(), seq_len);
 
     dumpInterleavedLearnerMatrices4(
@@ -969,6 +992,9 @@ void SingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len,
         seq_len);
 
     // Put V into column-major learner-interleaved layout so the final scores * V matmul can stream columns.
+    // Region boundary: softmax on its own.
+    dumpTransformerStatsCheckpointIfProfiling("after_softmax_h", "MHA_softmax");
+
     std::vector<int8_t> value_by_col(head_hidden_size * seq_len * 4u, 0);
     transposeInterleavedRowsToCols4(
         value_out.data(),
