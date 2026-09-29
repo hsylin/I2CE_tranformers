@@ -115,8 +115,11 @@ void resetTransformerStatsWindow(const char* scope) {
 #if CFG_GEM5_PROFILE_REGIONS
     gem5_profile_scope = scope;
     gem5_profile_index_rows.clear();
-    // One transformer block produces six stage boundaries plus a final total.
-    gem5_profile_index_rows.reserve(8);
+    // The interleaved int8 paths close four regions per attention head before
+    // the five block-level boundaries, so the row count scales with num_heads.
+    // 64 covers BERT-base (12 heads) without reallocating; the vector grows if
+    // a wider model needs more.
+    gem5_profile_index_rows.reserve(64);
     gem5_profile_index_flushed = false;
 #else
     (void)scope;
