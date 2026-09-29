@@ -48,9 +48,11 @@ Within the selected directory:
 - Input TSVs are never modified. Manifests, metric mappings and `figures/` are
   not treated as experiments.
 
-Adding E04, E05, or later experiments does not require code edits. Use the same
-seven-row schema as the existing files: six `interval_delta` rows and one
-`final_total` row. See [hsylin/README.md](hsylin/README.md) for extraction, and
+Adding further experiments does not require code edits. Use one
+`interval_delta` row per profiling region plus one `final_total` row. Two region
+schemas are recognised: the six regions every run before the MHA split used, and
+the split schema below, where MHA becomes five rows. An experiment must match one
+of them exactly; a set that matches neither is refused rather than charted. See [hsylin/README.md](hsylin/README.md) for extraction, and
 [final/README.md](final/README.md) for how the historical dataset was produced.
 
 Collection and reporting are separate steps. `exp.sh collect` writes the TSVs;
@@ -98,7 +100,7 @@ Each model has the following charts when the required observations exist:
 | Chart | Controls |
 | --- | --- |
 | Experiment runtimes | Simulated time on a log scale; one point per experiment. |
-| Phase breakdown | Six profiling regions; seconds or percentage. |
+| Phase breakdown | Every profiling region the data carries; seconds or percentage. |
 | Phase metric heatmap | L1D/L2 miss rate, L1D/L2 MPKI, IPC, L2 miss count. |
 | SVE sensitivity | CB8, grouped by learner count; time or ratio to 128-bit SVE. |
 | Codebook x SVE grid | Four learners; runtime or L1D/L2 miss rate. |
@@ -111,8 +113,23 @@ subtracting cumulative ratios. Zero denominators remain missing. L2 demand
 misses are not a measurement of DRAM bytes; `simOps` is not a FLOP count.
 
 Non-GEMM 1 means `non_GEMM_after_projection`; Non-GEMM 2 means
-`non_GEMM_after_ff2`. These regions do not isolate staging, decode, MAC, barriers
-or reduction. Per-worker timelines require separate buffered guest events.
+`non_GEMM_after_ff2`.
+
+The interleaved int8 paths split MHA into five regions, closed four times per
+attention head and summed across heads:
+
+| Region | What it measures |
+| --- | --- |
+| `MHA_QKV` | the three codebook Q/K/V projections — the only compressed-weight GEMM in the head |
+| `MHA_QK` | Q·Kᵀ alone, the dense interleaved kernel with nothing else in the interval |
+| `MHA_softmax` | softmax, measured on its own so it dilutes neither dense region |
+| `MHA_SV` | the V transpose, the dense softmax(QKᵀ)·V matmul, the post-softmax rescale and the per-head gather |
+| `MHA_out` | the multihead repack left over once the four per-head regions are subtracted |
+
+`MHA_QKV` and `MHA_QK` are the point of the split: one is a codebook GEMM and
+the other a dense GEMM, so a change to either kernel can be attributed to it.
+Outside those two, the regions still do not isolate staging, decode, MAC,
+barriers or reduction. Per-worker timelines require separate buffered guest events.
 
 Repeated settings remain separate observations. SVE groups with duplicate
 settings or different model dimensions have no inferred speedup baseline;
@@ -160,7 +177,7 @@ no placeholder charts. All three CSVs are monitored by `report.py --watch`.
 | Implementation phase breakdown | `phase_results.csv` | Exclusive wall or per-worker phase durations and ROI duration. |
 
 The CSVs supplement the historical experiment TSVs; they do not require the
-six-region TSV schema and do not change it. The input directory still needs at
+TSV region schema and do not change it. The input directory still needs at
 least one valid historical-schema experiment. The report does not perform tile
 sweeps, instrument kernels or infer new measurements from old aggregate stats.
 `--experiments` filters the historical TSV charts only; optional CSVs select

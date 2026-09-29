@@ -526,7 +526,7 @@ flag is `1`, the script adds the corresponding `-D...` macro.
 | `ENABLE_CODEBOOK_REFERENCE_FLAG` | `0` | `ENABLE_CODEBOOK_REFERENCE` | Builds a dense reference path beside codebook GEMM and compares outputs. Useful for debugging correctness, not profiling. This enables the computation of the dense Transformer and print the comparison results. |
 | `ENABLE_DEBUG_PRINT_FLAG` | `0` | `ENABLE_DEBUG_PRINT` | Enables debug prints and previews. Automatically disabled by profiling modes. |
 | `PROFILE_GEMM_ONLY_FLAG` | `0` | `PROFILE_GEMM_ONLY` | Disables reference/debug overhead so profiling focuses on codebook GEMM. |
-| `GEM5_PROFILE_REGIONS_FLAG` | `0` | `GEM5_PROFILE_REGIONS` | Emits named gem5 stats checkpoints for high-level Transformer regions. If this is enabled, the profiling of the program will be divided into 6 parts: `after_mha`, `after_projection`, `after_attn_addnorm`, `after_ff1`, `after_ff2`, `final_total`, so we can see the statistics of different layers. |
+| `GEM5_PROFILE_REGIONS_FLAG` | `0` | `GEM5_PROFILE_REGIONS` | Emits named gem5 stats checkpoints for high-level Transformer regions, so the statistics of different layers can be read separately. The block-level boundaries are `after_projection`, `after_attn_addnorm`, `after_ff1`, `after_ff2` and `final_total`. On the interleaved int8 paths, MHA is further closed four times per attention head — `after_qkv_h`, `after_qk_h`, `after_softmax_h`, `after_sv_h` — followed by `after_mha` for the multihead repack, so a run emits `4 x num_heads + 6` dumps rather than 6. The run writes `gem5_profile_regions.tsv` naming the region each dump closed. |
 | `FULL_INTERLEAVED_PIPELINE_FLAG` | `0` | `FULL_INTERLEAVED_PIPELINE` | Keeps all learner activations interleaved across the whole grouped Transformer block (Our project is focused on fully interleaved path, so it's always enabled). |
 | `USE_FP32_TRANSFORMER_FLAG` | `0` | `USE_FP32_TRANSFORMER` | Runs the FP32 Transformer path instead of the integer path. Requires codebook GEMM. |
 | `DENSE_NO_SIMD_BASELINE_FLAG` | `0` | `DENSE_NO_SIMD_BASELINE` | Runs the default dense Transformer as a no-SIMD sequential learner baseline. This flag cannot be combined with SIMD, codebook GEMM, or the fully interleaved pipeline. It is mainly used to build fair multi-learner dense baselines. Instead of loading one learner's weights, computing it, and then repeating the same process for the next learner, this mode first loads the weights for all learners and then executes the learners sequentially. This avoids mixing weight-loading overhead into the profiled computation region, making the multi-learner dense baseline more reasonable for comparison. |
@@ -1136,7 +1136,7 @@ When `GEM5_PROFILE_REGIONS_FLAG=1` is enabled during compilation, the program em
 gem5 does not number experiments. E01-E36 in `transformer_profiling/final/`
 were converted from their stats files after the runs, and a new run is added
 the same way with `transformer_profiling/add_experiment.py`. The script writes
-the seven-row TSV (six `interval_delta` rows plus `final_total`), adds the
+the TSV (one `interval_delta` row per profiling region plus `final_total`), adds the
 experiment to `manifest.tsv` and the directory's `<dirname>_all_experiments.tsv`,
 and picks the next free ID from that manifest.
 
@@ -1171,8 +1171,12 @@ writing anything.
 | `--recorded-stats-path PATH` | Record a different path in the `stats_file` column, e.g. the server path of a copied file. |
 | `--scale-first-learner` | Unfinished dense multi-learner run: first learner times `N_LEARNERS`, as for BERT-base E05/E06. |
 
-A profiling run writes six dump blocks (6 per learner for a dense
-multi-learner baseline). A run ended with `m5 exit` has one more block, which
+A profiling run writes one dump block per profiling region: six for the
+block-level schema (6 per learner for a dense multi-learner baseline), or
+`4 x num_heads + 6` on the interleaved int8 paths, where MHA is closed per
+attention head. Pass `--regions <run>/gem5_profile_regions.tsv` so the script
+reads which region each dump closed instead of assuming six; `exp.sh collect`
+does this automatically. A run ended with `m5 exit` has one more block, which
 the script ignores. If gem5 prints a malformed `simSeconds`, the script uses
 `simTicks / simFreq` and prints a warning. Rerun
 `python3 tests/profiling_add_experiment_test.py` after changing the script.

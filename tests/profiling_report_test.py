@@ -233,47 +233,48 @@ class ReportTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_one_command_from_other_directory_uses_current_dataset(self):
-        """Run with no --input from an unrelated cwd: only hsylin/ is read."""
-        output = self.directory / "all.html"
-        combined = CURRENT / (CURRENT.name + "_all_experiments.tsv")
-        original_hash = hashlib.sha256(combined.read_bytes()).hexdigest()
-        result = self.cli("--output", output)
+        """No --input: the default is hsylin/, never final/."""
+        # hsylin/ is empty, so the default run must fail for want of data rather
+        # than quietly reporting the 36 historical experiments.
+        result = self.cli("--output", self.directory / "all.html")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hsylin", result.stderr + result.stdout)
+        self.assertNotIn("Experiments: 36", result.stdout)
+        self.assertFalse((self.directory / "all.html").exists())
+
+        # Populated, it reports only what is in that directory.
+        results = self.directory / "hsylin"
+        results.mkdir()
+        self.raw[self.raw.exp_id.isin(["E09", "E16"])].to_csv(
+            results / "hsylin_all_experiments.tsv", sep="\t", index=False)
+        output = self.directory / "mine.html"
+        combined_hash = hashlib.sha256(
+            (results / "hsylin_all_experiments.tsv").read_bytes()).hexdigest()
+        result = self.cli("--input", results, "--output", output)
         self.assertEqual(result.returncode, 0, result.stderr)
-        expected = report.load_data(CURRENT)[1]
-        self.assertIn("Experiments: " + str(len(expected)), result.stdout)
+        self.assertIn("Experiments: 2", result.stdout)
         text = output.read_text()
         specs = json.loads(re.search(r'id="chart-specs">(.*?)</script>', text, re.S).group(1))
         self.assertTrue(specs)
         self.assertIn("plotly.js v", text)
         self.assertNotRegex(text, r'<script[^>]+src=')
-        # The provenance records the current dataset's table, not final/'s.
-        self.assertIn(original_hash, text)
+        self.assertIn(combined_hash, text)
         self.assertNotIn(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), text)
-        self.assertEqual(hashlib.sha256(combined.read_bytes()).hexdigest(), original_hash)
-        result = self.cli("--experiments", "E01", "E03", "--output", output)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Experiments: 2", result.stdout)
 
     def test_default_input_is_current_dataset_and_excludes_historical(self):
-        """Both datasets number from E01; the default must load only hsylin/."""
+        """Both datasets number from E01, so the default must read only hsylin/."""
         self.assertEqual(report.DEFAULT_INPUT, CURRENT)
-        _, current, _ = report.load_data(CURRENT)
-        self.assertEqual(sorted(current.exp_id), ["E01", "E02", "E03"])
-        # These are the int8 A/B runs: cb = 4, 2 learners, codebook path.
-        self.assertEqual(set(current.n_learners), {2})
-        self.assertEqual(set(current.codebook_size), {4})
-        self.assertEqual(set(current.implementation), {"Codebook SIMD int8"})
+        # Emptied when the MHA split changed the schema: tables are header-only.
+        combined = CURRENT / (CURRENT.name + "_all_experiments.tsv")
+        self.assertEqual(len(combined.read_text(encoding="utf-8").splitlines()), 1)
+        self.assertEqual(sorted(p.name for p in CURRENT.glob("e0*.tsv")), [])
 
         _, historical, _ = report.load_data(HISTORICAL)
         self.assertEqual(len(historical), 36)
         self.assertEqual(historical.exp_id.max(), "E36")
-        # The historical E01 is the dense baseline, so a leak is unmistakable.
-        hist_e01 = historical[historical.exp_id == "E01"].iloc[0]
-        curr_e01 = current[current.exp_id == "E01"].iloc[0]
-        self.assertEqual(hist_e01.n_learners, 1)
-        self.assertNotEqual(hist_e01.implementation, curr_e01.implementation)
-        self.assertNotEqual(hist_e01.cpu_cycles, curr_e01.cpu_cycles)
-        # E37-E46 were removed from the historical dataset.
+        # The historical E01 is the dense baseline, so a leak would be obvious.
+        self.assertEqual(historical[historical.exp_id == "E01"].n_learners.iloc[0], 1)
+        # E37-E46 are gone from the historical dataset.
         self.assertEqual([p.name for p in HISTORICAL.glob("e3[7-9]*.tsv")], [])
         self.assertEqual([p.name for p in HISTORICAL.glob("e4*.tsv")], [])
 
@@ -322,7 +323,8 @@ class ReportTest(unittest.TestCase):
 
     def test_english_charts_only_and_optional_tabs_require_data(self):
         output = self.directory / "report.html"
-        result = self.cli("--output", output)
+        self.raw.to_csv(self.directory / "final_all_experiments.tsv", sep="\t", index=False)
+        result = self.cli("--input", self.directory, "--output", output)
         self.assertEqual(result.returncode, 0, result.stderr)
         text = output.read_text()
         main = re.search(r"<main>(.*?)</main>", text, re.S).group(1)
@@ -333,7 +335,6 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn('data-view="scaling"', main)
         self.assertNotIn('data-view="phases"', main)
         self.assertNotIn("Perfetto", main)
-        self.raw.to_csv(self.directory / "final_all_experiments.tsv", sep="\t", index=False)
         (self.directory / "scaling_results.csv").write_text(
             "config_id,num_cores,replicate,sim_seconds\ntest_only,1,1,10\ntest_only,2,1,6\n")
         result = self.cli("--input", self.directory, "--output", output)
@@ -402,7 +403,16 @@ class ReportTest(unittest.TestCase):
         out = self.directory / "runs/37/out_20260926_120000"
         out.mkdir(parents=True)
         extractor.write_stats(out / "stats.txt", extractor.interval_deltas(rows), ["0.5"] * 6)
-        (out / "gem5_profile_regions.tsv").write_text("complete\n")
+        # exp.sh passes this to the collector, which reads the schema from it.
+        (out / "gem5_profile_regions.tsv").write_text(
+            "scope\tgroup4_full_interleaved_transformer_block\n"
+            "dump_index\tcheckpoint\tinterval_since_previous\n"
+            "1\tafter_mha\tMHA\n"
+            "2\tafter_projection\tProjection\n"
+            "3\tafter_attn_addnorm\tnon_GEMM_after_projection\n"
+            "4\tafter_ff1\tFF1\n"
+            "5\tafter_ff2\tFF2\n"
+            "6\tfinal_total\tnon_GEMM_after_ff2\n")
         results = self.directory / "results"
         env = dict(os.environ, REPO_ROOT=str(ROOT), GEN_PYTHON=sys.executable)
         command = ["bash", str(runner / "exp.sh"), "collect", "37", "--output-root", str(results)]
@@ -422,6 +432,102 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertIn("Experiments: 1", shown.stdout)
         self.assertTrue(html.is_file())
+
+    def split_mha(self, frame):
+        """Rewrite MHA rows into the five sub-regions, conserving every metric."""
+        parts = ["MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV", "MHA_out"]
+        numeric = ["sim_seconds", "instructions", "ops", "cpu_cycles", "memory_references",
+                   "load_instructions", "store_instructions", "dcache_demand_accesses",
+                   "dcache_demand_misses", "icache_demand_accesses", "icache_demand_misses",
+                   "l2_demand_accesses", "l2_demand_misses", "committed_branches",
+                   "branch_mispredictions"]
+        numeric = [c for c in numeric if c in frame.columns]
+        keep = frame[frame.interval != "MHA"].copy()
+        rows = []
+        for _, mha in frame[frame.interval == "MHA"].iterrows():
+            # First four parts take a fifth each; the last takes the remainder so
+            # the five add back to exactly the original MHA row.
+            running = {c: 0 for c in numeric}
+            for index, name in enumerate(parts):
+                row = mha.copy()
+                row["interval"] = name
+                row["checkpoint"] = "after_" + name.lower()
+                for c in numeric:
+                    if index < len(parts) - 1:
+                        share = mha[c] / len(parts)
+                        if c != "sim_seconds":
+                            share = int(share)
+                        row[c] = share
+                        running[c] += share
+                    else:
+                        row[c] = mha[c] - running[c]
+                rows.append(row)
+        return pd.concat([keep, pd.DataFrame(rows)], ignore_index=True)
+
+    def test_split_mha_schema_is_accepted_and_charted(self):
+        """The five sub-regions replace MHA and appear in block execution order."""
+        one = self.raw[self.raw.exp_id == "E09"].copy()
+        data = self.split_mha(one)
+        frame, totals, stages = self.load(data)
+        self.assertEqual(sorted(set(stages.interval)), sorted(report.SCHEMA_V2))
+        self.assertEqual(len(stages), 10)
+        # The schema decides the chart's region list and its order.
+        self.assertEqual(report.STAGES,
+                         ["MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV", "MHA_out",
+                          "Projection", "non_GEMM_after_projection", "FF1", "FF2",
+                          "non_GEMM_after_ff2"])
+        self.assertEqual(len(report.SHORT), len(report.STAGES))
+        self.assertEqual(len(report.COLORS), len(report.STAGES))
+        self.assertEqual(len(set(report.COLORS)), len(report.COLORS))
+        # Splitting conserves the total, so the timings stay valid.
+        self.assertTrue(totals.phase_timing_valid.all())
+        fig = report.phase_chart(totals, stages, "BERT-mini")
+        names = [t["name"] for t in fig["data"]]
+        self.assertEqual(names, report.SHORT)
+        self.assertIn("MHA Q/K/V", names)
+        self.assertNotIn("MHA", names)
+
+    def test_report_renders_both_schemas_together(self):
+        """A mixed report carries every region and invents no MHA mapping."""
+        v1 = self.raw[self.raw.exp_id == "E09"].copy()
+        v2 = self.raw[self.raw.exp_id == "E16"].copy()
+        data = pd.concat([v1, self.split_mha(v2)], ignore_index=True)
+        frame, totals, stages = self.load(data)
+        self.assertEqual(report.STAGES,
+                         ["MHA", "MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV",
+                          "MHA_out", "Projection", "non_GEMM_after_projection",
+                          "FF1", "FF2", "non_GEMM_after_ff2"])
+        # Each experiment keeps its own schema; nothing is back-filled.
+        self.assertEqual(set(stages[stages.exp_id == "E09"].interval), report.SCHEMA_V1)
+        self.assertEqual(set(stages[stages.exp_id == "E16"].interval), report.SCHEMA_V2)
+        fig = report.phase_chart(totals, stages, "BERT-mini")
+        mha = next(t for t in fig["data"] if t["name"] == "MHA")
+        qkv = next(t for t in fig["data"] if t["name"] == "MHA Q/K/V")
+        # Horizontal bars: the measured value is x, the experiment label is y.
+        # The V2 experiment has no MHA cell and the V1 experiment no MHA_QKV cell,
+        # and each gap sits opposite the other experiment's label.
+        def gaps(trace):
+            return {label for label, value in zip(trace["y"], trace["x"])
+                    if value is None or (isinstance(value, float) and math.isnan(value))}
+        self.assertEqual(len(gaps(mha)), 1)
+        self.assertEqual(len(gaps(qkv)), 1)
+        self.assertNotEqual(gaps(mha), gaps(qkv))
+        # Nothing was invented. The MHA-family regions belong to one schema each,
+        # so each carries exactly one value; the shared tail regions carry both.
+        mha_labels = {report.REGION_SHORT[n] for n in report.REGION_ORDER
+                      if n == "MHA" or n.startswith("MHA_")}
+        for trace in fig["data"]:
+            filled = [v for v in trace["x"]
+                      if v is not None and not (isinstance(v, float) and math.isnan(v))]
+            expected = 1 if trace["name"] in mha_labels else 2
+            self.assertEqual(len(filled), expected, trace["name"])
+
+    def test_unknown_region_set_is_refused(self):
+        data = self.raw[self.raw.exp_id == "E09"].copy()
+        data.loc[data.interval == "MHA", "interval"] = "MHA_QKV"
+        with self.assertRaises(ValueError) as caught:
+            self.load(data)
+        self.assertIn("neither known schema", str(caught.exception))
 
     def test_python39_syntax(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 9))
