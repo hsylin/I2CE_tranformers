@@ -27,19 +27,19 @@ math and number formatting are the same as the E01-E36 extraction, which
 
 ## The runs
 
-E01-E03 are a three-point A/B of the two int8 kernel changes, all at
-cb = 4, 2 learners, 128-bit SVE, restored from the same checkpoint, with only
-the measured binary differing (`exp.sh submit 38 --at <commit>`):
+Empty. The three-point int8 A/B that was here (E01-E03, baseline vs PR #14 vs
+PR #15 at cb = 4, 2 learners, 128-bit SVE) was collected under the six-region
+profiling schema and was dropped when the MHA region was split: its `MHA` row
+has no counterpart in the new schema, so it cannot be compared against anything
+measured from here on. Those rows remain in git history at `bc7e3b8b`.
 
-| ID | Commit | Change measured |
-| --- | --- | --- |
-| E01 | `3c5501b4` | baseline (PR #12, tooling only) |
-| E02 | `fad41a0f` | PR #14 — read interleaved int8 activations in place |
-| E03 | `e53973fa` | PR #15 — `svdot_s32` in the dense interleaved kernels |
+Re-run it under the new schema with:
 
-Note that `provenance/ENN.tsv` has an `exp_id` key holding the **runner** ID
-from `tools/exp/experiments.tsv` (38 here), not the `ENN` of this directory;
-the `ENN` is in the filename and in `manifest.tsv`'s `runner_id` column.
+```bash
+./exp.sh submit 38 --at 3c5501b4    # baseline
+./exp.sh submit 38 --at fad41a0f    # PR #14, int8 activations in place
+./exp.sh submit 38 --at e53973fa    # PR #15, svdot in the dense kernels
+```
 
 ## Adding a run
 
@@ -48,6 +48,7 @@ bash tools/exp/exp.sh collect 38            # -> the next free ID here
 python3 transformer_profiling/report.py     # refresh the HTML
 ```
 
-IDs are allocated from this directory's `manifest.tsv`, so the next run is E04.
+IDs are allocated from this directory's `manifest.tsv`, which is empty, so the
+next run is E01.
 `add_experiment.py --output-root` can target another directory, which then
 numbers into *that* directory's sequence. See `USER_MANUAL.md`, Section 4.8.
