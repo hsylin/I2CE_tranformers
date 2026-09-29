@@ -14,13 +14,13 @@ python -m pip check
 ```
 
 The pins are pandas 2.2.3 and Plotly 6.3.0. Jupyter is optional.
-`add_experiment.py` itself still needs only the standard library; the runner's
-post-collection HTML refresh also needs the visualization dependencies.
+`add_experiment.py` itself needs only the standard library; `report.py` needs
+the visualization dependencies above.
 
 ## Generate or refresh the report
 
 ```bash
-bash tools/exp/exp.sh report
+python3 transformer_profiling/report.py
 ```
 
 The single script, `report.py`, writes
@@ -30,38 +30,46 @@ or empty sections. It embeds Plotly.js and the data, so it opens offline. The
 camera button exports individual charts to SVG. Generated reports are ignored
 by Git.
 
-Every invocation reads the current `final/` directory:
+Every invocation reads the current run directory, `hsylin/`. The historical
+`final/` (E01-E36) and `base_mini/` datasets are **not** read: both number from
+E01, so including them silently would collide. To report on one of them, name it
+explicitly with `--input transformer_profiling/final`.
+
+Within the selected directory:
 
 - Files named `eNN_*.tsv`, `ENN_*.tsv`, `eNN.tsv`, or `ENN.tsv` contain one complete
   experiment each. The filename ID must match the rows' `exp_id`.
-- Individual files override the same experiment's rows in
-  `final_all_experiments.tsv`. The combined table supplies any other experiments.
-  This includes newly added files even before the combined table is updated.
+- Individual files override the same experiment's rows in the directory's
+  combined table, `<dirname>_all_experiments.tsv` (so
+  `hsylin/hsylin_all_experiments.tsv`). The combined table supplies any other
+  experiments. This includes newly added files even before it is updated.
 - Duplicate individual files for an ID are rejected. Invalid or incomplete
   experiments fail validation, leaving the previous HTML intact.
 - Input TSVs are never modified. Manifests, metric mappings and `figures/` are
   not treated as experiments.
 
-Adding E37, E38, or later experiments does not require code edits. Use the same
+Adding E04, E05, or later experiments does not require code edits. Use the same
 seven-row schema as the existing files: six `interval_delta` rows and one
-`final_total` row. See [final/README.md](final/README.md) for extraction.
+`final_total` row. See [hsylin/README.md](hsylin/README.md) for extraction, and
+[final/README.md](final/README.md) for how the historical dataset was produced.
 
-Successful collection now also refreshes the HTML:
+Collection and reporting are separate steps. `exp.sh collect` writes the TSVs;
+run the report afterwards:
 
 ```bash
-bash tools/exp/exp.sh collect 37
+bash tools/exp/exp.sh collect 38
+python3 transformer_profiling/report.py
 ```
 
-`collect --dry-run` does not regenerate it. An explicit `--output-root` is used
-as the report input; `REPORT_OUTPUT=/path/report.html` overrides the collection
-report destination. If visualization fails, the collected TSVs remain saved;
-fix the displayed error and rerun `report --input /path/to/results`.
+`collect --dry-run` writes nothing. A run collected with an explicit
+`--output-root` needs the matching `report.py --input`; the default input is
+`transformer_profiling/hsylin`.
 
-For files copied or edited directly in `final/`, regenerate with `report`, or
+For files copied or edited directly in `hsylin/`, regenerate the report, or
 leave this command running to rebuild on changes (Ctrl-C stops it):
 
 ```bash
-bash tools/exp/exp.sh report --watch
+python3 transformer_profiling/report.py --watch
 ```
 
 Watch mode observes local experiment and optional measurement files. It also
@@ -72,16 +80,15 @@ browser afterward. An HTML previously downloaded to another computer remains a
 snapshot and must be downloaded again.
 
 Defaults are relative to the script, not your working directory. Reporting does
-not need `runner.conf`, gem5, a guest image or a compiler. `REPORT_PYTHON` selects
-the interpreter; otherwise the wrapper uses the active `python3`.
+not need `runner.conf`, gem5, a guest image or a compiler.
 
 ```bash
-bash tools/exp/exp.sh report --input /path/to/results_directory
-bash tools/exp/exp.sh report --input /path/to/final_all_experiments.tsv
-bash tools/exp/exp.sh report --output "$HOME/profiling_report.html"
-bash tools/exp/exp.sh report --experiments E09 E37
-bash tools/exp/exp.sh report --metrics-output /tmp/profiling_metrics.tsv
-bash tools/exp/exp.sh report --help
+python3 transformer_profiling/report.py --input /path/to/results_directory
+python3 transformer_profiling/report.py --input transformer_profiling/final
+python3 transformer_profiling/report.py --output "$HOME/profiling_report.html"
+python3 transformer_profiling/report.py --experiments E01 E03
+python3 transformer_profiling/report.py --metrics-output /tmp/profiling_metrics.tsv
+python3 transformer_profiling/report.py --help
 ```
 
 ## Charts and measurement definitions
@@ -128,11 +135,11 @@ Known historical source issues remain explicit without banners in the HTML:
 ## Tile, multicore and implementation-phase measurements
 
 Copy the header-only templates in `templates/` and populate real measurements.
-Save them in `final/` with the same filenames for automatic inclusion, or select
-explicit files:
+Save them in `hsylin/` with the same filenames for automatic inclusion, or
+select explicit files:
 
 ```bash
-bash tools/exp/exp.sh report \
+python3 transformer_profiling/report.py \
   --tile-results /path/to/tiles.csv \
   --scaling-results /path/to/scaling.csv \
   --phase-results /path/to/phases.csv
@@ -140,7 +147,7 @@ bash tools/exp/exp.sh report \
 
 These capabilities remain in the script even before tiling or multicore results
 exist. Only tabs with measurements are displayed; header-only templates create
-no placeholder charts. All three CSVs are monitored by `report --watch`.
+no placeholder charts. All three CSVs are monitored by `report.py --watch`.
 
 | Chart | Input file | Measurements |
 | --- | --- | --- |

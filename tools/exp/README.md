@@ -82,9 +82,8 @@ No script changes needed.
 ./exp.sh submit 37 38 39  # build + checkpoint + launch, throttled (MAX_PARALLEL)
 ./exp.sh status           # gem5 processes + one row per run (see States below)
 ./exp.sh results 39       # where the latest run's logs/stats are
-./exp.sh collect 39       # newest finished run -> tables + refreshed HTML report
+./exp.sh collect 39       # newest finished run -> the result tables
 ./exp.sh collect 39 --run 20260927_231044   # ... or a specific run
-./exp.sh report           # all collected experiments -> one offline HTML
 ./exp.sh gc-src           # drop the worktrees --at created
 ./exp.sh gc-builds        # drop build directories no run points at
 ```
@@ -200,14 +199,14 @@ Every row records how it was produced: `runner_id`, `repo_commit`,
 the three cache sizes. Two runs with identical parameters but different code
 are therefore distinguishable, and the commit appears in the file name too. The
 run's full `build_config.tsv` plus the gem5 command line is copied to
-`final/provenance/<exp_id>.tsv`, so settings with no column of their own stay
-recorded.
+`transformer_profiling/hsylin/provenance/<exp_id>.tsv`, so settings with no
+column of their own stay recorded.
 
 ```bash
 ./exp.sh collect 38 --study "Codebook-size scaling" --dry-run   # preview rows
-./exp.sh collect 38 --study "Codebook-size scaling"             # write tables + HTML
-cd ../.. && git add transformer_profiling/final \
-  && git commit -m "chore(profiling): add E38 cb=4 nl=2 sve=128 run" && git push
+./exp.sh collect 38 --study "Codebook-size scaling"             # write the tables
+cd ../.. && git add transformer_profiling/hsylin \
+  && git commit -m "chore(profiling): add cb=4 nl=2 sve=128 run" && git push
 ```
 
 ## Interactive report
@@ -217,26 +216,28 @@ all collected experiments with one command (shown from the repository root):
 
 ```bash
 python -m pip install -r transformer_profiling/requirements-visualization.txt
-bash tools/exp/exp.sh report
+python3 transformer_profiling/report.py
 ```
 
 Output: `transformer_profiling/reports/profiling_report.html`. The English page
 contains charts and controls only, with Plotly.js embedded for offline viewing.
-Each invocation scans `transformer_profiling/final/` for individual experiment
-TSVs and the combined table. Individual files take precedence for the same ID,
-so a newly added `e37_*.tsv` is included even if the combined table is stale.
-Reporting works without `runner.conf` or gem5. `REPORT_PYTHON` selects its Python.
+Each invocation scans `transformer_profiling/hsylin/` for individual
+experiment TSVs and the combined table. Individual files take precedence for the
+same ID, so a newly added `e04_*.tsv` is included even if the combined table is
+stale. `transformer_profiling/final/` is the previous student's closed E01-E36
+dataset and is never read unless `--input transformer_profiling/final` names it:
+both directories number from E01, so loading them together would collide.
+Reporting works without `runner.conf` or gem5.
 
-Successful `collect` commands now regenerate the report after saving the tables;
-`collect --dry-run` does not. Custom `--output-root` directories are respected.
-Set `REPORT_OUTPUT` to choose the HTML destination during collection. A report
-failure leaves collected tables intact, returns a nonzero status and prints how
-to retry report generation without collecting the same experiment again.
+`collect` writes the tables only; generate the report as a separate step
+afterwards. A run collected into a custom `--output-root` needs the matching
+`report.py --input`.
 
-When copying result files into `final/` directly, run `exp.sh report` again or
-leave `exp.sh report --watch` running. Watch mode rebuilds on local result changes;
-stop it with Ctrl-C. Fetch/pull remote results first and reload the generated HTML
-in your browser. A previously downloaded HTML remains a snapshot.
+When copying result files into `hsylin/` directly, run `report.py` again or leave
+`python3 transformer_profiling/report.py --watch` running. Watch mode rebuilds on
+local result changes; stop it with Ctrl-C. Fetch/pull remote results first and
+reload the generated HTML in your browser. A previously downloaded HTML remains a
+snapshot.
 
 Use `report --output /path/report.html`, `report --experiments E09 E37`, or
 `report --help`. Optional `--tile-results`, `--scaling-results` and `--phase-results`

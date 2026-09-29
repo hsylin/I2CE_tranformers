@@ -10,6 +10,8 @@ The curated inputs were read from `/home/thu/gem5/transformer_profiling/BERT_min
 
 Use `final_all_experiments.tsv` for a combined table, or the `E*.tsv` files for per-experiment analysis. See `metric_sources.tsv` for source stat names.
 
-## Adding a new experiment
+## This directory is closed
 
-Use `transformer_profiling/add_experiment.py` to add a new gem5 run as E37, E38, and so on. It uses the same interval math and number formatting as the E01-E36 extraction, writes the per-experiment TSV into this directory, and updates `manifest.tsv` and `final_all_experiments.tsv`. See `USER_MANUAL.md`, Section 4.8, for the command.
+E01-E36 is the completed historical extraction and nothing is appended to it. New gem5 runs go to `transformer_profiling/hsylin/`, which numbers from E01 independently; see [../hsylin/README.md](../hsylin/README.md). `add_experiment.py` and `tools/exp/exp.sh collect` both default there, and `report.py` reads it by default, so this directory is only loaded when `--input transformer_profiling/final` names it explicitly.
+
+Because both directories start at E01, an experiment ID is only meaningful together with the directory it came from. Cite runs from here as `final/E09`, not `E09`.

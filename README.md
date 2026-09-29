@@ -67,12 +67,14 @@ profiling tables. After installing the
 generate one offline HTML containing all collected experiments with:
 
 ```bash
-bash tools/exp/exp.sh report
+python3 transformer_profiling/report.py
 ```
 
 The output is `transformer_profiling/reports/profiling_report.html`, an English
-chart-only page. `collect` refreshes it automatically. Use `report --watch` to
-rebuild when result files are added or updated locally in `final/`.
+chart-only page built from `transformer_profiling/hsylin/`. Use `--watch` to
+rebuild when result files there are added or updated. `transformer_profiling/
+final/` is the previous student's closed E01-E36 dataset and is read only when
+`--input` names it.
 See the [profiling guide](transformer_profiling/README.md) for chart controls,
 new experiments, optional tile/multicore sweeps, and measurement definitions.
 

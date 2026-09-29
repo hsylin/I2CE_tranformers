@@ -6,7 +6,7 @@ in templates/. No simulator, notebook server, or network is used by this script.
 
 From any directory:
   python /path/to/repo/transformer_profiling/report.py
-  bash /path/to/repo/tools/exp/exp.sh report --output /tmp/profiling.html
+  python /path/to/repo/transformer_profiling/report.py --output /tmp/profiling.html
 """
 import argparse
 import hashlib
@@ -22,7 +22,10 @@ import tempfile
 import time
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = SCRIPT_DIR / "final"
+# The current run directory. transformer_profiling/final/ holds the historical
+# E01-E36 dataset and is never read unless --input names it explicitly: both
+# directories number from E01, so mixing them would collide.
+DEFAULT_INPUT = SCRIPT_DIR / "hsylin"
 DEFAULT_OUTPUT = SCRIPT_DIR / "reports" / "profiling_report.html"
 OPTIONAL_RESULTS = {"tile_results": "tile_results.csv", "scaling_results": "scaling_results.csv",
                     "phase_results": "phase_results.csv"}
@@ -61,11 +64,48 @@ def num(x):
     return "—" if pd.isna(x) else "{:g}".format(x)
 
 
+RESULT_FILE_RE = re.compile(r"e\d+(?:_.*)?\.tsv", re.IGNORECASE)
+
+
+def looks_like_result(path):
+    """True for any filename this script and the collectors treat as result data.
+
+    The output guard checks this as well as the selected input set, because a
+    result directory that is not the current --input is still a dataset: a
+    report written over transformer_profiling/final/final_all_experiments.tsv
+    would destroy the historical extraction even though nothing read it on this
+    run. Checked by name, so it also refuses creating a new one.
+    """
+    return bool(RESULT_FILE_RE.fullmatch(path.name)) \
+        or path.name.endswith("_all_experiments.tsv") \
+        or path.name in set(OPTIONAL_RESULTS.values())
+
+
+def combined_table(path):
+    """A result directory's combined table: <dirname>_all_experiments.tsv.
+
+    That is the convention the committed directories already follow
+    (final/final_all_experiments.tsv, base_mini/base_mini_all_experiments.tsv),
+    so the name identifies which dataset a table belongs to. A directory whose
+    name does not match -- a temporary copy, for instance -- falls back to its
+    single *_all_experiments.tsv; two of them is ambiguous and is an error
+    rather than a silent choice between datasets.
+    """
+    preferred = path / (path.name + "_all_experiments.tsv")
+    if preferred.is_file():
+        return preferred
+    found = sorted(p for p in path.glob("*_all_experiments.tsv") if p.is_file())
+    if len(found) > 1:
+        raise ValueError(str(path) + ": more than one combined table: "
+                         + ", ".join(p.name for p in found))
+    return found[0] if found else preferred
+
+
 def input_files(path):
     """Find result files only; ignore manifests, metric maps and generated figures."""
     if not path.is_dir():
         return [path]
-    combined = path / "final_all_experiments.tsv"
+    combined = combined_table(path)
     experiments = sorted(p for p in path.iterdir() if p.is_file()
                          and re.fullmatch(r"e\d+(?:_.*)?\.tsv", p.name, re.IGNORECASE))
     files = ([combined] if combined.is_file() else []) + experiments
@@ -79,12 +119,13 @@ def read_results(path):
     files = input_files(path)
     if not path.is_dir():
         return pd.read_csv(files[0], sep="\t")
+    combined_name = combined_table(path).name
     combined, parts, seen = None, [], set()
     for source in files:
         data = pd.read_csv(source, sep="\t")
         if "exp_id" not in data or data.empty or data.exp_id.isna().any():
             raise ValueError(str(source) + ": missing experiment identifiers.")
-        if source.name == "final_all_experiments.tsv":
+        if source.name == combined_name:
             combined = data
             continue
         ids = set(data.exp_id)
@@ -642,11 +683,11 @@ def generate(args, get_plotlyjs):
     optional = optional_paths(args)
     inputs = {p.resolve() for p in input_files(args.input)} | {p.resolve() for p in optional.values() if p is not None}
     outputs = [p for p in [args.output, args.metrics_output] if p is not None]
-    if any(p in inputs or (args.input.is_dir() and p.parent == args.input
-                          and (re.fullmatch(r"e\d+(?:_.*)?\.tsv", p.name, re.IGNORECASE)
-                               or p.name in {"final_all_experiments.tsv", *OPTIONAL_RESULTS.values()}))
-           for p in outputs) or len(set(outputs)) != len(outputs):
-        raise ValueError("Output paths must be distinct and must not overwrite any input.")
+    resolved = [p.resolve() for p in outputs]
+    if any(q in inputs or looks_like_result(p) for p, q in zip(outputs, resolved)) \
+            or len(set(resolved)) != len(resolved):
+        raise ValueError("Output paths must be distinct and must not overwrite any input "
+                         "or any result file.")
     frame, totals, stages = load_data(args.input)
     if args.experiments:
         unknown = set(args.experiments) - set(totals.exp_id)

@@ -1137,8 +1137,14 @@ gem5 does not number experiments. E01-E36 in `transformer_profiling/final/`
 were converted from their stats files after the runs, and a new run is added
 the same way with `transformer_profiling/add_experiment.py`. The script writes
 the seven-row TSV (six `interval_delta` rows plus `final_total`), adds the
-experiment to `manifest.tsv` and `final_all_experiments.tsv`, and picks the next
-free ID (E37, E38, ...) from `manifest.tsv`.
+experiment to `manifest.tsv` and the directory's `<dirname>_all_experiments.tsv`,
+and picks the next free ID from that manifest.
+
+New runs go to `transformer_profiling/hsylin/` by default, which holds E01-E03
+so far, so the next run is E04. `final/` is the closed historical dataset and
+has its own independent numbering; it is written only if `--output-root
+transformer_profiling/final` names it. An experiment ID is therefore meaningful
+only together with its directory — cite `hsylin/E01` or `final/E09`.
 
 Run it from the TiC-SAT root after the program has finished in gem5:
 

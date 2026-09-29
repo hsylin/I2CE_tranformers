@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Add one gem5 profiling run to the transformer_profiling/final tables.
+"""Add one gem5 profiling run to the current profiling tables.
 
 The script converts the stats file of a single `transformer.o` run compiled
 with `PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1` into the same
-seven-row TSV format as E01-E36, then adds the experiment to `manifest.tsv`
-and `final_all_experiments.tsv`. The interval math, column order and number
+seven-row TSV format as the historical E01-E36 dataset, then adds the
+experiment to `manifest.tsv` and the directory's combined table. The interval
+math, column order and number
 formatting follow `transformer_profiling/extract_final_stats.py` in the
 Jerry0209/gem5 fork, which produced E01-E36.
 
-The next free experiment ID (E37, E38, ...) is chosen from `manifest.tsv`
-unless `--exp-id` is given.
+Runs land in `transformer_profiling/hsylin/` by default and take the next
+free ID in *that* directory's `manifest.tsv`, unless `--exp-id` is given.
+`transformer_profiling/final/` is the previous student's historical E01-E36
+dataset: it has its own independent numbering and is never written here unless
+`--output-root` names it explicitly.
 
 Examples:
   # Codebook SIMD int8, BERT-mini, 4 learners, CB = 8, 256-bit SVE
@@ -46,7 +50,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 getcontext().prec = 40
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "final"
+DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "hsylin"
 
 # (checkpoint, interval) for the six `m5 dumpstats` calls of one Transformer
 # block, in the order emitted by transformer_layers/profile.cc.
@@ -238,7 +242,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--sve-bits", type=int, required=True, help="gem5 SVE vector length in bits")
     parser.add_argument(
         "--exp-id",
-        help="experiment ID such as E37 (default: next free ID in manifest.tsv)",
+        help="experiment ID such as E04 (default: next free ID in the output root's manifest.tsv)",
     )
     parser.add_argument(
         "--implementation",
@@ -270,8 +274,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT,
-        help="directory holding manifest.tsv and final_all_experiments.tsv "
-             "(default: transformer_profiling/final next to this script)",
+        help="directory holding manifest.tsv and <dirname>_all_experiments.tsv "
+             "(default: transformer_profiling/hsylin next to this script). "
+             "Experiment IDs are allocated per directory, so pointing this at "
+             "another dataset numbers into that dataset's sequence",
     )
     parser.add_argument(
         "--replace", action="store_true",
@@ -301,7 +307,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     prov.add_argument(
         "--provenance", type=Path,
         help="key/value file (build_config.tsv and friends) copied verbatim to "
-             "final/provenance/<exp_id>.tsv, so settings with no column of their "
+             "<output-root>/provenance/<exp_id>.tsv, so settings with no column of their "
              "own are still recorded in the repository",
     )
     parser.add_argument(
@@ -391,7 +397,29 @@ def derive_gem5_timestamp(stats_path: Path, override: Optional[str]) -> str:
     )
 
 
+def combined_table_path(output_root: Path) -> Path:
+    """The directory's combined table: <dirname>_all_experiments.tsv.
+
+    That is the convention the committed datasets already use, so the filename
+    says which dataset a table belongs to. A directory that already holds a
+    differently named *_all_experiments.tsv keeps it; two of them is ambiguous
+    and is refused rather than guessed at.
+    """
+    preferred = output_root / f"{output_root.name}_all_experiments.tsv"
+    if preferred.exists():
+        return preferred
+    found = sorted(p for p in output_root.glob("*_all_experiments.tsv")) \
+        if output_root.is_dir() else []
+    if len(found) > 1:
+        raise ExtractionError(
+            f"{output_root}: more than one combined table: "
+            + ", ".join(p.name for p in found)
+        )
+    return found[0] if found else preferred
+
+
 def next_exp_id(manifest_path: Path) -> str:
+    """Highest ID in this manifest plus one; each directory numbers separately."""
     highest = 0
     if manifest_path.exists():
         for row in read_tsv(manifest_path, MANIFEST_COLUMNS):
@@ -804,7 +832,7 @@ def add_experiment(
     provenance_file: Optional[Path] = None,
 ) -> Path:
     manifest_path = output_root / "manifest.tsv"
-    combined_path = output_root / "final_all_experiments.tsv"
+    combined_path = combined_table_path(output_root)
     manifest = read_tsv(manifest_path, MANIFEST_COLUMNS) if manifest_path.exists() else []
     combined = read_tsv(combined_path, OUTPUT_COLUMNS) if combined_path.exists() else []
 
@@ -897,7 +925,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     total = rows[-1]
     print(f"{exp.exp_id}: wrote {output_path}")
     print(f"  total sim_seconds={total['sim_seconds']} ipc={total['ipc']} cpi={total['cpi']}")
-    print(f"  updated {args.output_root / 'manifest.tsv'} and final_all_experiments.tsv")
+    print(f"  updated {args.output_root / 'manifest.tsv'} and "
+          f"{combined_table_path(args.output_root).name}")
     return 0
 
 

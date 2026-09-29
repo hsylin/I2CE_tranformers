@@ -20,7 +20,13 @@ import unittest
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "transformer_profiling/report.py"
-SOURCE = ROOT / "transformer_profiling/final/final_all_experiments.tsv"
+# The historical dataset (previous student's E01-E36). Read only where a test
+# explicitly names it; it is no longer the report's default input.
+HISTORICAL = ROOT / "transformer_profiling/final"
+SOURCE = HISTORICAL / "final_all_experiments.tsv"
+# The current run directory, which report.py reads by default. It numbers from
+# E01 as well, so a leak between the two is visible as a wrong E01.
+CURRENT = ROOT / "transformer_profiling/hsylin"
 sys.path.insert(0, str(SCRIPT.parent))
 import report
 report.load_dependencies()
@@ -226,26 +232,66 @@ class ReportTest(unittest.TestCase):
         result = self.cli("--output", output, "--metrics-output", output)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_one_command_from_other_directory_and_dense_only_subset(self):
+    def test_one_command_from_other_directory_uses_current_dataset(self):
+        """Run with no --input from an unrelated cwd: only hsylin/ is read."""
         output = self.directory / "all.html"
-        env = dict(os.environ, REPORT_PYTHON=sys.executable,
-                   GEM5_BIN="/does/not/exist", GEM5_CWD="/does/not/exist")
-        original_hash = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
-        result = subprocess.run(["bash", str(ROOT / "tools/exp/exp.sh"), "report", "--output", str(output)],
-                                cwd=self.directory, env=env, capture_output=True, text=True)
+        combined = CURRENT / (CURRENT.name + "_all_experiments.tsv")
+        original_hash = hashlib.sha256(combined.read_bytes()).hexdigest()
+        result = self.cli("--output", output)
         self.assertEqual(result.returncode, 0, result.stderr)
-        expected = report.load_data(SOURCE.parent)[1]
+        expected = report.load_data(CURRENT)[1]
         self.assertIn("Experiments: " + str(len(expected)), result.stdout)
         text = output.read_text()
         specs = json.loads(re.search(r'id="chart-specs">(.*?)</script>', text, re.S).group(1))
         self.assertTrue(specs)
         self.assertIn("plotly.js v", text)
         self.assertNotRegex(text, r'<script[^>]+src=')
+        # The provenance records the current dataset's table, not final/'s.
         self.assertIn(original_hash, text)
-        self.assertEqual(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), original_hash)
-        result = self.cli("--experiments", "E01", "E04", "--output", output)
+        self.assertNotIn(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), text)
+        self.assertEqual(hashlib.sha256(combined.read_bytes()).hexdigest(), original_hash)
+        result = self.cli("--experiments", "E01", "E03", "--output", output)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Experiments: 2", result.stdout)
+
+    def test_default_input_is_current_dataset_and_excludes_historical(self):
+        """Both datasets number from E01; the default must load only hsylin/."""
+        self.assertEqual(report.DEFAULT_INPUT, CURRENT)
+        _, current, _ = report.load_data(CURRENT)
+        self.assertEqual(sorted(current.exp_id), ["E01", "E02", "E03"])
+        # These are the int8 A/B runs: cb = 4, 2 learners, codebook path.
+        self.assertEqual(set(current.n_learners), {2})
+        self.assertEqual(set(current.codebook_size), {4})
+        self.assertEqual(set(current.implementation), {"Codebook SIMD int8"})
+
+        _, historical, _ = report.load_data(HISTORICAL)
+        self.assertEqual(len(historical), 36)
+        self.assertEqual(historical.exp_id.max(), "E36")
+        # The historical E01 is the dense baseline, so a leak is unmistakable.
+        hist_e01 = historical[historical.exp_id == "E01"].iloc[0]
+        curr_e01 = current[current.exp_id == "E01"].iloc[0]
+        self.assertEqual(hist_e01.n_learners, 1)
+        self.assertNotEqual(hist_e01.implementation, curr_e01.implementation)
+        self.assertNotEqual(hist_e01.cpu_cycles, curr_e01.cpu_cycles)
+        # E37-E46 were removed from the historical dataset.
+        self.assertEqual([p.name for p in HISTORICAL.glob("e3[7-9]*.tsv")], [])
+        self.assertEqual([p.name for p in HISTORICAL.glob("e4*.tsv")], [])
+
+    def test_combined_table_resolved_by_directory_name(self):
+        self.assertEqual(report.combined_table(CURRENT).name, "hsylin_all_experiments.tsv")
+        self.assertEqual(report.combined_table(HISTORICAL).name, "final_all_experiments.tsv")
+        base_mini = ROOT / "transformer_profiling/base_mini"
+        if base_mini.is_dir():
+            self.assertEqual(report.combined_table(base_mini).name,
+                             "base_mini_all_experiments.tsv")
+        # A directory whose name matches nothing falls back to its single table.
+        self.raw.to_csv(self.directory / "whatever_all_experiments.tsv", sep="\t", index=False)
+        self.assertEqual(report.combined_table(self.directory).name,
+                         "whatever_all_experiments.tsv")
+        # Two candidates are ambiguous between datasets and must be refused.
+        self.raw.to_csv(self.directory / "other_all_experiments.tsv", sep="\t", index=False)
+        with self.assertRaises(ValueError):
+            report.combined_table(self.directory)
 
     def test_directory_discovers_new_file_and_overrides_stale_combined_rows(self):
         combined = self.directory / "final_all_experiments.tsv"
@@ -338,7 +384,7 @@ class ReportTest(unittest.TestCase):
                 proc.terminate()
                 proc.wait(timeout=5)
 
-    def test_collect_refreshes_html_and_dry_run_does_not(self):
+    def test_collect_writes_tables_and_dry_run_does_not(self):
         import profiling_add_experiment_test as extractor
         _, rows = extractor.committed_rows("E09")
         root = self.directory / "runner"
@@ -346,6 +392,11 @@ class ReportTest(unittest.TestCase):
         runner.mkdir(parents=True)
         shutil.copy(ROOT / "tools/exp/exp.sh", runner / "exp.sh")
         shutil.copy(ROOT / "tools/exp/experiments.tsv", runner / "experiments.tsv")
+        # exp.sh resolves add_experiment.py relative to its own directory, not
+        # $REPO_ROOT, so that `--at <sha>` cannot swap the collector out.
+        (root / "transformer_profiling").mkdir()
+        shutil.copy(ROOT / "transformer_profiling/add_experiment.py",
+                    root / "transformer_profiling/add_experiment.py")
         conf = ("EXP_ROOT='{}'\nGEM5_BIN=/unused\nGEM5_CWD=/unused\nKERNEL=/unused\nDISK=/unused\nGEN_PYTHON='{}'\n").format(self.directory / "runs", sys.executable)
         (runner / "runner.conf").write_text(conf)
         out = self.directory / "runs/37/out_20260926_120000"
@@ -353,16 +404,24 @@ class ReportTest(unittest.TestCase):
         extractor.write_stats(out / "stats.txt", extractor.interval_deltas(rows), ["0.5"] * 6)
         (out / "gem5_profile_regions.tsv").write_text("complete\n")
         results = self.directory / "results"
-        output = self.directory / "collected.html"
-        env = dict(os.environ, REPO_ROOT=str(ROOT), REPORT_PYTHON=sys.executable, REPORT_OUTPUT=str(output))
+        env = dict(os.environ, REPO_ROOT=str(ROOT), GEN_PYTHON=sys.executable)
         command = ["bash", str(runner / "exp.sh"), "collect", "37", "--output-root", str(results)]
         dry = subprocess.run(command + ["--dry-run"], env=env, capture_output=True, text=True)
         self.assertEqual(dry.returncode, 0, dry.stderr)
-        self.assertFalse(output.exists())
+        self.assertFalse(results.exists())
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Experiments: 1", result.stdout)
-        self.assertTrue(output.is_file())
+        # An explicit --output-root numbers into that directory, so E01.
+        self.assertEqual([p.name for p in sorted(results.glob("e*.tsv"))
+                          if not p.name.endswith("_all_experiments.tsv")],
+                         ["e01_runner_n4_cb8_sve128_run_20260926_120000.tsv"])
+        self.assertTrue((results / "results_all_experiments.tsv").is_file())
+        # Reporting is a separate step and reads that directory when told to.
+        html = self.directory / "collected.html"
+        shown = self.cli("--input", results, "--output", html)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertIn("Experiments: 1", shown.stdout)
+        self.assertTrue(html.is_file())
 
     def test_python39_syntax(self):
         ast.parse(SCRIPT.read_text(), feature_version=(3, 9))

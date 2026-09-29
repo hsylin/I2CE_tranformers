@@ -20,7 +20,11 @@ from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The closed historical dataset. The extraction math is checked by reproducing
+# its committed E01-E36 rows, so these tests keep reading it deliberately.
 FINAL = ROOT / "transformer_profiling" / "final"
+# The current run directory, which the script writes to by default.
+CURRENT = ROOT / "transformer_profiling" / "hsylin"
 SCRIPT = ROOT / "transformer_profiling" / "add_experiment.py"
 
 sys.dont_write_bytecode = True  # keep transformer_profiling/ free of __pycache__
@@ -163,6 +167,49 @@ class AddExperimentTest(unittest.TestCase):
         write_stats(stats, deltas, btb, {0: bad})
         self.assert_reproduces("E07", stats)
 
+    def test_default_output_root_is_current_dataset(self) -> None:
+        """New runs go to hsylin/ and take the next ID in that directory."""
+        self.assertEqual(ax.DEFAULT_OUTPUT_ROOT, CURRENT)
+        self.assertEqual(ax.combined_table_path(CURRENT).name, "hsylin_all_experiments.tsv")
+        self.assertEqual(ax.combined_table_path(FINAL).name, "final_all_experiments.tsv")
+        # The two datasets number independently: hsylin/ holds E01-E03.
+        self.assertEqual(ax.next_exp_id(CURRENT / "manifest.tsv"), "E04")
+        self.assertEqual(ax.next_exp_id(FINAL / "manifest.tsv"), "E37")
+        ids = [row["exp_id"] for row in ax.read_tsv(CURRENT / "manifest.tsv", ax.MANIFEST_COLUMNS)]
+        self.assertEqual(ids, ["E01", "E02", "E03"])
+        # E37-E46 are gone from the historical manifest, E01-E36 remain.
+        historical = [row["exp_id"] for row in ax.read_tsv(FINAL / "manifest.tsv", ax.MANIFEST_COLUMNS)]
+        self.assertEqual(historical, [f"E{n:02d}" for n in range(1, 37)])
+
+    def test_next_run_in_current_dataset_becomes_e04(self) -> None:
+        """A real collect into a copy of hsylin/ lands as E04, E01-E03 untouched."""
+        _, rows = committed_rows("E09")
+        stats = self.tmp / "run_20260930_120000" / "stats_20260930_120000.txt"
+        stats.parent.mkdir()
+        write_stats(stats, interval_deltas(rows), ["0.5"] * 5 + [rows[-1]["btb_hit_ratio"]])
+        out = self.tmp / "hsylin"
+        shutil.copytree(CURRENT, out)
+        combined_name = "hsylin_all_experiments.tsv"
+        before = {name: (out / name).read_text(encoding="utf-8")
+                  for name in ("manifest.tsv", combined_name)}
+        run_script([
+            "--stats", str(stats), "--study", "Runner", "--model", "BERT-mini",
+            "--n-learners", "2", "--codebook-size", "4", "--sve-bits", "128",
+            "--output-root", str(out),
+        ])
+        new_file = out / "e04_runner_n2_cb4_sve128_run_20260930_120000.tsv"
+        self.assertTrue(new_file.exists(), sorted(p.name for p in out.glob("e*.tsv")))
+        manifest = (out / "manifest.tsv").read_text(encoding="utf-8")
+        combined = (out / combined_name).read_text(encoding="utf-8")
+        self.assertTrue(manifest.startswith(before["manifest.tsv"]))
+        self.assertTrue(combined.startswith(before[combined_name]))
+        self.assertTrue(manifest.splitlines()[-1].startswith("E04\t"))
+        self.assertEqual(combined.splitlines()[-7:],
+                         new_file.read_text(encoding="utf-8").splitlines()[1:])
+        # No stray final_all_experiments.tsv, and the historical tree is untouched.
+        self.assertFalse((out / "final_all_experiments.tsv").exists())
+        self.assertEqual(ax.next_exp_id(out / "manifest.tsv"), "E05")
+
     def test_appends_next_id_without_touching_existing_rows(self) -> None:
         _, rows = committed_rows("E09")
         stats = self.tmp / "run_20260921_101500" / "stats_20260921_101500.txt"
@@ -174,7 +221,8 @@ class AddExperimentTest(unittest.TestCase):
             name: (out / name).read_text(encoding="utf-8")
             for name in ("manifest.tsv", "final_all_experiments.tsv")
         }
-        next_id = ax.next_exp_id(out / "manifest.tsv")  # E37 while E01-E36 exist
+        next_id = ax.next_exp_id(out / "manifest.tsv")
+        self.assertEqual(next_id, "E37")  # the historical dataset ends at E36
         run_script([
             "--stats", str(stats), "--study", "Learner scaling", "--model", "BERT-mini",
             "--n-learners", "4", "--codebook-size", "8", "--sve-bits", "128",

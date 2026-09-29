@@ -12,6 +12,8 @@
 #   ./exp.sh status                   running gem5 jobs + one row per live run
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
 #   ./exp.sh collect <id> [--run <ts>] [args...]  a finished run -> the tables
+#                                     (transformer_profiling/hsylin/; `final/`
+#                                      is the historical dataset, never written)
 #   ./exp.sh patch-gem5               add --sve-vl/--l1*-size/--l2-size to starter_fs.py
 #   ./exp.sh build-libm5              build gem5's libm5.a for the aarch64 guest
 #   ./exp.sh gc-src                   drop the worktrees `--at` created
@@ -89,7 +91,11 @@ export PYTHONDONTWRITEBYTECODE=1
 TABLE="$SELF_DIR/experiments.tsv"
 # Same reasoning as $AE in collect_one: the tables belong to the checkout that
 # was invoked, never to a `--at <sha>` worktree.
-FINAL_DIR="$SELF_DIR/../../transformer_profiling/final"
+# RESULTS_REL is where this project's runs are collected. transformer_profiling/
+# final/ is the previous student's historical E01-E36 dataset: it has its own
+# independent numbering and nothing here writes to it.
+RESULTS_REL="transformer_profiling/hsylin"
+RESULTS_DIR="$SELF_DIR/../../$RESULTS_REL"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 note() { printf '  %-18s %s\n' "$1" "$2"; }
@@ -671,7 +677,7 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
     ARGS+=( --model="custom-q${D_Q_EFF}-s${SEQ_EFF}-m${DM_EFF}-h${NH_EFF}-f${DFF_EFF}"
             --dims "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF" )
   fi
-  echo "[collect $EID] $OUT/stats.txt -> transformer_profiling/final" >&2
+  echo "[collect $EID] $OUT/stats.txt -> $RESULTS_REL" >&2
   # provenance.tsv cannot mark a run as harvested: add_experiment.py *reads* it,
   # so it has to exist before the harvest and survives a failed one. The marker
   # below is written only once add_experiment.py has returned 0, and records the
@@ -693,7 +699,7 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
     echo
     echo "[collect $EID] tables updated. To publish them:"
     echo "    cd $REPO_ROOT"
-    echo "    git add transformer_profiling/final"
+    echo "    git add $RESULTS_REL"
     echo "    git commit -m \"chore(profiling): add exp $EID cb=$CB nl=$NL sve=$SVE run at $BC_COMMIT\""
     echo "    git push"
   fi
@@ -760,7 +766,7 @@ collected_as() { # $1 = outdir
   # Harvested before the marker existed: the per-run table file's name carries
   # the run timestamp, which is the run directory's name minus its prefix.
   local ts f; ts="${1##*/}"; ts="${ts#*_}"
-  for f in "$FINAL_DIR"/e*_run_"$ts".tsv; do
+  for f in "$RESULTS_DIR"/e*_run_"$ts".tsv; do
     [[ -f "$f" ]] || continue
     f="${f##*/}"; f="${f%%_*}"; printf 'E%s\n' "${f#e}"; return 0
   done
