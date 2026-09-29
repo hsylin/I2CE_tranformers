@@ -2,7 +2,7 @@
 
 This directory contains the E01-E36 profiling extraction for BERT-mini and BERT-base.
 
-Each per-experiment TSV has seven rows: six `interval_delta` rows and one `final_total` row. The interval rows use the same stage separation as `base_mini`: `MHA`, `Projection`, `non_GEMM_after_projection`, `FF1`, `FF2`, and `non_GEMM_after_ff2`.
+Each per-experiment TSV has seven rows: six `interval_delta` rows and one `final_total` row. This is the six-region schema; the split-MHA schema that replaced it for new runs is described in [../hsylin/README.md](../hsylin/README.md). The interval rows use the same stage separation as `base_mini`: `MHA`, `Projection`, `non_GEMM_after_projection`, `FF1`, `FF2`, and `non_GEMM_after_ff2`.
 
 For normal six-dump files, each interval is the current cumulative gem5 dump minus the previous cumulative dump. Complete dense multi-learner baseline files are aggregated by summing the same stage across each six-dump learner chunk. BERT-base E05 and E06 had only ten dumps available, so their first completed learner chunk was multiplied by `n_learners` to estimate the whole dense baseline run.
 

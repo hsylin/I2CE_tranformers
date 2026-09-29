@@ -840,6 +840,12 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
             head_idx,
             head_hidden_size,
             num_heads);
+
+        // Closes this head's fourth region: the V transpose, the dense
+        // softmax(QK^T) * V matmul, the post-softmax rescale and this gather.
+        // It has to sit here rather than at the end of computeInterleaved*(),
+        // or the gather would be charged to the next head's MHA_QKV.
+        dumpTransformerStatsCheckpointIfProfiling("after_sv_h", "MHA_SV");
     }
 
     dumpInterleavedLearnerMatrices2(
@@ -848,7 +854,10 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
         multihead_interleaved.data(),
         seq_len,
         num_heads * head_hidden_size);
-    dumpTransformerStatsCheckpointIfProfiling("after_mha", "MHA");
+    // What is left of the old single MHA region once the four per-head regions
+    // above are subtracted: the multihead repack. Not free -- packOneLearner
+    // runs whether or not the dump itself is enabled.
+    dumpTransformerStatsCheckpointIfProfiling("after_mha", "MHA_out");
 
     std::cout << "Condense" << std::endl;
     LinearLayer* condense_layers[2];
@@ -1132,6 +1141,12 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
             head_idx,
             head_hidden_size,
             num_heads);
+
+        // Closes this head's fourth region: the V transpose, the dense
+        // softmax(QK^T) * V matmul, the post-softmax rescale and this gather.
+        // It has to sit here rather than at the end of computeInterleaved*(),
+        // or the gather would be charged to the next head's MHA_QKV.
+        dumpTransformerStatsCheckpointIfProfiling("after_sv_h", "MHA_SV");
     }
 
     dumpInterleavedLearnerMatrices4(
@@ -1140,7 +1155,10 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
         multihead_interleaved.data(),
         seq_len,
         num_heads * head_hidden_size);
-    dumpTransformerStatsCheckpointIfProfiling("after_mha", "MHA");
+    // What is left of the old single MHA region once the four per-head regions
+    // above are subtracted: the multihead repack. Not free -- packOneLearner
+    // runs whether or not the dump itself is enabled.
+    dumpTransformerStatsCheckpointIfProfiling("after_mha", "MHA_out");
 
     std::cout << "Condense" << std::endl;
     LinearLayer* condense_layers[4];

@@ -666,6 +666,11 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
                --l1i="${OV_L1I:-$STOCK_L1I}" --l1d="${OV_L1D:-$STOCK_L1D}"
                --l2="${OV_L2:-$STOCK_L2}"
                --provenance="$PROV" )
+  # The binary records which region each stats dump closed. Reading it beats
+  # assuming a schema: the interleaved paths close four regions per attention
+  # head, so the dump count depends on num_heads.
+  [[ -f "$OUT/gem5_profile_regions.tsv" ]] \
+    && ARGS+=( --regions="$OUT/gem5_profile_regions.tsv" )
   case "$IMPL" in
     dense*) ARGS+=( --dense ) ;;
     *)      ARGS+=( --codebook-size="$CB" ) ;;

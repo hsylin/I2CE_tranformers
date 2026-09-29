@@ -39,12 +39,72 @@ def load_dependencies():
     from plotly.offline import get_plotlyjs
     return get_plotlyjs
 
-STAGES = ["MHA", "Projection", "non_GEMM_after_projection", "FF1", "FF2", "non_GEMM_after_ff2"]
-SHORT = ["MHA", "Projection", "Non-GEMM 1", "FF1", "FF2", "Non-GEMM 2"]
-COLORS = ["#2762ad", "#3d9db5", "#b8c9d9", "#ed9e38", "#9865b0", "#85958a"]
+# Every profiling region this report knows, in the order a block executes them,
+# with its short chart label. Two schemas are in use and both are valid:
+#
+#   SCHEMA_V1  the six regions every run before the MHA split emitted
+#   SCHEMA_V2  MHA split into its four per-head sub-regions plus the repack,
+#              so a codebook GEMM (MHA_QKV) and a dense GEMM (MHA_QK) are
+#              separate intervals instead of one MHA total
+#
+# An experiment must match one of them exactly. A report may contain both, in
+# which case the chart carries every region present and leaves the other
+# schema's cells empty rather than inventing a mapping between MHA and its parts.
+REGION_LABELS = [
+    ("MHA", "MHA"),
+    ("MHA_QKV", "MHA Q/K/V"),
+    ("MHA_QK", "MHA QK\u1d40"),
+    ("MHA_softmax", "MHA softmax"),
+    ("MHA_SV", "MHA scores·V"),
+    ("MHA_out", "MHA repack"),
+    ("Projection", "Projection"),
+    ("non_GEMM_after_projection", "Non-GEMM 1"),
+    ("FF1", "FF1"),
+    ("FF2", "FF2"),
+    ("non_GEMM_after_ff2", "Non-GEMM 2"),
+]
+REGION_ORDER = [name for name, _ in REGION_LABELS]
+REGION_SHORT = dict(REGION_LABELS)
+# The MHA family shares a blue so the split reads as one phase; the other
+# regions keep the colours the six-region reports used.
+REGION_COLORS = {
+    "MHA": "#2762ad",
+    "MHA_QKV": "#1f4e8c",
+    "MHA_QK": "#4a86c5",
+    "MHA_softmax": "#93b8dc",
+    "MHA_SV": "#6c9fd0",
+    "MHA_out": "#a8bdd4",
+    "Projection": "#3d9db5",
+    "non_GEMM_after_projection": "#b8c9d9",
+    "FF1": "#ed9e38",
+    "FF2": "#9865b0",
+    "non_GEMM_after_ff2": "#85958a",
+}
+# A stable six-colour series for the charts that are not keyed on profiling
+# regions. Kept separate from REGION_COLORS because the region list now varies
+# with the schema, and these charts index their colours positionally.
+PALETTE = ["#2762ad", "#3d9db5", "#b8c9d9", "#ed9e38", "#9865b0", "#85958a"]
+SCHEMA_V1 = {"MHA", "Projection", "non_GEMM_after_projection", "FF1", "FF2", "non_GEMM_after_ff2"}
+SCHEMA_V2 = (SCHEMA_V1 - {"MHA"}) | {"MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV", "MHA_out"}
+SCHEMAS = {"six regions": SCHEMA_V1, "split MHA": SCHEMA_V2}
+
+# Populated per report by load_data() with the regions actually present, in
+# REGION_ORDER. The chart builders read these instead of a fixed six.
+STAGES = [name for name in REGION_ORDER if name in SCHEMA_V1]
+SHORT = [REGION_SHORT[name] for name in STAGES]
+COLORS = [REGION_COLORS[name] for name in STAGES]
 WARM = [[0, "#fff7ec"], [0.25, "#fee8c8"], [0.5, "#fdbb84"], [0.75, "#ef6548"], [1, "#b30000"]]
 BLUE = [[0, "#edf6fa"], [0.35, "#9dccdf"], [0.7, "#3b88b6"], [1, "#123c70"]]
 METADATA = ["model", "d_q", "d_seq", "d_model", "num_head", "d_ff", "implementation", "n_learners", "codebook_size", "sve_bits"]
+
+
+def set_active_regions(names):
+    """Fix the chart region list for this report, ordered as a block runs them."""
+    global STAGES, SHORT, COLORS
+    STAGES = list(names)
+    SHORT = [REGION_SHORT[name] for name in STAGES]
+    COLORS = [REGION_COLORS[name] for name in STAGES]
+    return STAGES
 
 
 def clean(obj):
@@ -123,6 +183,12 @@ def read_results(path):
     combined, parts, seen = None, [], set()
     for source in files:
         data = pd.read_csv(source, sep="\t")
+        if data.empty and source.name == combined_name and len(files) == 1:
+            # A freshly emptied dataset: header-only table, no per-experiment
+            # files. Distinguish "nothing collected yet" from a malformed table.
+            raise ValueError(
+                str(path) + ": holds no experiments yet. Collect a run into it, "
+                "or pass --input for another result directory.")
         if "exp_id" not in data or data.empty or data.exp_id.isna().any():
             raise ValueError(str(source) + ": missing experiment identifiers.")
         if source.name == combined_name:
@@ -198,8 +264,17 @@ def load_data(path):
         if (group[METADATA].nunique(dropna=False) > 1).any():
             raise ValueError(exp_id + ": configuration differs between stage and total rows.")
     for exp_id, group in stages.groupby("exp_id"):
-        if set(group.interval) != set(STAGES):
-            raise ValueError(exp_id + ": expected the six existing profiling regions.")
+        present = set(group.interval)
+        if not any(present == schema for schema in SCHEMAS.values()):
+            known = ", ".join(sorted(present & set(REGION_ORDER)))
+            unknown = ", ".join(sorted(present - set(REGION_ORDER)))
+            raise ValueError(
+                exp_id + ": profiling regions match neither known schema ("
+                + " / ".join(SCHEMAS) + ")."
+                + (" Unrecognised: " + unknown + "." if unknown else "")
+                + (" Present: " + known + "." if known else "")
+            )
+    set_active_regions(sorted(set(stages.interval), key=REGION_ORDER.index))
     sums = stages.groupby("exp_id").sim_seconds.sum()
     reference = totals.set_index("exp_id").sim_seconds
     if not reference.map(math.isfinite).all() or (reference <= 0).any():
@@ -294,7 +369,7 @@ def sve_chart(total, model):
         speedups.append(speeds)
         traces.append(dict(type="scatter", mode="lines+markers" if comparable else "markers", x=group.sve_bits.tolist(), y=seconds[-1],
                            name="{} learner{}".format(num(learners), "s" if learners != 1 else ""),
-                           line=dict(color=[COLORS[0], COLORS[1], COLORS[4]][i % 3], width=3), marker=dict(size=9),
+                           line=dict(color=[PALETTE[0], PALETTE[1], PALETTE[4]][i % 3], width=3), marker=dict(size=9),
                            customdata=[[d, t, s] for d, t, s in zip(group.detail, group.sim_seconds, speeds)],
                            hovertemplate="%{customdata[0]}<br>%{customdata[1]:.4f} s<br>%{customdata[2]:.3f}× vs same learner count at 128 bit<extra></extra>"))
     buttons = [dict(label="Simulated seconds", method="update", args=[dict(y=seconds), {"yaxis.title.text": "Simulated time (s)"}]),
@@ -348,7 +423,7 @@ def miss_time_chart(total, model):
         traces.append(dict(type="scatter", mode="markers+text", name=impl,
                            x=(group.l2_demand_misses / 1e6).tolist(), y=group.sim_seconds.tolist(),
                            text=group.label.tolist(), textposition="top center", textfont=dict(size=10),
-                           marker=dict(size=10, color=COLORS[i % len(COLORS)], symbol=["diamond-open" if e else "circle" for e in group.estimated]),
+                           marker=dict(size=10, color=PALETTE[i % len(PALETTE)], symbol=["diamond-open" if e else "circle" for e in group.estimated]),
                            customdata=[[d, r, m] for d, r, m in zip(group.detail, group.l2_miss_pct, group.l2_mpki)],
                            hovertemplate="%{customdata[0]}<br>%{y:.4f} s<br>L2 misses=%{x:.3f} million<br>L2 miss rate=%{customdata[1]:.2f}%<br>L2 MPKI=%{customdata[2]:.2f}<extra></extra>"))
     lay = layout(model + " · execution time and L2 demand misses", 500)
@@ -362,7 +437,7 @@ def runtime_chart(total, model):
     for i, (implementation, group) in enumerate(total.groupby("implementation")):
         traces.append(dict(type="scatter", mode="markers", name=implementation,
                            x=group.label.tolist(), y=group.sim_seconds.tolist(),
-                           marker=dict(size=10, color=COLORS[i % len(COLORS)],
+                           marker=dict(size=10, color=PALETTE[i % len(PALETTE)],
                                        symbol=["diamond-open" if e else "circle" for e in group.estimated]),
                            customdata=group.detail.tolist(),
                            hovertemplate="%{customdata}<br>%{y:.6f} simulated seconds<extra></extra>"))
@@ -417,7 +492,7 @@ def footprint_chart(group, config, tk, has_capacity):
         raise ValueError("Tile footprint differs between repetitions of the same tile.")
     median = tiles[["tile_footprint_bytes", "sim_seconds", "l2_miss_pct"]].median().reset_index()
     trace = dict(type="scatter", mode="markers", x=(median.tile_footprint_bytes / 1024).tolist(),
-                 y=median.sim_seconds.tolist(), marker=dict(size=10, color=COLORS[0]),
+                 y=median.sim_seconds.tolist(), marker=dict(size=10, color=PALETTE[0]),
                  customdata=median[["tile_m", "tile_n", "l2_miss_pct"]].values.tolist(),
                  hovertemplate="tile_m=%{customdata[0]}, tile_n=%{customdata[1]}<br>Footprint=%{x:.2f} KiB<br>Median time=%{y:.5f} s<br>L2 miss rate=%{customdata[2]:.2f}%<extra></extra>")
     lay = layout("Tile footprint · {} · tile_k={}".format(html.escape(str(config)), num(tk)), 470)
@@ -482,7 +557,7 @@ def scaling_charts(path):
         speed = (baseline / med["median"]).tolist()
         traces = [dict(type="scatter", mode="lines+markers", name="Measured median speedup", x=cores, y=speed,
                        customdata=[[t, n, e, lo, hi] for t, n, e, lo, hi in zip(med["median"], med["count"], [s / c for s, c in zip(speed, cores)], med["min"], med["max"])],
-                       hovertemplate="%{x} cores<br>speedup=%{y:.3f}×<br>median time=%{customdata[0]:.4f} s<br>repeats=%{customdata[1]}<br>efficiency=%{customdata[2]:.1%}<br>time range=%{customdata[3]:.4f}–%{customdata[4]:.4f} s<extra></extra>", line=dict(color=COLORS[0], width=3)),
+                       hovertemplate="%{x} cores<br>speedup=%{y:.3f}×<br>median time=%{customdata[0]:.4f} s<br>repeats=%{customdata[1]}<br>efficiency=%{customdata[2]:.1%}<br>time range=%{customdata[3]:.4f}–%{customdata[4]:.4f} s<extra></extra>", line=dict(color=PALETTE[0], width=3)),
                   dict(type="scatter", mode="lines", x=cores, y=cores, name="Ideal linear", line=dict(dash="dash", color="#9aa9b6"))]
         lay = layout("Multicore scaling · " + html.escape(str(config)), 470)
         lay["xaxis"].update(title=dict(text="Active CPU cores"), tickvals=cores)
@@ -494,7 +569,7 @@ def scaling_charts(path):
         lay["yaxis"].update(title=dict(text="Efficiency = T(1) / (p × T(p)) (%)"), rangemode="tozero")
         output.append(dict(data=[
             dict(type="scatter", mode="lines+markers", x=cores, y=efficiency, name="Parallel efficiency",
-                 line=dict(color=COLORS[0], width=3), hovertemplate="%{x} cores<br>Efficiency=%{y:.2f}%<extra></extra>"),
+                 line=dict(color=PALETTE[0], width=3), hovertemplate="%{x} cores<br>Efficiency=%{y:.2f}%<extra></extra>"),
             dict(type="scatter", mode="lines", x=cores, y=[100] * len(cores), name="Linear scaling",
                  line=dict(dash="dash", color="#9aa9b6"))], layout=lay))
         if "dram_bytes" in extra:
@@ -503,7 +578,7 @@ def scaling_charts(path):
             lay["xaxis"].update(title=dict(text="Active CPU cores"), tickvals=cores)
             lay["yaxis"].update(title=dict(text="Median measured DRAM bandwidth (GB/s)"), rangemode="tozero")
             output.append(dict(data=[dict(type="scatter", mode="lines+markers", x=cores, y=rates.tolist(),
-                                          line=dict(color=COLORS[1], width=3),
+                                          line=dict(color=PALETTE[1], width=3),
                                           hovertemplate="%{x} cores<br>DRAM bandwidth=%{y:.4f} GB/s<extra></extra>")], layout=lay))
     return output
 
@@ -556,7 +631,7 @@ def implementation_phase_charts(path):
         labels = [str(v) if scope == "wall" else "{} / worker {}".format(v, w) for v, w in means.index]
         values = [means[phase].tolist() for phase in phases]
         percents = [(100 * means[phase] / means["__roi"]).tolist() for phase in phases]
-        phase_colors = [COLORS[i] for i in [0, 1, 3, 4, 5]]
+        phase_colors = [PALETTE[i] for i in [0, 1, 3, 4, 5]]
         traces = [dict(type="bar", name=html.escape(str(phase)), x=labels, y=values[i],
                        marker=dict(color="#cad2dc" if phase == "Unattributed" else phase_colors[i % len(phase_colors)]),
                        customdata=[[s, p, n] for s, p, n in zip(values[i], percents[i], repeats)],

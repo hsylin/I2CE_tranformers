@@ -72,6 +72,29 @@ def interval_deltas(rows):
     ]
 
 
+
+# The schema the interleaved int8 paths emit: four regions per attention head,
+# then the block-level tail. Mirrors the markers in selfattention.cc and
+# transformerBlock.cc.
+PER_HEAD = [("after_qkv_h", "MHA_QKV"), ("after_qk_h", "MHA_QK"),
+            ("after_softmax_h", "MHA_softmax"), ("after_sv_h", "MHA_SV")]
+BLOCK_TAIL = [("after_mha", "MHA_out"), ("after_projection", "Projection"),
+              ("after_attn_addnorm", "non_GEMM_after_projection"),
+              ("after_ff1", "FF1"), ("after_ff2", "FF2"),
+              ("final_total", "non_GEMM_after_ff2")]
+
+
+def split_regions(num_heads: int):
+    return PER_HEAD * num_heads + BLOCK_TAIL
+
+
+def write_region_index(path: Path, regions, scope="group2_full_interleaved_transformer_block"):
+    lines = [f"scope\t{scope}", "dump_index\tcheckpoint\tinterval_since_previous"]
+    for index, (checkpoint, interval) in enumerate(regions, start=1):
+        lines.append(f"{index}\t{checkpoint}\t{interval}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def cli_args(rows, stats: Path, out: Path):
     first = rows[0]
     args = [
@@ -167,22 +190,122 @@ class AddExperimentTest(unittest.TestCase):
         write_stats(stats, deltas, btb, {0: bad})
         self.assert_reproduces("E07", stats)
 
+    def test_split_mha_regions_are_summed_across_heads(self) -> None:
+        """Four heads x four sub-regions collapse to one row each, totals intact."""
+        num_heads = 4
+        regions = split_regions(num_heads)
+        self.assertEqual(len(regions), num_heads * 4 + 6)
+
+        # A distinct, exactly representable delta per dump so the expected sum of
+        # each region is unambiguous.
+        deltas = []
+        for index in range(len(regions)):
+            deltas.append({column: Decimal(index + 1) * unit(column) * 1000
+                           for column, _, _ in ax.ADD_METRICS})
+        stats = self.tmp / "run_20261001_101500" / "stats_20261001_101500.txt"
+        stats.parent.mkdir()
+        write_stats(stats, deltas, ["0.5"] * len(regions))
+        index_path = self.tmp / "gem5_profile_regions.tsv"
+        write_region_index(index_path, regions)
+
+        out = self.tmp / "split"
+        run_script([
+            "--stats", str(stats), "--study", "Runner", "--model", "BERT-mini",
+            "--n-learners", "2", "--codebook-size", "4", "--sve-bits", "128",
+            "--output-root", str(out), "--regions", str(index_path),
+        ])
+        written = sorted(p for p in out.glob("e01_*.tsv"))
+        self.assertEqual(len(written), 1, [p.name for p in out.glob("*")])
+        with written[0].open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+
+        # One row per interval name, in order of first appearance, plus the total.
+        self.assertEqual([r["interval"] for r in rows],
+                         ["MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV", "MHA_out",
+                          "Projection", "non_GEMM_after_projection", "FF1", "FF2",
+                          "non_GEMM_after_ff2", "total_program"])
+        self.assertEqual([r["row_kind"] for r in rows],
+                         ["interval_delta"] * 10 + ["final_total"])
+
+        # Each per-head region is the sum of its four dumps.
+        by_interval = {r["interval"]: r for r in rows}
+        for position, (_, interval) in enumerate(PER_HEAD):
+            expected = sum(position + 1 + 4 * head for head in range(num_heads)) * 1000
+            self.assertEqual(int(by_interval[interval]["instructions"]), expected,
+                             f"{interval} should sum its {num_heads} per-head dumps")
+        # A block-level region keeps its single dump.
+        self.assertEqual(int(by_interval["FF1"]["instructions"]),
+                         (num_heads * 4 + 4) * 1000)
+        # The total is the last cumulative dump, i.e. every delta added up.
+        self.assertEqual(int(by_interval["total_program"]["instructions"]),
+                         sum(range(1, len(regions) + 1)) * 1000)
+        # The stage rows still account for the whole window.
+        self.assertEqual(
+            sum(int(r["instructions"]) for r in rows if r["row_kind"] == "interval_delta"),
+            int(by_interval["total_program"]["instructions"]))
+        self.assertEqual(by_interval["total_program"]["checkpoint"], "final_total")
+
+    def test_region_index_must_be_complete(self) -> None:
+        regions = split_regions(2)
+        stats = self.tmp / "run_20261001_110000" / "stats_20261001_110000.txt"
+        stats.parent.mkdir()
+        deltas = [{column: Decimal(1) * unit(column) for column, _, _ in ax.ADD_METRICS}
+                  for _ in regions]
+        write_stats(stats, deltas, ["0.5"] * len(regions))
+
+        gapped = self.tmp / "gapped.tsv"
+        lines = ["scope\tx", "dump_index\tcheckpoint\tinterval_since_previous"]
+        for index, (checkpoint, interval) in enumerate(regions, start=1):
+            if index == 3:
+                continue
+            lines.append(f"{index}\t{checkpoint}\t{interval}")
+        gapped.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaises(ax.ExtractionError):
+            ax.read_region_index(gapped)
+
+        empty = self.tmp / "empty.tsv"
+        empty.write_text("complete\n", encoding="utf-8")
+        with self.assertRaises(ax.ExtractionError):
+            ax.read_region_index(empty)
+
+        # A run whose stats file has fewer blocks than the index is refused.
+        short_index = self.tmp / "long.tsv"
+        write_region_index(short_index, split_regions(8))
+        result = run_script([
+            "--stats", str(stats), "--study", "Runner", "--model", "BERT-mini",
+            "--n-learners", "2", "--codebook-size", "4", "--sve-bits", "128",
+            "--output-root", str(self.tmp / "refused"), "--regions", str(short_index),
+        ], check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("region index lists", result.stderr)
+
+    def test_legacy_six_region_runs_need_no_index(self) -> None:
+        """The default schema is unchanged, so committed rows still reproduce."""
+        self.assertEqual([interval for _, interval in ax.REGIONS],
+                         ["MHA", "Projection", "non_GEMM_after_projection",
+                          "FF1", "FF2", "non_GEMM_after_ff2"])
+        self.assertEqual(ax.output_regions(ax.REGIONS), list(ax.REGIONS))
+        # Collapsing is order-preserving and idempotent for a unique schema.
+        self.assertEqual(ax.output_regions(split_regions(3)),
+                         PER_HEAD + BLOCK_TAIL)
+
     def test_default_output_root_is_current_dataset(self) -> None:
         """New runs go to hsylin/ and take the next ID in that directory."""
         self.assertEqual(ax.DEFAULT_OUTPUT_ROOT, CURRENT)
         self.assertEqual(ax.combined_table_path(CURRENT).name, "hsylin_all_experiments.tsv")
         self.assertEqual(ax.combined_table_path(FINAL).name, "final_all_experiments.tsv")
-        # The two datasets number independently: hsylin/ holds E01-E03.
-        self.assertEqual(ax.next_exp_id(CURRENT / "manifest.tsv"), "E04")
+        # The two datasets number independently. hsylin/ was emptied when the
+        # MHA split changed the interval schema, so it starts again at E01.
+        self.assertEqual(ax.next_exp_id(CURRENT / "manifest.tsv"), "E01")
         self.assertEqual(ax.next_exp_id(FINAL / "manifest.tsv"), "E37")
         ids = [row["exp_id"] for row in ax.read_tsv(CURRENT / "manifest.tsv", ax.MANIFEST_COLUMNS)]
-        self.assertEqual(ids, ["E01", "E02", "E03"])
+        self.assertEqual(ids, [])
         # E37-E46 are gone from the historical manifest, E01-E36 remain.
         historical = [row["exp_id"] for row in ax.read_tsv(FINAL / "manifest.tsv", ax.MANIFEST_COLUMNS)]
         self.assertEqual(historical, [f"E{n:02d}" for n in range(1, 37)])
 
-    def test_next_run_in_current_dataset_becomes_e04(self) -> None:
-        """A real collect into a copy of hsylin/ lands as E04, E01-E03 untouched."""
+    def test_next_run_in_current_dataset_becomes_e01(self) -> None:
+        """A real collect into a copy of the emptied hsylin/ lands as E01."""
         _, rows = committed_rows("E09")
         stats = self.tmp / "run_20260930_120000" / "stats_20260930_120000.txt"
         stats.parent.mkdir()
@@ -197,18 +320,18 @@ class AddExperimentTest(unittest.TestCase):
             "--n-learners", "2", "--codebook-size", "4", "--sve-bits", "128",
             "--output-root", str(out),
         ])
-        new_file = out / "e04_runner_n2_cb4_sve128_run_20260930_120000.tsv"
+        new_file = out / "e01_runner_n2_cb4_sve128_run_20260930_120000.tsv"
         self.assertTrue(new_file.exists(), sorted(p.name for p in out.glob("e*.tsv")))
         manifest = (out / "manifest.tsv").read_text(encoding="utf-8")
         combined = (out / combined_name).read_text(encoding="utf-8")
         self.assertTrue(manifest.startswith(before["manifest.tsv"]))
         self.assertTrue(combined.startswith(before[combined_name]))
-        self.assertTrue(manifest.splitlines()[-1].startswith("E04\t"))
+        self.assertTrue(manifest.splitlines()[-1].startswith("E01\t"))
         self.assertEqual(combined.splitlines()[-7:],
                          new_file.read_text(encoding="utf-8").splitlines()[1:])
         # No stray final_all_experiments.tsv, and the historical tree is untouched.
         self.assertFalse((out / "final_all_experiments.tsv").exists())
-        self.assertEqual(ax.next_exp_id(out / "manifest.tsv"), "E05")
+        self.assertEqual(ax.next_exp_id(out / "manifest.tsv"), "E02")
 
     def test_appends_next_id_without_touching_existing_rows(self) -> None:
         _, rows = committed_rows("E09")

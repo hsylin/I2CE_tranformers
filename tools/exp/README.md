@@ -202,6 +202,14 @@ run's full `build_config.tsv` plus the gem5 command line is copied to
 `transformer_profiling/hsylin/provenance/<exp_id>.tsv`, so settings with no
 column of their own stay recorded.
 
+`collect` also passes the run's `gem5_profile_regions.tsv` to the collector as
+`--regions`. That file names the profiling region each stats dump closed, so the
+number of dumps and their region names come from the binary that ran rather than
+from a schema the collector assumes. It matters because the interleaved int8
+paths close four regions per attention head: a BERT-mini run emits 22 dumps, not
+6. A run whose index is missing or unreadable is refused rather than harvested
+against a guessed schema.
+
 ```bash
 ./exp.sh collect 38 --study "Codebook-size scaling" --dry-run   # preview rows
 ./exp.sh collect 38 --study "Codebook-size scaling"             # write the tables

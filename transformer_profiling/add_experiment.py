@@ -52,8 +52,16 @@ getcontext().prec = 40
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "hsylin"
 
-# (checkpoint, interval) for the six `m5 dumpstats` calls of one Transformer
-# block, in the order emitted by transformer_layers/profile.cc.
+# (checkpoint, interval) for the `m5 dumpstats` calls of one Transformer block.
+# This is the six-region schema every run before the MHA split used, and the
+# fallback when a run has no region index to read.
+#
+# It is no longer the only possible sequence. The interleaved int8 paths now
+# close a region four times per attention head (MHA_QKV / MHA_QK / MHA_softmax /
+# MHA_SV) before the block-level tail, so the number of dumps depends on
+# num_heads and several dumps share one interval name. Pass --regions with the
+# run's gem5_profile_regions.tsv to read the sequence the binary actually
+# emitted; dumps carrying the same interval name are summed.
 REGIONS = [
     ("after_mha", "MHA"),
     ("after_projection", "Projection"),
@@ -280,6 +288,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
              "another dataset numbers into that dataset's sequence",
     )
     parser.add_argument(
+        "--regions", type=Path,
+        help="the run's gem5_profile_regions.tsv, listing the (checkpoint, "
+             "interval) of every stats dump. Required for runs whose regions are "
+             "closed per attention head; without it the legacy six-region "
+             "sequence is assumed",
+    )
+    parser.add_argument(
         "--replace", action="store_true",
         help="overwrite an experiment ID that already exists",
     )
@@ -395,6 +410,59 @@ def derive_gem5_timestamp(stats_path: Path, override: Optional[str]) -> str:
     raise ExtractionError(
         f"no YYYYMMDD_HHMMSS timestamp found in {stats_path}; pass --gem5-timestamp"
     )
+
+
+def read_region_index(path: Path) -> List[Tuple[str, str]]:
+    """(checkpoint, interval) per dump, from a run's gem5_profile_regions.tsv.
+
+    The file is written by finalizeTransformerStatsWindow() after the measured
+    window closes: a `scope` line, a header, then one row per dump. Reading it
+    instead of assuming a fixed schema is what lets the same extractor handle
+    the six-region runs and the per-head MHA split, whose dump count depends on
+    the head count.
+    """
+    rows: List[Tuple[int, str, str]] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ExtractionError(f"cannot read region index {path}: {error}") from error
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 3 or fields[0] in ("dump_index", "scope"):
+            continue
+        try:
+            index = int(fields[0])
+        except ValueError:
+            continue
+        rows.append((index, fields[1], fields[2]))
+    if not rows:
+        raise ExtractionError(
+            f"{path} lists no dumps. Was the run compiled with "
+            f"GEM5_PROFILE_REGIONS_FLAG=1 and did it reach the end of a block?"
+        )
+    rows.sort()
+    if [index for index, _, _ in rows] != list(range(1, len(rows) + 1)):
+        raise ExtractionError(
+            f"{path}: dump_index must run 1..N without gaps, got "
+            + ", ".join(str(index) for index, _, _ in rows)
+        )
+    return [(checkpoint, interval) for _, checkpoint, interval in rows]
+
+
+def output_regions(regions: Sequence[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """One output row per interval name, in order of first appearance.
+
+    A region closed once per attention head appears once in the table with its
+    dumps summed, so an experiment's row count is a property of the schema and
+    not of the head count.
+    """
+    collapsed: List[Tuple[str, str]] = []
+    seen: Dict[str, int] = {}
+    for checkpoint, interval in regions:
+        if interval not in seen:
+            seen[interval] = len(collapsed)
+            collapsed.append((checkpoint, interval))
+    return collapsed
 
 
 def combined_table_path(output_root: Path) -> Path:
@@ -606,32 +674,50 @@ def sum_metrics(intervals: Sequence[Metrics]) -> Metrics:
     return total
 
 
-def dumps_needed(exp: Experiment) -> int:
+def dumps_needed(exp: Experiment, regions: Sequence[Tuple[str, str]]) -> int:
     if exp.is_dense and exp.n_learners > 1 and not exp.scale_first_learner:
         # DENSE_NO_SIMD_BASELINE runs the learners one after another inside a
-        # single stats window, so each learner contributes six dumps.
-        return len(REGIONS) * exp.n_learners
-    return len(REGIONS)
+        # single stats window, so each learner contributes a full region sweep.
+        return len(regions) * exp.n_learners
+    return len(regions)
 
 
 def aggregate_intervals(
-    exp: Experiment, blocks: List[Block], first_block_number: int
+    exp: Experiment,
+    blocks: List[Block],
+    first_block_number: int,
+    regions: Sequence[Tuple[str, str]],
 ) -> Tuple[List[Metrics], Metrics, Block]:
-    """Return (six interval metrics, final_total metrics, block for BTBHitRatio)."""
+    """Return (one metric set per output region, final_total metrics, BTB block).
+
+    Adjacent dumps are differenced to recover each dump's own interval, then
+    dumps sharing an interval name are added together. Two things collapse this
+    way: a region closed once per attention head, and the dense multi-learner
+    baseline, which sweeps the whole schema once per learner.
+    """
     per_dump: List[Metrics] = []
     previous: Optional[Block] = None
     for offset, current in enumerate(blocks):
         per_dump.append(delta_metrics(current, previous, first_block_number + offset))
         previous = current
 
-    if len(blocks) == len(REGIONS):
-        intervals = per_dump
+    collapsed = output_regions(regions)
+    position = {interval: index for index, (_, interval) in enumerate(collapsed)}
+    intervals = [zero_metrics() for _ in collapsed]
+    for dump_offset, metrics in enumerate(per_dump):
+        # A dense multi-learner run repeats the schema, so wrap around it.
+        _, interval = regions[dump_offset % len(regions)]
+        intervals[position[interval]] = add_metrics(intervals[position[interval]], metrics)
+
+    if len(blocks) == len(regions):
         if exp.scale_first_learner:
             intervals = [
                 {column: metrics[column] * exp.n_learners for column in metrics}
                 for metrics in intervals
             ]
             return intervals, sum_metrics(intervals), blocks[-1]
+        # One sweep: the last dump is cumulative over the whole window, which is
+        # a better total than the sum of the deltas because it cannot drift.
         final_block = blocks[-1]
         final = {
             column: stat(final_block, source, first_block_number + len(blocks) - 1)
@@ -639,11 +725,6 @@ def aggregate_intervals(
         }
         return intervals, final, final_block
 
-    # Dense multi-learner: sum the same region across all learner chunks.
-    intervals = [zero_metrics() for _ in REGIONS]
-    for dump_offset, metrics in enumerate(per_dump):
-        region = dump_offset % len(REGIONS)
-        intervals[region] = add_metrics(intervals[region], metrics)
     return intervals, sum_metrics(intervals), blocks[-1]
 
 
@@ -666,8 +747,9 @@ def fmt_ratio(number: Decimal, places: int) -> str:
     return format(number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP), "f")
 
 
-def base_row(exp: Experiment, row_index: int, row_kind: str, dump_index: int) -> Dict[str, str]:
-    checkpoint, interval = REGIONS[dump_index - 1]
+def base_row(exp: Experiment, row_index: int, row_kind: str, dump_index: int,
+             region: Tuple[str, str]) -> Dict[str, str]:
+    checkpoint, interval = region
     row = {column: "" for column in OUTPUT_COLUMNS}
     row.update(
         {
@@ -697,20 +779,25 @@ def base_row(exp: Experiment, row_index: int, row_kind: str, dump_index: int) ->
     return row
 
 
-def build_rows(exp: Experiment, all_blocks: List[Block], start_block: int) -> List[Dict[str, str]]:
+def build_rows(exp: Experiment, all_blocks: List[Block], start_block: int,
+               regions: Optional[Sequence[Tuple[str, str]]] = None) -> List[Dict[str, str]]:
+    regions = list(regions) if regions else list(REGIONS)
     if start_block < 1 or start_block > max(len(all_blocks), 1):
         raise ExtractionError(
             f"--start-block {start_block} is outside the {len(all_blocks)} stats blocks"
         )
-    needed = dumps_needed(exp)
+    needed = dumps_needed(exp, regions)
     available = all_blocks[start_block - 1:]
     if len(available) < needed:
         raise ExtractionError(
             f"found {len(available)} stats block(s) from block {start_block}, need {needed} "
-            f"({len(REGIONS)} dumps x {needed // len(REGIONS)} learner chunk(s)). Did the run "
+            f"({len(regions)} dumps x {needed // len(regions)} learner chunk(s)). Did the run "
             f"finish, and was it compiled with GEM5_PROFILE_REGIONS_FLAG=1?"
             + (" For an unfinished dense multi-learner run see --scale-first-learner."
                if exp.is_dense and exp.n_learners > 1 and not exp.scale_first_learner else "")
+            + (f" The region index lists {len(regions)} dumps; if that does not match "
+               f"this binary, pass the --regions written by the run itself."
+               if regions != list(REGIONS) else "")
         )
     blocks = [dict(block) for block in available[:needed]]
     ignored = len(available) - needed
@@ -727,21 +814,24 @@ def build_rows(exp: Experiment, all_blocks: List[Block], start_block: int) -> Li
 
     repair_sim_seconds(blocks, start_block)
     check_single_stats_window(blocks, start_block)
-    intervals, final, ratio_block = aggregate_intervals(exp, blocks, start_block)
+    intervals, final, ratio_block = aggregate_intervals(exp, blocks, start_block, regions)
+    collapsed = output_regions(regions)
 
     rows: List[Dict[str, str]] = []
     for index, metrics in enumerate(intervals, start=1):
-        row = base_row(exp, index, "interval_delta", index)
+        row = base_row(exp, index, "interval_delta", index, collapsed[index - 1])
         for column, _, metric_type in ADD_METRICS:
             row[column] = fmt_metric(metrics[column], metric_type)
             if metrics[column] < 0:
                 print(
-                    f"warning: negative {column} in interval {REGIONS[index - 1][1]}",
+                    f"warning: negative {column} in interval {collapsed[index - 1][1]}",
                     file=sys.stderr,
                 )
         rows.append(row)
 
-    total = base_row(exp, len(REGIONS) + 1, "final_total", len(REGIONS))
+    total = base_row(exp, len(collapsed) + 1, "final_total", len(collapsed),
+                     collapsed[-1])
+    total["checkpoint"] = "final_total"
     total["interval"] = "total_program"
     for column, _, metric_type in ADD_METRICS:
         total[column] = fmt_metric(final[column], metric_type)
@@ -902,7 +992,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not args.stats.is_file():
             raise ExtractionError(f"stats file not found: {args.stats}")
         blocks = parse_stats_blocks(args.stats)
-        rows = build_rows(exp, blocks, args.start_block)
+        regions = read_region_index(args.regions) if args.regions else None
+        rows = build_rows(exp, blocks, args.start_block, regions)
 
         if args.dry_run:
             writer = csv.DictWriter(

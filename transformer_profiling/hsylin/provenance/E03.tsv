@@ -1,5 +1,5 @@
 exp_id	38
-built_at	2026-09-28T16:37:27Z
+built_at	2026-09-29T07:51:37Z
 impl	codebook_int8
 codebook_size	4
 n_learners	2
@@ -9,16 +9,16 @@ cores	1
 overrides	-
 model_dims	d_q=64 seq_len=512 d_model=256 num_heads=4 d_ff=1024
 default_artifacts	0
-repo_commit	e53973faf29e
-repo_commit_full	e53973faf29e6ed0961086a2bf7d47aa2b86b2b1
-commit_subject	Merge pull request #15 from hsylin/perf/sdot-dense-attention
+repo_commit	bd41e343b5a0
+repo_commit_full	bd41e343b5a019cd948e5bffe4a97eb9e4bb4025
+commit_subject	feat(profiling): split the MHA region into its codebook and dense sub-phases
 compile_flags	USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 I2CE_USE_LIBM5_FLAG=1
-binary_sha256	9e0b743f57119a15b336c3ddff65d9177c829fb65b4c44cca7cfa971f0d2fede
+binary_sha256	a1304966b8ce727e3c0a71d87852855ca6c0f6abf72bec3098f92c5ad349b611
 libm5_sha256	f201959e636d139fe544e3346685e728a225712384add5f04c3f29c45d4709b5
 codebooks_def_sha256	37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd
 gem5_bin	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast
 gem5_cfg	/home/hlin/i2ce/gem5-tianrui/configs/example/arm/starter_fs.py
-build_dir	/home/hlin/i2ce/exp/38/builds/20260928_183658_e53973fa
-collected_at	2026-09-29T06:21:49Z
-outdir	/home/hlin/i2ce/exp/38/out_20260928_183727
-gem5_args	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast -d /home/hlin/i2ce/exp/38/out_20260928_183727 --stats-file=stats.txt --dump-config=config.ini configs/example/arm/starter_fs.py --cpu=minor --kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui --disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img --restore=/home/hlin/i2ce/exp/_cpt/sve128/cpt.198408961500 --script=/home/hlin/i2ce/exp/38/builds/20260928_183658_e53973fa/run.rcS --vio-9p=/home/hlin/i2ce/exp/38/builds/20260928_183658_e53973fa --num-cores=1 --cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1 --num-cores=1
+build_dir	/home/hlin/i2ce/exp/38/builds/20260929_095110_bd41e343
+collected_at	2026-09-29T20:20:28Z
+outdir	/home/hlin/i2ce/exp/38/out_20260929_095137
+gem5_args	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast -d /home/hlin/i2ce/exp/38/out_20260929_095137 --stats-file=stats.txt --dump-config=config.ini configs/example/arm/starter_fs.py --cpu=minor --kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui --disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img --restore=/home/hlin/i2ce/exp/_cpt/sve128/cpt.198408961500 --script=/home/hlin/i2ce/exp/38/builds/20260929_095110_bd41e343/run.rcS --vio-9p=/home/hlin/i2ce/exp/38/builds/20260929_095110_bd41e343 --num-cores=1 --cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1 --num-cores=1
