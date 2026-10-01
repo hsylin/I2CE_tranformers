@@ -210,8 +210,14 @@ load_row() {
   if [[ "$CORES" == 1 ]]; then CPT_DIR="$EXP_ROOT/_cpt/sve$SVE"
   else CPT_DIR="$EXP_ROOT/_cpt/sve${SVE}_c$CORES"; fi
 
+  # The committed headers under Full_NN/gemm_definitions were generated with
+  # the default packed index width, so they are only the right artifacts while
+  # I2CE_IDX_BITS_BYTE_ALIGNED is off. With it on, cb=8 moves from 3-bit to
+  # 4-bit indexes and the generator has to run, or the build would silently
+  # measure the committed 3-bit stream instead of the padded one.
   IS_DEFAULT_ARTIFACTS=0
-  if [[ "$CB" == 8 && "$NL" == 4 && "$SVE" == 128 && "$MODEL_IS_DEFAULT" == 1 && "$IMPL" == codebook_int8 ]]; then
+  if [[ "$CB" == 8 && "$NL" == 4 && "$SVE" == 128 && "$MODEL_IS_DEFAULT" == 1 && "$IMPL" == codebook_int8 \
+        && "${I2CE_IDX_BITS_BYTE_ALIGNED:-0}" != 1 ]]; then
     IS_DEFAULT_ARTIFACTS=1
   fi
 }
@@ -380,6 +386,7 @@ build_one() {
     printf 'model_dims\td_q=%s seq_len=%s d_model=%s num_heads=%s d_ff=%s\n' \
            "$D_Q_EFF" "$SEQ_EFF" "$DM_EFF" "$NH_EFF" "$DFF_EFF"
     printf 'default_artifacts\t%s\n'    "$IS_DEFAULT_ARTIFACTS"
+    printf 'idx_bits_byte_aligned\t%s\n' "${I2CE_IDX_BITS_BYTE_ALIGNED:-0}"
     # 12 chars: unambiguous, and the same width add_experiment.py normalises
     # older full-sha records to, so the column reads uniformly.
     printf 'repo_commit\t%s\n' \
