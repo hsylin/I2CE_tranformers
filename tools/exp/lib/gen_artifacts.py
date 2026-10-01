@@ -32,14 +32,22 @@ import sys
 from pathlib import Path
 
 
-def override_line(line: str, name: str, value: str) -> str:
-    # Replace `NAME = <expr>` at statement start, keep any trailing comment.
+def override_line(line: str, name: str, value: str):
+    """Rewrite `NAME = <expr>` at statement start, keeping a trailing comment.
+
+    Returns (line, matched). matched reports whether the assignment was found,
+    which is not the same as whether the text changed: setting a value the
+    notebook already holds, on a line already in canonical form, is a no-op
+    edit but still a successful override. Treating "unchanged" as "not found"
+    made every value equal to the notebook default look like a missing
+    assignment.
+    """
     m = re.match(rf"^(\s*){name}\s*=\s*[^#]*(#.*)?$", line)
     if not m:
-        return line
+        return line, False
     indent, comment = m.group(1), (m.group(2) or "")
     sep = "  " if comment else ""
-    return f"{indent}{name} = {value}{sep}{comment}"
+    return f"{indent}{name} = {value}{sep}{comment}", True
 
 
 def main() -> int:
@@ -100,8 +108,8 @@ def main() -> int:
         out = []
         for ln in lines:
             for name, val in values.items():
-                new = override_line(ln, name, val)
-                if new != ln:
+                new, matched = override_line(ln, name, val)
+                if matched:
                     applied[name] += 1
                     ln = new
                     break
