@@ -3,6 +3,7 @@ import numpy as np
 import random as rand
 from string import Template
 import math
+import os
 from tqdm import tqdm
 
 
@@ -17,8 +18,31 @@ def to_bin_N_digits(num, N_digits=2):
 
 
 
+def index_bits(codebook_size):
+    """Bits per packed codebook index.
+
+    The natural width is ceil(log2(codebook_size)). Setting
+    I2CE_IDX_BITS_BYTE_ALIGNED=1 rounds it up to the next width that divides 8
+    (1, 2, 4, 8), so an index never straddles a byte boundary and the SVE
+    kernels can decode a packed word straight into svdot byte lanes.
+
+    The cost is index memory: an 8-entry codebook goes from 3 bits to 4, a
+    third more. That only pays off where the region is instruction-bound, so
+    it stays opt-in and the two settings are meant to be compared.
+    """
+    bits = math.ceil(math.log2(codebook_size))
+    if os.environ.get("I2CE_IDX_BITS_BYTE_ALIGNED", "0") == "1":
+        for aligned in (1, 2, 4, 8):
+            if bits <= aligned:
+                return aligned
+        raise ValueError(
+            "I2CE_IDX_BITS_BYTE_ALIGNED cannot pad %d-bit indexes; "
+            "codebook_size %d exceeds 256" % (bits, codebook_size))
+    return bits
+
+
 def compute_cb_parameters(codebook_size, words_bitlen=32):
-    idxs_bits = math.ceil(math.log2(codebook_size))
+    idxs_bits = index_bits(codebook_size)
     idxs_per_word = int(math.modf(words_bitlen / idxs_bits)[1])
 
     return idxs_bits, idxs_per_word
@@ -75,8 +99,7 @@ def generate_template_dense(same_seq, filename, layer_ID, n_learners, codebook_s
     biases_strings, biases_values_learners = gen_biases_strings(layer_ID, n_learners, out_size, groups_of_4_learners, use_f16)
 
     if use_codebooks:
-        idxs_bits = math.ceil(math.log2(codebook_size))
-        idxs_per_word = int(math.modf(words_bitlen / idxs_bits)[1])
+        idxs_bits, idxs_per_word = compute_cb_parameters(codebook_size, words_bitlen)
         words_per_row = math.ceil(in_size / idxs_per_word)
 
         cb_string, cb_interl_string, codebooks_ensembles = gen_codebooks(layer_ID, n_learners, codebook_size, use_f16, groups_of_4_learners)
