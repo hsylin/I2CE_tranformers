@@ -33,3 +33,9 @@ taskflow
 gem5.pem
 /weights/
 /Full_NN/gemm_definitions/
+
+# Python bytecode caches. gem5-X-TiC-SAT/*.pyc above misses the real
+# directory name (one hyphen short), so those stay tracked; this at least
+# stops new caches being added.
+__pycache__/
+*.py[cod]
