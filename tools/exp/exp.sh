@@ -252,6 +252,17 @@ preflight() { # $1 = sve_bits (optional), then load_row's OV_* are consulted
   [[ -f "$KERNEL" ]] || die "kernel missing: $KERNEL"
   [[ -f "$DISK" ]] || die "disk image missing: $DISK"
   [[ -f "$REPO_ROOT/compile_transformer.sh" ]] || die "not a repo clone: $REPO_ROOT"
+  # Resolve the cross compiler exactly the way compile_transformer.sh will,
+  # and refuse up front. Without this, a shell that lost its conda env (an
+  # SSH reconnect is enough) runs the whole generation step and then dies
+  # minutes later inside build.log with "No aarch64 C++ compiler found",
+  # which has now happened twice.
+  if [[ -z "${A64CXX:-}" ]] \
+     && [[ ! -x "${CONDA_PREFIX:-/nonexistent}/bin/aarch64-conda-linux-gnu-g++" ]] \
+     && ! command -v aarch64-linux-gnu-g++ >/dev/null 2>&1 \
+     && ! command -v aarch64-conda-linux-gnu-g++ >/dev/null 2>&1; then
+    die "no aarch64 C++ compiler: activate the conda env first (conda activate gem5_env) or set A64CXX. CONDA_PREFIX is '${CONDA_PREFIX:-unset}'."
+  fi
   grep -q "CowDiskImage" "$GEM5_CWD/$GEM5_CFG" \
     || die "$GEM5_CFG does not open the disk copy-on-write; concurrent runs would be unsafe"
   if [[ "${1:-}" != "" && "$1" != 128 ]]; then
