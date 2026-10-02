@@ -27,6 +27,7 @@ import numpy as np
 from string import Template
 
 from dense_layer_generator import (
+    compute_cb_parameters,
     gen_biases_strings,
     gen_codebooks,
     gen_codebooks_int,
@@ -72,8 +73,10 @@ def generate_template_gemm(
     registry_meta = None
 
     if use_codebooks:
-        idxs_bits = math.ceil(math.log2(codebook_size))
-        idxs_per_word = int(math.modf(words_bitlen / idxs_bits)[1])
+        # Same helper the packing and the codebooks_def.h macro use, so the
+        # registry's per-layer bits_per_cb cannot disagree with the stream that
+        # was emitted. This is the width the GEMM kernels are actually passed.
+        idxs_bits, idxs_per_word = compute_cb_parameters(codebook_size, words_bitlen)
         words_per_row = math.ceil(in_size / idxs_per_word)
 
         if use_fp32_transformer:
