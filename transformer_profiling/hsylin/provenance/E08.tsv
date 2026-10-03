@@ -1,0 +1,24 @@
+exp_id	38
+built_at	2026-10-01T13:27:16Z
+impl	codebook_int8
+codebook_size	4
+n_learners	2
+sve_bits	128
+sve_lanes	4
+cores	1
+overrides	-
+model_dims	d_q=64 seq_len=512 d_model=256 num_heads=4 d_ff=1024
+default_artifacts	0
+repo_commit	1bfdddfebd80
+repo_commit_full	1bfdddfebd807a55e748eb6561666c14f73c2ab0
+commit_subject	perf(gemm): svdot for four learners, and a byte-aligned index option
+compile_flags	USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 I2CE_USE_LIBM5_FLAG=1
+binary_sha256	13b2f1cf81f9b617466c78ccc6db7509b31c11ee1378e0c499bd5bff0000bcf1
+libm5_sha256	f201959e636d139fe544e3346685e728a225712384add5f04c3f29c45d4709b5
+codebooks_def_sha256	37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd
+gem5_bin	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast
+gem5_cfg	/home/hlin/i2ce/gem5-tianrui/configs/example/arm/starter_fs.py
+build_dir	/home/hlin/i2ce/exp/38/builds/20261001_152649_1bfdddfe
+collected_at	2026-10-02T06:20:20Z
+outdir	/home/hlin/i2ce/exp/38/out_20261001_152716
+gem5_args	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast -d /home/hlin/i2ce/exp/38/out_20261001_152716 --stats-file=stats.txt --dump-config=config.ini configs/example/arm/starter_fs.py --cpu=minor --kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui --disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img --restore=/home/hlin/i2ce/exp/_cpt/sve128/cpt.198408961500 --script=/home/hlin/i2ce/exp/38/builds/20261001_152649_1bfdddfe/run.rcS --vio-9p=/home/hlin/i2ce/exp/38/builds/20261001_152649_1bfdddfe --num-cores=1 --cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1 --num-cores=1

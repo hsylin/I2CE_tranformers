@@ -206,6 +206,24 @@ static uint32_t gemm_sve_codebook_capacity(void) {
  * intentionally falls back to the scalar implementation. This preserves
  * correctness without requiring a separate vector path for partial codebooks.
  */
+/*
+ * The real number of codebook entries.
+ *
+ * 1 << bits_per_cb equals the entry count only while the index keeps its
+ * natural width, ceil(log2(CB_SIZE)). A byte-aligned index is deliberately
+ * wider (an 8-entry codebook packed at 4 bits), and deriving the entry count
+ * from the width then doubles the codebook: every capacity check concludes it
+ * no longer fits the SVE registers and the wrappers quietly fall back to the
+ * scalar engine, which is how a padded-index run measured the wrong kernel.
+ * Padding widens the index, never the codebook, so the entry count is the
+ * smaller of the generator's CB_SIZE and what the width can address.
+ */
+static uint32_t gemm_codebook_entries(uint8_t bits_per_cb) {
+    const uint32_t by_width =
+        (bits_per_cb >= 31u) ? UINT32_MAX : (1u << (uint32_t)bits_per_cb);
+    return ((uint32_t)CB_SIZE < by_width) ? (uint32_t)CB_SIZE : by_width;
+}
+
 static int gemm_sve_codebook_fits_registers(uint32_t codebook_size) {
     const uint32_t capacity = gemm_sve_codebook_capacity();
     return (capacity != 0u) && (codebook_size <= capacity);
@@ -285,14 +303,14 @@ static void gemm_fill_bias_or_zero_fp32_interleaved(
  * True (non-zero) when the SVE compact path cannot execute this codebook and
  * the caller must delegate to its scalar counterpart. Combines the two
  * pre-existing checks: bits_per_cb > 8 (index width the SVE path never
- * supported) and !gemm_sve_codebook_fits_registers(1u << bits_per_cb) (the
+ * supported) and !gemm_sve_codebook_fits_registers(gemm_codebook_entries(bits_per_cb)) (the
  * cached-codebook precondition).
  */
 static int gemm_sve_needs_scalar_fallback(uint8_t bits_per_cb) {
     if (bits_per_cb > 8u) {
         return 1;
     }
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     if (!gemm_sve_codebook_fits_registers(codebook_size)) {
         return 1;
     }
@@ -853,7 +871,7 @@ void gemm_exec_compact_sve_fp32_interleaved_2Learners_same_seq(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
@@ -958,7 +976,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_same_seq(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
@@ -1063,7 +1081,7 @@ void gemm_exec_compact_sve_fp32_interleaved_4Learners_diff_seq(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /* Step 4: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
@@ -1182,7 +1200,7 @@ void gemm_exec_compact_int_sve(gemm_t gemm_layer,
     }
 
     int32_t codebook_i32[256];
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /*
      * Step 5: expand the int8 codebook to int32 once. The SVE kernel can then
      * load codebook values in the same type it uses for accumulation.
@@ -1322,7 +1340,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /*
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local
@@ -1509,7 +1527,7 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /*
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local
@@ -1696,7 +1714,7 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
         return;
     }
 
-    const uint32_t codebook_size = 1u << bits_per_cb;
+    const uint32_t codebook_size = gemm_codebook_entries(bits_per_cb);
     /*
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local

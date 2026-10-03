@@ -141,6 +141,18 @@ run_case() {
   "$I2CE_TEST_ROOT/Full_NN/src/gemm_SVE.c" \
   -o "$I2CE_TEST_OUT/gemm_widening_test_cb4"
 
+# Codebook svdot decode path (and its svmla fallback), built against both
+# generated headers: CB4 takes the fast path, CB8 exercises the fallback.
+"$I2CE_TEST_CXX" "${I2CE_TEST_FLAGS[@]}" -I"$I2CE_TEST_ROOT/tests/gemm_definitions_cb4" -static \
+  "$I2CE_TEST_ROOT/tests/gemm_codebook_sdot_test.cc" \
+  "$I2CE_TEST_ROOT/Full_NN/src/gemm_SVE.c" \
+  -o "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb4"
+
+"$I2CE_TEST_CXX" "${I2CE_TEST_FLAGS[@]}" -I"$I2CE_TEST_ROOT/Full_NN/gemm_definitions" -static \
+  "$I2CE_TEST_ROOT/tests/gemm_codebook_sdot_test.cc" \
+  "$I2CE_TEST_ROOT/Full_NN/src/gemm_SVE.c" \
+  -o "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb8"
+
 # Generate assembly from the actual production translation unit, not a copied
 # implementation. Inspect the helper and all three callers in this file.
 "$I2CE_TEST_CXX" "${I2CE_TEST_FLAGS[@]}" -I"$I2CE_TEST_ROOT/Full_NN/gemm_definitions" -S -fverbose-asm \
@@ -158,7 +170,15 @@ run_case "$I2CE_TEST_OUT/gemm_widening_test_cb4" sve128_cb4  16
 # Only the flat helper is tested at VL256; the generated model remains VL128.
 run_case "$I2CE_TEST_OUT/gemm_widening_test"     sve256_help 32 --helper-only
 
+# The svdot decode is only legal for 2-bit indexes, so both the fast path and
+# the fallback are checked, and at 256-bit to confirm the decode is not tied to
+# a 128-bit vector.
+run_case "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb4" sdot_cb4       16
+run_case "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb8" sdot_cb8       16
+run_case "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb4" sdot_cb4_vl256 32
+
 sha256sum "$I2CE_TEST_OUT/gemm_widening_test" "$I2CE_TEST_OUT/gemm_widening_test_cb4" \
+  "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb4" "$I2CE_TEST_OUT/gemm_codebook_sdot_test_cb8" \
   > "$I2CE_TEST_OUT/binary.sha256"
 printf '\nFUNCTIONAL TESTS PASSED (%s). Assembly and logs: %s\n' \
   "$I2CE_TEST_BACKEND" "$I2CE_TEST_OUT"

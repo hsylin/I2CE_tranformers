@@ -23,6 +23,7 @@ kernels reuse vectorized lookup/decode logic.
 
 from ast import If
 import math
+import dense_layer_generator
 from string import Template
 
 
@@ -63,7 +64,9 @@ def generate_cb_definitions(filename, n_learners, codebook_size, SVE_lanes, use_
     if tile_l2_size is None:
         tile_l2_size = 0
 
-    idxs_bits = math.ceil(math.log2(codebook_size)) # How many bits needed to represent codebook_size unique values (codewords)
+    # Same width the packing uses, so BITS_PER_CB always matches the stream
+    # that dense_layer_generator.py actually emitted.
+    idxs_bits = dense_layer_generator.index_bits(codebook_size)
     # for example, if codebook_size=16, we need 4 bits to represent 16 unique values (0 to 15). If codebook_size=256, we need 8 bits to represent 256 unique values (0 to 255).
     
     # Create a binary mask with idxs_bits number of 1's. This will be used to mask out the relevant bits when extracting codeword indices from packed bit representations.
