@@ -367,6 +367,8 @@ build_one() {
   mkdir -p "$SHARE/weights"
   cp -a "$WGT_SRC" "$SHARE/weights/generated_from_notebook"
   cp "$HDR_SRC/codebooks_def.h" "$SHARE/codebooks_def.h.provenance"
+  mkdir -p "$SHARE/headers"
+  cp "$HDR_SRC"/*.h "$SHARE/headers/"
   sed -e "s|@ID@|$EID|g" -e "s|@CB@|$CB|g" -e "s|@NL@|$NL|g" \
       -e "s|@SVE@|$SVE|g" -e "s|@SHARE@|$SHARE|g" \
       "$SELF_DIR/lib/run.rcS.tmpl" > "$SHARE/run.rcS"
@@ -482,7 +484,7 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   # Resolve the symlink now: gem5 is given an absolute path, so a later build
   # retargeting $EDIR/share cannot move this run's mount out from under it.
   local SHARE_REAL
-  SHARE_REAL="$(cd "$SHARE" 2>/dev/null && pwd -P)" \
+  SHARE_REAL="$(cd "${I2CE_RUN_BUILD_DIR:-$SHARE}" 2>/dev/null && pwd -P)" \
     || die "[exp $EID] no build to run — run: ./exp.sh build $EID"
   SHARE="$SHARE_REAL"
   # The guest script needs the same treatment. gem5 opens --script lazily, when
@@ -516,7 +518,11 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   [[ -n "$CPT" ]] || die "[exp $EID] no checkpoint for sve$SVE cores=$CORES — run: ./exp.sh checkpoint $EID"
   [[ -f "$SHARE/transformer.o" ]] || die "[exp $EID] no binary — run: ./exp.sh build $EID"
   local TS OUT; TS="$(date +%Y%m%d_%H%M%S)"; OUT="$EDIR/${PREFIX}_$TS"
-  mkdir -p "$OUT"
+  mkdir "$OUT" || die "Run directory already exists: $OUT"
+  if [[ -n "${I2CE_STUDY_ACTION:-}" ]]; then
+    [[ "$I2CE_STUDY_ACTION" =~ ^E0[1-9]$ ]] || die "Invalid study action"
+    printf '{"eid":"%s"}\n' "$I2CE_STUDY_ACTION" > "$OUT/study-action.json"
+  fi
   # Snapshot the build description into the run. $SHARE is per experiment id, so
   # the next build of this id -- a different commit via --at, or just a rebuild
   # -- overwrites it, and a run still in flight would afterwards be collected
@@ -580,13 +586,18 @@ smoke_one() {
 collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   local ID="$1"; shift
   load_row "$ID"
-  # --run selects a run other than the newest; everything else is passed through
-  # to add_experiment.py, where it wins on conflict.
-  local WANT_RUN="" _PASS=()
+  # Parse routing arguments once; avoid duplicate --study/--exp-id options.
+  local WANT_RUN="" STUDY="Runner" RESULT_ID="" OUTPUT_ROOT="$RESULTS_DIR" _PASS=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --run)   WANT_RUN="${2:?usage: collect <id> --run <timestamp|outdir>}"; shift 2 ;;
       --run=*) WANT_RUN="${1#--run=}"; shift ;;
+      --study) STUDY="${2:?missing study}"; shift 2 ;;
+      --study=*) STUDY="${1#--study=}"; shift ;;
+      --exp-id) RESULT_ID="${2:?missing result ID}"; shift 2 ;;
+      --exp-id=*) RESULT_ID="${1#--exp-id=}"; shift ;;
+      --output-root) OUTPUT_ROOT="${2:?missing output root}"; shift 2 ;;
+      --output-root=*) OUTPUT_ROOT="${1#--output-root=}"; shift ;;
       *)       _PASS+=("$1"); shift ;;
     esac
   done
@@ -677,20 +688,21 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
     printf 'gem5_args\t%s\n'    "${GEM5_ARGS:--}"
   } > "$PROV"
 
-  # No --exp-id: add_experiment.py assigns the next free one, so ids never have
-  # to be remembered. --runner-id keeps the link back to the experiments.tsv row.
+  # A fixed --exp-id is optional; the study helper always supplies it.
+  # --runner-id is the machine/configuration row, not the result ID.
   # --flag=value, not --flag value: a provenance value that begins with a dash
   # -- a commit subject like "-Wall everywhere", a compile_flags list that starts
   # with -O3 -- is taken for the next option in the two-token form, and argparse
   # then rejects the whole invocation with a usage dump and collects nothing.
   local ARGS=( --stats="$OUT/stats.txt" --n-learners="$NL" --sve-bits="$SVE"
-               --study=Runner --runner-id="$EID"
+               --study="$STUDY" --runner-id="$EID" --output-root="$OUTPUT_ROOT"
                --repo-commit="$BC_COMMIT" --commit-subject="$BC_SUBJECT"
                --binary-sha256="$BC_BINSHA" --compile-flags="$BC_FLAGS"
                --overrides="$OVR" --cores="$CORES"
                --l1i="${OV_L1I:-$STOCK_L1I}" --l1d="${OV_L1D:-$STOCK_L1D}"
                --l2="${OV_L2:-$STOCK_L2}"
                --provenance="$PROV" )
+  [[ -z "$RESULT_ID" ]] || ARGS+=( --exp-id="$RESULT_ID" )
   # The binary records which region each stats dump closed. Reading it beats
   # assuming a schema: the interleaved paths close four regions per attention
   # head, so the dump count depends on num_heads.
