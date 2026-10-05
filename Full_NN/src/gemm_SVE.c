@@ -241,7 +241,31 @@ static inline void gemm_sdot_rows_2l(
         const uint32_t by_w = (n_words_row + words_per_iter - 1u) / words_per_iter;
         const uint32_t n_iters = (by_k < by_w) ? by_k : by_w;
 
-        for (uint32_t it = 0; it < n_iters; it++) {
+#if CB_SIZE == 4
+        /* CB4/I2 already uses one word per 16 K values in the baseline.
+         * Separate complete 16-K iterations from the guarded final tail;
+         * this does not introduce tiling or eliminate a second I4 word. */
+        const uint32_t full_k = k_elems / 16u;
+        const uint32_t full_w = n_words_row;
+        const uint32_t full_iters = words_per_iter == 1u
+            ? ((full_k < full_w) ? full_k : full_w) : 0u;
+        const svbool_t pg16 = svwhilelt_b8((uint64_t)0, (uint64_t)16);
+        for (uint32_t it = 0; it < full_iters; ++it) {
+            const uint32_t cw = it;
+            const uint32_t packed = packed_row[cw];
+            const svuint8_t spread = svtbl_u8(
+                svreinterpret_u8_u32(svdup_n_u32(packed)), byte_sel);
+            const svuint8_t ix = svand_n_u8_x(pg16,
+                svlsr_u8_x(pg16, spread, shifts8), idx_mask8);
+            const svint8x2_t a = svld2_s8(pg16, &row_in[input_idx * 2u]);
+            acc_v0 = svdot_s32(acc_v0, svget2_s8(a, 0), svtbl_s8(cb0_b, ix));
+            acc_v1 = svdot_s32(acc_v1, svget2_s8(a, 1), svtbl_s8(cb1_b, ix));
+            input_idx += 16u;
+        }
+#else
+        const uint32_t full_iters = 0u;
+#endif
+        for (uint32_t it = full_iters; it < n_iters; it++) {
             const uint32_t cw = it * words_per_iter;
             const uint32_t missing_total = k_elems - input_idx;
             const uint32_t active = (missing_total < 16u) ? missing_total : 16u;
