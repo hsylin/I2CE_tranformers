@@ -54,8 +54,11 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SELF_DIR/../.." && pwd)}"
 CONF="$SELF_DIR/runner.conf"
 [[ -f "$CONF" ]] || CONF="$SELF_DIR/runner.conf.example"
+# Preserve an explicitly exported cap even when runner.conf assigns a default.
+I2CE_ENV_MAX_PARALLEL="${MAX_PARALLEL-}"
 # shellcheck disable=SC1090
 source "$CONF"
+[[ -z "$I2CE_ENV_MAX_PARALLEL" ]] || MAX_PARALLEL="$I2CE_ENV_MAX_PARALLEL"
 
 EXP_ROOT="${EXP_ROOT:-$HOME/i2ce/exp}"
 GEM5_BIN="${GEM5_BIN:?runner.conf must set GEM5_BIN}"
@@ -67,7 +70,7 @@ RUN_CPU="${RUN_CPU:-minor}"
 BOOT_CPU="${BOOT_CPU:-atomic}"
 GEM5_MACHINE_ARGS="${GEM5_MACHINE_ARGS:---cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1}"
 NUM_CORES="${NUM_CORES:-1}"
-MAX_PARALLEL="${MAX_PARALLEL:-4}"
+MAX_PARALLEL="${MAX_PARALLEL:-auto}"
 STAGGER="${STAGGER:-20}"
 GEN_PYTHON="${GEN_PYTHON:-python3}"
 # libm5: gem5's m5 ops as linked instructions instead of std::system("m5 ...").
@@ -98,6 +101,8 @@ RESULTS_REL="transformer_profiling/hsylin"
 RESULTS_DIR="$SELF_DIR/../../$RESULTS_REL"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
+[[ "$MAX_PARALLEL" == auto || "$MAX_PARALLEL" =~ ^[1-9][0-9]*$ ]] \
+  || die "MAX_PARALLEL must be auto or a positive integer (0 is not unlimited)"
 note() { printf '  %-18s %s\n' "$1" "$2"; }
 gem5_count() { pgrep -x "$(basename "$GEM5_BIN")" 2>/dev/null | wc -l; }
 
@@ -519,12 +524,14 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   [[ -f "$SHARE/build_config.tsv" ]] && cp "$SHARE/build_config.tsv" "$OUT/build_config.tsv"
   printf '%s\n' "$SHARE" > "$OUT/build_dir"
   gem5_extra run
-  ( cd "$GEM5_CWD" && nohup setsid \
+  "$GEN_PYTHON" "$SELF_DIR/lib/simulation_slots.py" \
+    --limit "$MAX_PARALLEL" --cwd "$GEM5_CWD" --out "$OUT" \
+    --reserve-cpus "${SLOT_RESERVE_CPUS:-4}" \
+    --reserve-gib "${SLOT_RESERVE_GIB:-16}" --rss-gib "${SLOT_RSS_GIB:-8}" -- \
     "$GEM5_BIN" -d "$OUT" --stats-file=stats.txt --dump-config=config.ini \
       "$GEM5_CFG" --cpu="$CPU" --kernel="$KERNEL" --disk-image="$DISK" \
       --restore="$CPT" --script="$RCS" --vio-9p="$SHARE" \
-      $GEM5_MACHINE_ARGS ${EXTRA[@]+"${EXTRA[@]}"} \
-      > "$OUT/gem5_stdout.log" 2>&1 < /dev/null & echo $! > "$OUT/pid" )
+      $GEM5_MACHINE_ARGS ${EXTRA[@]+"${EXTRA[@]}"}
   # $! may be the setsid/nohup wrapper; resolve the real gem5 pid by its outdir
   sleep 1
   local RP; if RP="$(gem5_pid_for "$OUT")"; then echo "$RP" > "$OUT/pid"; fi
@@ -760,9 +767,6 @@ cmd_submit() {
   for id in "$@"; do build_one "$id"; done
   for id in "$@"; do checkpoint_one "$id"; done
   for id in "$@"; do
-    while [[ "$(gem5_count)" -ge "$MAX_PARALLEL" ]]; do
-      echo "  $(gem5_count) gem5 running — waiting for a slot (cap $MAX_PARALLEL)"; sleep 30
-    done
     run_one "$id"; sleep "$STAGGER"
   done
   echo; echo "submitted: $*   (watch: ./exp.sh status; harvest: ./exp.sh collect <id>)"

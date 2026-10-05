@@ -52,7 +52,12 @@ GEM5_MACHINE_ARGS="--cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --me
 NUM_CORES=1
 
 # Parallelism for `exp.sh submit`: max concurrent gem5 processes, seconds between starts
-MAX_PARALLEL=4
+MAX_PARALLEL=${MAX_PARALLEL:-auto}
+# auto uses physical cores/affinity/cgroup quota, load and available host RAM.
+# Explicit positive integer caps are supported; 0 is an error, not unlimited.
+#SLOT_RESERVE_CPUS=4
+#SLOT_RESERVE_GIB=16
+#SLOT_RSS_GIB=8  # conservative host budget until observed high-water RSS is larger
 STAGGER=20
 
 # Python used for artifact generation (needs numpy + torch + tqdm; CPU is enough)
