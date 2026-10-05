@@ -317,7 +317,7 @@ int sve_gemm_cb4_2l_row_i8(
     const int32_t *codebook, const int32_t *bias,
     int8_t *output, uint32_t n, uint32_t ld_out);
 
-/* Full CB4/I2 GEMM with one setup per call, N -> M -> K, no cache tiles.
+/* Full CB4/I2 GEMM with one setup per call, M -> N -> K, no cache tiles.
  * Returns 0 without writing output if the specialization is not applicable.
  * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
  * codebook [4][2] int32 values in int8 range, output [M][N][2]. */

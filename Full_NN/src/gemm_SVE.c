@@ -349,11 +349,17 @@ static inline int gemm_cb4_2l_full(
     svuint8_t byte_sel, shifts8;
     gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
     /* N -> M -> K; only invariant setup is hoisted at this stage. */
-    for (uint32_t n = 0; n < N; ++n) {
-        gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
-            input, M, K * 2u, output, n, N * 2u,
-            bias ? bias + n * 2u : NULL, 1, 0,
-            cb0, cb1, byte_sel, shifts8, 3u, 1u, output_i8);
+    /* M -> N -> K, one output per learner at a time. No cache blocks,
+     * cross-row reuse, packing or partial-K accumulation is introduced. */
+    for (uint32_t m = 0; m < M; ++m) {
+        for (uint32_t n = 0; n < N; ++n) {
+            gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
+                input + m * K * 2u, 1u, K * 2u,
+                output ? output + m * N * 2u : NULL, n, N * 2u,
+                bias ? bias + n * 2u : NULL, 1, 0,
+                cb0, cb1, byte_sel, shifts8, 3u, 1u,
+                output_i8 ? output_i8 + m * N * 2u : NULL);
+        }
     }
     return 1;
 }
