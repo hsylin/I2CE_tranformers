@@ -226,7 +226,8 @@ static inline void gemm_sdot_rows_2l(
     uint32_t out_col, uint32_t ld_out_interleaved,
     const int32_t *bias_interleaved, int add_bias, int accumulate,
     svint8_t cb0_b, svint8_t cb1_b, svuint8_t byte_sel, svuint8_t shifts8,
-    uint8_t idx_mask8, const uint32_t words_per_iter) {
+    uint8_t idx_mask8, const uint32_t words_per_iter,
+    int8_t *out_i8) {
     for (uint32_t row = 0; row < seq_tile; row++) {
         svint32_t acc_v0 = svdup_s32(0);
         svint32_t acc_v1 = svdup_s32(0);
@@ -269,6 +270,16 @@ static inline void gemm_sdot_rows_2l(
 
         int32_t acc0 = svaddv_s32(svptrue_b32(), acc_v0);
         int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
+        if (out_i8 != NULL) {
+            /* Full K has completed. Use modulo arithmetic for bias and keep
+             * exactly the low byte, matching the consumer's existing cast. */
+            const uint32_t b0 = add_bias && bias_interleaved ? (uint32_t)bias_interleaved[0] : 0u;
+            const uint32_t b1 = add_bias && bias_interleaved ? (uint32_t)bias_interleaved[1] : 0u;
+            int8_t *slot = out_i8 + row * ld_out_interleaved + out_col * 2u;
+            slot[0] = (int8_t)(uint8_t)((uint32_t)acc0 + b0);
+            slot[1] = (int8_t)(uint8_t)((uint32_t)acc1 + b1);
+            continue;
+        }
         if (add_bias && (bias_interleaved != NULL)) {
             acc0 += bias_interleaved[0];
             acc1 += bias_interleaved[1];
@@ -278,6 +289,23 @@ static inline void gemm_sdot_rows_2l(
         if (accumulate) { out_slot[0] += acc0; out_slot[1] += acc1; }
         else            { out_slot[0] = acc0;  out_slot[1] = acc1;  }
     }
+}
+
+int sve_gemm_cb4_2l_row_i8(
+    const uint32_t *indices, uint32_t n_words_row, uint32_t K,
+    const int8_t *input, uint32_t M, uint32_t ld_in,
+    const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint32_t n, uint32_t ld_out) {
+    if (!gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
+    int8_t cb_bytes0[256] = {0};
+    int8_t cb_bytes1[256] = {0};
+    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
+    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
+    svuint8_t byte_sel, shifts8;
+    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+    gemm_sdot_rows_2l(indices, n_words_row, K, input, M, ld_in, NULL,
+        n, ld_out, bias, 1, 0, cb0, cb1, byte_sel, shifts8, 3u, 1u, output);
+    return 1;
 }
 
 /* Four interleaved streams. All four share one index row in the same_seq
@@ -1678,12 +1706,12 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
             gemm_sdot_rows_2l(packed_row, n_words_row, k_elems, in_mat_interleaved,
                    seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
                    ld_out_interleaved, bias_interleaved, add_bias, accumulate,
-                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 1u);
+                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 1u, NULL);
         } else {
             gemm_sdot_rows_2l(packed_row, n_words_row, k_elems, in_mat_interleaved,
                    seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
                    ld_out_interleaved, bias_interleaved, add_bias, accumulate,
-                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 2u);
+                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 2u, NULL);
         }
         return;
     }

@@ -636,14 +636,20 @@ void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
         throw std::runtime_error("CodebookDense interleaved 2D pipeline path is not available");
     }
 
-    std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 2u, 0);
-
     gemm_t layer;
     layer.seq_len = static_cast<uint16_t>(seq_len);
     layer.input_size = static_cast<uint16_t>(input_size_);
     layer.output_size = static_cast<uint16_t>(output_size_);
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
+#ifdef SIMD
+    if (gemm_exec_cb4_2l_i8(layer, input_interleaved, weight_idx_,
+            codebook_widened_i32_interleaved_cache_.empty() ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
+            output_interleaved, bits_per_cb_)) return;
+#endif
+    std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 2u, 0);
 #ifdef SIMD
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,

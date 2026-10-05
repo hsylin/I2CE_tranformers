@@ -309,6 +309,14 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
+/* Full-K C8 sink for CB4/I2. Setup stays per output column, as in the
+ * original C32 path. Returns 0 without stores if the codebook is ineligible. */
+int sve_gemm_cb4_2l_row_i8(
+    const uint32_t *indices, uint32_t n_words_row, uint32_t K,
+    const int8_t *input, uint32_t M, uint32_t ld_in,
+    const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint32_t n, uint32_t ld_out);
+
 void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
