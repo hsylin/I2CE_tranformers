@@ -1509,13 +1509,9 @@ int gemm_exec_cb4_2l_i8(gemm_t layer, const int8_t *input,
         return 1;
     }
     if (codebook == NULL || layer.n_words_row < (layer.input_size + 15u) / 16u) return 0;
-    for (uint32_t n = 0; n < layer.output_size; ++n) {
-        if (!sve_gemm_cb4_2l_row_i8(indices + n * layer.n_words_row,
-                layer.n_words_row, layer.input_size, input, layer.seq_len,
-                layer.input_size * 2u, codebook, bias ? bias + n * 2u : NULL,
-                output, n, layer.output_size * 2u)) return 0;
-    }
-    return 1;
+    return sve_gemm_cb4_2l_full_i8(indices, layer.n_words_row,
+        layer.seq_len, layer.output_size, layer.input_size,
+        input, codebook, bias, output);
 #else
     (void)layer; (void)input; (void)indices; (void)codebook;
     (void)bias; (void)output; (void)bits_per_cb;
@@ -1617,6 +1613,15 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
                                                       bits_per_cb);
         return;
     }
+
+#if CB_SIZE == 4 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
+    if (bits_per_cb == 2u && sve_gemm_cb4_2l_full_i32(
+            weight_idx, gemm_layer.n_words_row, gemm_layer.seq_len,
+            gemm_layer.output_size, gemm_layer.input_size, in_interleaved,
+            codebook_i32_interleaved, bias_interleaved, out_interleaved)) {
+        return;
+    }
+#endif
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);

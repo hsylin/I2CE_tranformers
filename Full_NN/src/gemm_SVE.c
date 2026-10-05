@@ -308,6 +308,48 @@ int sve_gemm_cb4_2l_row_i8(
     return 1;
 }
 
+/* Both output sinks share the prepared traversal. The always-inline helper
+ * lets each public entry remove the unused sink at compile time. */
+__attribute__((always_inline))
+static inline int gemm_cb4_2l_full(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias,
+    int32_t *output, int8_t *output_i8) {
+    if (n_words_row < (K + 15u) / 16u ||
+        !gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
+    int8_t cb_bytes0[256] = {0};
+    int8_t cb_bytes1[256] = {0};
+    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
+    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
+    svuint8_t byte_sel, shifts8;
+    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+    /* N -> M -> K; only invariant setup is hoisted at this stage. */
+    for (uint32_t n = 0; n < N; ++n) {
+        gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
+            input, M, K * 2u, output, n, N * 2u,
+            bias ? bias + n * 2u : NULL, 1, 0,
+            cb0, cb1, byte_sel, shifts8, 3u, 1u, output_i8);
+    }
+    return 1;
+}
+
+int sve_gemm_cb4_2l_full_i32(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int32_t *output) {
+    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
+                           codebook, bias, output, NULL);
+}
+
+int sve_gemm_cb4_2l_full_i8(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int8_t *output) {
+    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
+                           codebook, bias, NULL, output);
+}
+
 /* Four interleaved streams. All four share one index row in the same_seq
  * layout, so one decoded byte vector drives four table lookups. */
 __attribute__((always_inline))

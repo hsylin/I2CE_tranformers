@@ -1,4 +1,5 @@
 #include <gemm_exec_internal.h>
+#include <gemm_SVE.h>
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -35,6 +36,11 @@ int main() {
         if (!gemm_exec_cb4_2l_i8(shape,input.data(),indices.data(),cb,
                 biased?bias.data():nullptr,got.data(),2) || got!=want) {
             std::printf("FAIL C8 M=%u N=%u K=%u bias=%d\n",M,N,K,biased);return 1;
+        }
+        std::fill(got.begin(),got.end(),91);
+        if (!sve_gemm_cb4_2l_full_i8(indices.data(),NW,M,N,K,input.data(),cb,
+                biased?bias.data():nullptr,got.data()) || got!=want) {
+            std::puts("FAIL prepared C8 sink");return 1;
         }
         std::fill(got.begin(),got.end(),91);const auto saved=got;
         if (gemm_exec_cb4_2l_i8(shape,input.data()+1,indices.data(),cb,nullptr,got.data(),2) || got!=saved ||

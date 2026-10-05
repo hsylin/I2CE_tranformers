@@ -317,6 +317,20 @@ int sve_gemm_cb4_2l_row_i8(
     const int32_t *codebook, const int32_t *bias,
     int8_t *output, uint32_t n, uint32_t ld_out);
 
+/* Full CB4/I2 GEMM with one setup per call, N -> M -> K, no cache tiles.
+ * Returns 0 without writing output if the specialization is not applicable.
+ * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
+ * codebook [4][2] int32 values in int8 range, output [M][N][2]. */
+int sve_gemm_cb4_2l_full_i32(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int32_t *output);
+/* Same preparation and traversal, with a final low-byte C8 sink. */
+int sve_gemm_cb4_2l_full_i8(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int8_t *output);
+
 void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
