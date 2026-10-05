@@ -2304,24 +2304,22 @@ void sve_gemm_dense_int8_interleaved_4Learners(
 }
 
 /*
- * Dense 2-learner interleaved int32 GEMM helper.
- *
- * This is the two-stream version of sve_gemm_dense_int8_interleaved_4Learners(). It
- * multiplies already-expanded interleaved int32 inputs and writes two output
- * values per logical matrix element.
+ * Dense two-learner GEMM with a compile-time-selected C32 or C8 sink.
+ * Inputs remain interleaved bytes and both sinks use identical dot products.
  */
-void sve_gemm_dense_int8_interleaved_2Learners(
+__attribute__((always_inline))
+static inline void gemm_dense_2l_sink(
     const int8_t *lhs_interleaved,
     const int8_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
     uint32_t rhs_cols,
     uint32_t k_elems,
-    int32_t *out_interleaved) {
+    int32_t *out_interleaved, int8_t *out_i8) {
     const uint32_t k_per_iter = (uint32_t)svcntb();
 
     /*
      * Two-stream dense variant. It follows the same row/column/K traversal as
-     * the 4D helper, but svld2_s32 splits each interleaved pair and two
+     * the 4D helper, but svld2_s8 splits each interleaved pair and two
      * accumulators are reduced into the output cell.
      */
     for (uint32_t row = 0; row < lhs_rows; row++) {
@@ -2344,9 +2342,28 @@ void sve_gemm_dense_int8_interleaved_2Learners(
                 acc_v1 = svdot_s32(acc_v1, svget2_s8(lhs_vals, 1), svget2_s8(rhs_vals, 1));
             }
 
-            int32_t *out_slot = &out_interleaved[(row * rhs_cols + col) * 2u];
-            out_slot[0] = svaddv_s32(svptrue_b32(), acc_v0);
-            out_slot[1] = svaddv_s32(svptrue_b32(), acc_v1);
+            const int32_t acc0 = svaddv_s32(svptrue_b32(), acc_v0);
+            const int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
+            const uint32_t offset = (row * rhs_cols + col) * 2u;
+            if (out_i8 != NULL) {
+                out_i8[offset] = (int8_t)(uint8_t)acc0;
+                out_i8[offset + 1u] = (int8_t)(uint8_t)acc1;
+            } else {
+                out_interleaved[offset] = acc0;
+                out_interleaved[offset + 1u] = acc1;
+            }
         }
     }
+}
+
+void sve_gemm_dense_int8_interleaved_2Learners(
+    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
+    uint32_t K, int32_t *output) {
+    gemm_dense_2l_sink(lhs, rhs, M, N, K, output, NULL);
+}
+
+void sve_gemm_dense_int8_interleaved_2Learners_to_int8(
+    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
+    uint32_t K, int8_t *output) {
+    gemm_dense_2l_sink(lhs, rhs, M, N, K, NULL, output);
 }

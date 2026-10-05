@@ -420,6 +420,12 @@ void sve_gemm_dense_int8_interleaved_4Learners(
  * @param out_interleaved Output matrix stored as
  *                        [lhs_rows][rhs_cols][2 learners].
  */
+/* Same full-K dense traversal, narrowing only after the final reduction.
+ * The attention consumer applies its existing PV shift after this int8 cast. */
+void sve_gemm_dense_int8_interleaved_2Learners_to_int8(
+    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
+    uint32_t K, int8_t *output);
+
 void sve_gemm_dense_int8_interleaved_2Learners(
     const int8_t *lhs_interleaved,
     const int8_t *rhs_by_col_interleaved,

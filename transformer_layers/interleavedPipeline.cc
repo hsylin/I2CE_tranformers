@@ -265,9 +265,8 @@ void matmulInterleaved4LearnersToInt8(const int8_t* lhs_interleaved,
  * - output_interleaved is [lhs_row][rhs_col][learner].
  *
  * Step-by-step:
- * 1. Allocate int32 accumulators for the complete interleaved output.
- * 2. Use the SVE interleaved 2D GEMM backend when CFG_SIMD is enabled, after
- *    widening the int8 inputs into int32 staging buffers.
+ * 1. Retain full-K accumulators in registers; allocate no C32 output matrix.
+ * 2. Use the SVE interleaved 2D GEMM backend with a final int8 store.
  * 3. Otherwise, run the scalar row/column/k dot-product loops.
  * 4. Keep learner 0 and learner 1 independent: each lane multiplies only the
  *    matching lane from lhs and rhs.
@@ -280,8 +279,23 @@ void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
                                std::size_t rhs_cols,
                                std::size_t k_elems,
                                int8_t* output_interleaved) {
-    const std::size_t total_out = lhs_rows * rhs_cols * 2u;
-    std::vector<int32_t> output_acc(total_out, 0);
+    // The former C32 temporary made overlapping input/output safe. Keep that
+    // contract with an int8 temporary only for overlapping calls; the ordinary
+    // transformer path writes directly to its distinct output allocation.
+    const std::size_t output_bytes = lhs_rows * rhs_cols * 2u;
+    const auto overlaps_output = [output_interleaved, output_bytes](const int8_t* input, std::size_t bytes) {
+        const uintptr_t a = reinterpret_cast<uintptr_t>(input);
+        const uintptr_t c = reinterpret_cast<uintptr_t>(output_interleaved);
+        return bytes && output_bytes && ((a <= c) ? c - a < bytes : a - c < output_bytes);
+    };
+    if (overlaps_output(lhs_interleaved, lhs_rows * k_elems * 2u) ||
+        overlaps_output(rhs_by_col_interleaved, rhs_cols * k_elems * 2u)) {
+        std::vector<int8_t> temporary(output_bytes);
+        matmulInterleaved2LearnersToInt8(lhs_interleaved, rhs_by_col_interleaved,
+            lhs_rows, rhs_cols, k_elems, temporary.data());
+        std::copy(temporary.begin(), temporary.end(), output_interleaved);
+        return;
+    }
 
 #if CFG_SIMD
     // The SVE backend reads these interleaved int8 values in place. It
@@ -294,40 +308,36 @@ void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
     //
     // Byte loads have no alignment requirement, so these pointers are passed
     // through exactly as they arrive.
-    sve_gemm_dense_int8_interleaved_2Learners(
+    sve_gemm_dense_int8_interleaved_2Learners_to_int8(
         lhs_interleaved,
         rhs_by_col_interleaved,
         static_cast<uint32_t>(lhs_rows),
         static_cast<uint32_t>(rhs_cols),
         static_cast<uint32_t>(k_elems),
-        output_acc.data());
+        output_interleaved);
 #else
     // Scalar fallback: each output slot contains two independent dot products.
     for (std::size_t row = 0; row < lhs_rows; row++) {
         for (std::size_t col = 0; col < rhs_cols; col++) {
-            int32_t acc[2] = {0, 0};
+            uint32_t acc[2] = {0, 0};
             for (std::size_t k = 0; k < k_elems; k++) {
                 const int8_t* lhs_slot = lhs_interleaved + ((row * k_elems + k) * 2u);
                 const int8_t* rhs_slot = rhs_by_col_interleaved + ((col * k_elems + k) * 2u);
                 for (std::size_t learner = 0; learner < 2u; learner++) {
-                    acc[learner] += static_cast<int32_t>(lhs_slot[learner]) *
-                                    static_cast<int32_t>(rhs_slot[learner]);
+                    acc[learner] += static_cast<uint32_t>(static_cast<int32_t>(lhs_slot[learner]) *
+                                    static_cast<int32_t>(rhs_slot[learner]));
                 }
             }
             // Store learner accumulators adjacent to each other:
             // [row][col][0], [row][col][1].
-            int32_t* out_slot = output_acc.data() + ((row * rhs_cols + col) * 2u);
+            int8_t* out_slot = output_interleaved + ((row * rhs_cols + col) * 2u);
             for (std::size_t learner = 0; learner < 2u; learner++) {
-                out_slot[learner] = acc[learner];
+                out_slot[learner] = static_cast<int8_t>(static_cast<uint8_t>(acc[learner]));
             }
         }
     }
 #endif
 
-    // Down-convert to the int8 activation format consumed by the next layer.
-    for (std::size_t idx = 0; idx < total_out; idx++) {
-        output_interleaved[idx] = static_cast<int8_t>(output_acc[idx]);
-    }
 }
 
 void copyHeadToMultiheadInterleaved4Learners(const int8_t* head_interleaved,
