@@ -1,0 +1,54 @@
+From ce0670b04ca304946d9f75aee440cb0b9dc20852 Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Mon, 5 Oct 2026 11:22:13 +0200
+Subject: [PATCH 6/9] perf(gemm): integrate row-first traversal into CB4
+ non-tiling pipeline
+
+---
+ Full_NN/inc/gemm_SVE.h |  2 +-
+ Full_NN/src/gemm_SVE.c | 16 +++++++++++-----
+ 2 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/Full_NN/inc/gemm_SVE.h b/Full_NN/inc/gemm_SVE.h
+index c765903b..ea68b88f 100644
+--- a/Full_NN/inc/gemm_SVE.h
++++ b/Full_NN/inc/gemm_SVE.h
+@@ -317,7 +317,7 @@ int sve_gemm_cb4_2l_row_i8(
+     const int32_t *codebook, const int32_t *bias,
+     int8_t *output, uint32_t n, uint32_t ld_out);
+ 
+-/* Full CB4/I2 GEMM with one setup per call, N -> M -> K, no cache tiles.
++/* Full CB4/I2 GEMM with one setup per call, M -> N -> K, no cache tiles.
+  * Returns 0 without writing output if the specialization is not applicable.
+  * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
+  * codebook [4][2] int32 values in int8 range, output [M][N][2]. */
+diff --git a/Full_NN/src/gemm_SVE.c b/Full_NN/src/gemm_SVE.c
+index c7fe28eb..a6014f54 100644
+--- a/Full_NN/src/gemm_SVE.c
++++ b/Full_NN/src/gemm_SVE.c
+@@ -349,11 +349,17 @@ static inline int gemm_cb4_2l_full(
+     svuint8_t byte_sel, shifts8;
+     gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+     /* N -> M -> K; only invariant setup is hoisted at this stage. */
+-    for (uint32_t n = 0; n < N; ++n) {
+-        gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
+-            input, M, K * 2u, output, n, N * 2u,
+-            bias ? bias + n * 2u : NULL, 1, 0,
+-            cb0, cb1, byte_sel, shifts8, 3u, 1u, output_i8);
++    /* M -> N -> K, one output per learner at a time. No cache blocks,
++     * cross-row reuse, packing or partial-K accumulation is introduced. */
++    for (uint32_t m = 0; m < M; ++m) {
++        for (uint32_t n = 0; n < N; ++n) {
++            gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
++                input + m * K * 2u, 1u, K * 2u,
++                output ? output + m * N * 2u : NULL, n, N * 2u,
++                bias ? bias + n * 2u : NULL, 1, 0,
++                cb0, cb1, byte_sel, shifts8, 3u, 1u,
++                output_i8 ? output_i8 + m * N * 2u : NULL);
++        }
+     }
+     return 1;
+ }
+-- 
+2.51.0
+

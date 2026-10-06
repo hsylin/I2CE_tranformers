@@ -1,0 +1,282 @@
+From c6d27fbe8bf089bfec84e5dfb8be5418656c20a9 Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Mon, 5 Oct 2026 11:21:48 +0200
+Subject: [PATCH 3/6] perf(attention): integrate direct int8 dense output into
+ CB4 pipeline
+
+---
+ Full_NN/inc/gemm_SVE.h                    |  6 +++
+ Full_NN/src/gemm_SVE.c                    | 39 +++++++++++-----
+ tests/dense_c8_test.cc                    | 57 +++++++++++++++++++++++
+ tests/run_dense_c8_test.sh                | 23 +++++++++
+ transformer_layers/interleavedPipeline.cc | 42 ++++++++++-------
+ 5 files changed, 140 insertions(+), 27 deletions(-)
+ create mode 100644 tests/dense_c8_test.cc
+ create mode 100644 tests/run_dense_c8_test.sh
+
+diff --git a/Full_NN/inc/gemm_SVE.h b/Full_NN/inc/gemm_SVE.h
+index 47139f6b..1c968d57 100644
+--- a/Full_NN/inc/gemm_SVE.h
++++ b/Full_NN/inc/gemm_SVE.h
+@@ -420,6 +420,12 @@ void sve_gemm_dense_int8_interleaved_4Learners(
+  * @param out_interleaved Output matrix stored as
+  *                        [lhs_rows][rhs_cols][2 learners].
+  */
++/* Same full-K dense traversal, narrowing only after the final reduction.
++ * The attention consumer applies its existing PV shift after this int8 cast. */
++void sve_gemm_dense_int8_interleaved_2Learners_to_int8(
++    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
++    uint32_t K, int8_t *output);
++
+ void sve_gemm_dense_int8_interleaved_2Learners(
+     const int8_t *lhs_interleaved,
+     const int8_t *rhs_by_col_interleaved,
+diff --git a/Full_NN/src/gemm_SVE.c b/Full_NN/src/gemm_SVE.c
+index bb952be6..e9077802 100644
+--- a/Full_NN/src/gemm_SVE.c
++++ b/Full_NN/src/gemm_SVE.c
+@@ -2304,24 +2304,22 @@ void sve_gemm_dense_int8_interleaved_4Learners(
+ }
+ 
+ /*
+- * Dense 2-learner interleaved int32 GEMM helper.
+- *
+- * This is the two-stream version of sve_gemm_dense_int8_interleaved_4Learners(). It
+- * multiplies already-expanded interleaved int32 inputs and writes two output
+- * values per logical matrix element.
++ * Dense two-learner GEMM with a compile-time-selected C32 or C8 sink.
++ * Inputs remain interleaved bytes and both sinks use identical dot products.
+  */
+-void sve_gemm_dense_int8_interleaved_2Learners(
++__attribute__((always_inline))
++static inline void gemm_dense_2l_sink(
+     const int8_t *lhs_interleaved,
+     const int8_t *rhs_by_col_interleaved,
+     uint32_t lhs_rows,
+     uint32_t rhs_cols,
+     uint32_t k_elems,
+-    int32_t *out_interleaved) {
++    int32_t *out_interleaved, int8_t *out_i8) {
+     const uint32_t k_per_iter = (uint32_t)svcntb();
+ 
+     /*
+      * Two-stream dense variant. It follows the same row/column/K traversal as
+-     * the 4D helper, but svld2_s32 splits each interleaved pair and two
++     * the 4D helper, but svld2_s8 splits each interleaved pair and two
+      * accumulators are reduced into the output cell.
+      */
+     for (uint32_t row = 0; row < lhs_rows; row++) {
+@@ -2344,9 +2342,28 @@ void sve_gemm_dense_int8_interleaved_2Learners(
+                 acc_v1 = svdot_s32(acc_v1, svget2_s8(lhs_vals, 1), svget2_s8(rhs_vals, 1));
+             }
+ 
+-            int32_t *out_slot = &out_interleaved[(row * rhs_cols + col) * 2u];
+-            out_slot[0] = svaddv_s32(svptrue_b32(), acc_v0);
+-            out_slot[1] = svaddv_s32(svptrue_b32(), acc_v1);
++            const int32_t acc0 = svaddv_s32(svptrue_b32(), acc_v0);
++            const int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
++            const uint32_t offset = (row * rhs_cols + col) * 2u;
++            if (out_i8 != NULL) {
++                out_i8[offset] = (int8_t)(uint8_t)acc0;
++                out_i8[offset + 1u] = (int8_t)(uint8_t)acc1;
++            } else {
++                out_interleaved[offset] = acc0;
++                out_interleaved[offset + 1u] = acc1;
++            }
+         }
+     }
+ }
++
++void sve_gemm_dense_int8_interleaved_2Learners(
++    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
++    uint32_t K, int32_t *output) {
++    gemm_dense_2l_sink(lhs, rhs, M, N, K, output, NULL);
++}
++
++void sve_gemm_dense_int8_interleaved_2Learners_to_int8(
++    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
++    uint32_t K, int8_t *output) {
++    gemm_dense_2l_sink(lhs, rhs, M, N, K, NULL, output);
++}
+diff --git a/tests/dense_c8_test.cc b/tests/dense_c8_test.cc
+new file mode 100644
+index 00000000..8d68db0b
+--- /dev/null
++++ b/tests/dense_c8_test.cc
+@@ -0,0 +1,57 @@
++#include "interleavedPipeline.h"
++#include "softmax.h"
++#ifdef SIMD
++#include <gemm_SVE.h>
++#endif
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <vector>
++
++int main() {
++    unsigned cases=0;
++    for(unsigned M : {0u,1u,2u,5u}) for(unsigned N : {0u,1u,3u,7u})
++    for(unsigned K : {0u,1u,7u,15u,16u,17u,31u,32u,63u,64u,65u,257u,512u})
++    for(unsigned offset : {0u,1u}) {
++        std::vector<int8_t> aa(M*K*2+2),bb(N*K*2+2);
++        int8_t *a=aa.data()+offset,*b=bb.data()+offset;
++        for(unsigned i=0;i<M*K*2;++i)a[i]=int8_t(i*53u+128u);
++        for(unsigned i=0;i<N*K*2;++i)b[i]=int8_t(i*71u+127u);
++        std::vector<int8_t> got(M*N*2+16,93),want=got;
++        for(unsigned m=0;m<M;++m)for(unsigned n=0;n<N;++n)for(unsigned l=0;l<2;++l) {
++            int64_t sum=0;
++            for(unsigned k=0;k<K;++k)sum+=int64_t(a[(m*K+k)*2+l])*b[(n*K+k)*2+l];
++            want[(m*N+n)*2+l]=int8_t(uint8_t(uint64_t(sum)));
++        }
++        matmulInterleaved2LearnersToInt8(a,b,M,N,K,got.data());
++        if(got!=want){std::printf("FAIL dense C8 M=%u N=%u K=%u off=%u\n",M,N,K,offset);return 1;}
++        for(unsigned which : {0u,1u}) for(unsigned overlap_offset : {0u,1u}) {
++            // Test aliasing either operand, including a partial byte overlap.
++            const unsigned input_bytes=(which?N:M)*K*2u;
++            std::vector<int8_t> aliased(std::max(input_bytes,M*N*2u+overlap_offset)+16,89);
++            std::copy(which?b:a,(which?b:a)+input_bytes,aliased.begin());
++            const auto before=aliased;
++            matmulInterleaved2LearnersToInt8(which?a:aliased.data(),which?aliased.data():b,
++                M,N,K,aliased.data()+overlap_offset);
++            for(unsigned i=0;i<aliased.size();++i) {
++                int8_t expected=(i>=overlap_offset && i<overlap_offset+M*N*2u)
++                    ?want[i-overlap_offset]:before[i];
++                if(aliased[i]!=expected){std::puts("FAIL dense C8 alias fallback");return 1;}
++            }
++        }
++#ifdef SIMD
++        std::vector<int8_t> direct(M*N*2+16,93);
++        sve_gemm_dense_int8_interleaved_2Learners_to_int8(a,b,M,N,K,direct.data());
++        if(direct!=want){std::puts("FAIL direct dense sink");return 1;}
++#endif
++        // Test the real PV consumer: signed int8 cast precedes >> 6.
++        Softmax softmax;softmax.post_softmax_interleaved2D(got.data(),M,N);
++        for(unsigned i=0;i<M*N*2;++i) {
++            // Mathematical floor division is independent of signed-shift code.
++            int v=want[i];want[i]=int8_t(v>=0?v/64:-((-v+63)/64));
++        }
++        if(got!=want){std::puts("FAIL cast before PV shift");return 1;}
++        ++cases;
++    }
++    std::printf("PASS dense C8/PV oracle: %u cases\n",cases);
++}
+diff --git a/tests/run_dense_c8_test.sh b/tests/run_dense_c8_test.sh
+new file mode 100644
+index 00000000..e9ea7140
+--- /dev/null
++++ b/tests/run_dense_c8_test.sh
+@@ -0,0 +1,23 @@
++#!/usr/bin/env bash
++set -euo pipefail
++ROOT=$(cd "$(dirname "$0")/.." && pwd)
++OUT=$(mktemp -d "${TMPDIR:-/tmp}/i2ce-dense-c8.XXXXXX")
++CXX=${A64CXX:-$HOME/i2ce/miniforge3/envs/gem5_env/bin/aarch64-conda-linux-gnu-g++}
++GEM5=${I2CE_GEM5_ROOT:-$HOME/i2ce/gem5-tianrui}
++"$CXX" -std=c++17 -O2 -Wall -march=armv8-a+sve -DSIMD -static \
++    -ffunction-sections -fdata-sections -Wl,--gc-sections \
++    -I"$ROOT/Full_NN/inc" -I"$ROOT/tests/gemm_definitions_cb4" \
++    -I"$ROOT/transformer_layers" "$ROOT/tests/dense_c8_test.cc" \
++    "$ROOT/transformer_layers/interleavedPipeline.cc" "$ROOT/transformer_layers/softmax.cc" \
++    "$ROOT/Full_NN/src/gemm_SVE.c" -o "$OUT/oracle"
++for VL in 1 2 4; do
++    "$GEM5/build/ARM/gem5.fast" -d "$OUT/vl$VL" \
++        "$GEM5/configs/example/arm/starter_se.py" --cpu=atomic \
++        --param "system.cpu_cluster.cpus[0].isa[0].sve_vl_se=$VL" \
++        "$OUT/oracle" > "$OUT/vl$VL.log" 2>&1
++    if grep -q '^FAIL' "$OUT/vl$VL.log" || ! grep -q '^PASS' "$OUT/vl$VL.log"; then
++        cat "$OUT/vl$VL.log"; exit 1
++    fi
++    grep '^PASS' "$OUT/vl$VL.log"
++done
++echo "Logs: $OUT"
+diff --git a/transformer_layers/interleavedPipeline.cc b/transformer_layers/interleavedPipeline.cc
+index c826cf5a..d20eed25 100644
+--- a/transformer_layers/interleavedPipeline.cc
++++ b/transformer_layers/interleavedPipeline.cc
+@@ -265,9 +265,8 @@ void matmulInterleaved4LearnersToInt8(const int8_t* lhs_interleaved,
+  * - output_interleaved is [lhs_row][rhs_col][learner].
+  *
+  * Step-by-step:
+- * 1. Allocate int32 accumulators for the complete interleaved output.
+- * 2. Use the SVE interleaved 2D GEMM backend when CFG_SIMD is enabled, after
+- *    widening the int8 inputs into int32 staging buffers.
++ * 1. Retain full-K accumulators in registers; allocate no C32 output matrix.
++ * 2. Use the SVE interleaved 2D GEMM backend with a final int8 store.
+  * 3. Otherwise, run the scalar row/column/k dot-product loops.
+  * 4. Keep learner 0 and learner 1 independent: each lane multiplies only the
+  *    matching lane from lhs and rhs.
+@@ -280,8 +279,23 @@ void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
+                                std::size_t rhs_cols,
+                                std::size_t k_elems,
+                                int8_t* output_interleaved) {
+-    const std::size_t total_out = lhs_rows * rhs_cols * 2u;
+-    std::vector<int32_t> output_acc(total_out, 0);
++    // The former C32 temporary made overlapping input/output safe. Keep that
++    // contract with an int8 temporary only for overlapping calls; the ordinary
++    // transformer path writes directly to its distinct output allocation.
++    const std::size_t output_bytes = lhs_rows * rhs_cols * 2u;
++    const auto overlaps_output = [output_interleaved, output_bytes](const int8_t* input, std::size_t bytes) {
++        const uintptr_t a = reinterpret_cast<uintptr_t>(input);
++        const uintptr_t c = reinterpret_cast<uintptr_t>(output_interleaved);
++        return bytes && output_bytes && ((a <= c) ? c - a < bytes : a - c < output_bytes);
++    };
++    if (overlaps_output(lhs_interleaved, lhs_rows * k_elems * 2u) ||
++        overlaps_output(rhs_by_col_interleaved, rhs_cols * k_elems * 2u)) {
++        std::vector<int8_t> temporary(output_bytes);
++        matmulInterleaved2LearnersToInt8(lhs_interleaved, rhs_by_col_interleaved,
++            lhs_rows, rhs_cols, k_elems, temporary.data());
++        std::copy(temporary.begin(), temporary.end(), output_interleaved);
++        return;
++    }
+ 
+ #if CFG_SIMD
+     // The SVE backend reads these interleaved int8 values in place. It
+@@ -294,40 +308,36 @@ void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
+     //
+     // Byte loads have no alignment requirement, so these pointers are passed
+     // through exactly as they arrive.
+-    sve_gemm_dense_int8_interleaved_2Learners(
++    sve_gemm_dense_int8_interleaved_2Learners_to_int8(
+         lhs_interleaved,
+         rhs_by_col_interleaved,
+         static_cast<uint32_t>(lhs_rows),
+         static_cast<uint32_t>(rhs_cols),
+         static_cast<uint32_t>(k_elems),
+-        output_acc.data());
++        output_interleaved);
+ #else
+     // Scalar fallback: each output slot contains two independent dot products.
+     for (std::size_t row = 0; row < lhs_rows; row++) {
+         for (std::size_t col = 0; col < rhs_cols; col++) {
+-            int32_t acc[2] = {0, 0};
++            uint32_t acc[2] = {0, 0};
+             for (std::size_t k = 0; k < k_elems; k++) {
+                 const int8_t* lhs_slot = lhs_interleaved + ((row * k_elems + k) * 2u);
+                 const int8_t* rhs_slot = rhs_by_col_interleaved + ((col * k_elems + k) * 2u);
+                 for (std::size_t learner = 0; learner < 2u; learner++) {
+-                    acc[learner] += static_cast<int32_t>(lhs_slot[learner]) *
+-                                    static_cast<int32_t>(rhs_slot[learner]);
++                    acc[learner] += static_cast<uint32_t>(static_cast<int32_t>(lhs_slot[learner]) *
++                                    static_cast<int32_t>(rhs_slot[learner]));
+                 }
+             }
+             // Store learner accumulators adjacent to each other:
+             // [row][col][0], [row][col][1].
+-            int32_t* out_slot = output_acc.data() + ((row * rhs_cols + col) * 2u);
++            int8_t* out_slot = output_interleaved + ((row * rhs_cols + col) * 2u);
+             for (std::size_t learner = 0; learner < 2u; learner++) {
+-                out_slot[learner] = acc[learner];
++                out_slot[learner] = static_cast<int8_t>(static_cast<uint8_t>(acc[learner]));
+             }
+         }
+     }
+ #endif
+ 
+-    // Down-convert to the int8 activation format consumed by the next layer.
+-    for (std::size_t idx = 0; idx < total_out; idx++) {
+-        output_interleaved[idx] = static_cast<int8_t>(output_acc[idx]);
+-    }
+ }
+ 
+ void copyHeadToMultiheadInterleaved4Learners(const int8_t* head_interleaved,

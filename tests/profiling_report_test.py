@@ -234,13 +234,12 @@ class ReportTest(unittest.TestCase):
 
     def test_one_command_from_other_directory_uses_current_dataset(self):
         """No --input: the default is hsylin/, never final/."""
-        # hsylin/ is empty, so the default run must fail for want of data rather
-        # than quietly reporting the 36 historical experiments.
+        # The current publication aggregates E01-E09 from its study namespaces.
         result = self.cli("--output", self.directory / "all.html")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("hsylin", result.stderr + result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Experiments: 9", result.stdout)
         self.assertNotIn("Experiments: 36", result.stdout)
-        self.assertFalse((self.directory / "all.html").exists())
+        self.assertTrue((self.directory / "all.html").exists())
 
         # Populated, it reports only what is in that directory.
         results = self.directory / "hsylin"
@@ -264,9 +263,12 @@ class ReportTest(unittest.TestCase):
     def test_default_input_is_current_dataset_and_excludes_historical(self):
         """Both datasets number from E01, so the default must read only hsylin/."""
         self.assertEqual(report.DEFAULT_INPUT, CURRENT)
-        # Emptied when the MHA split changed the schema: tables are header-only.
+        # The root combined table is a derived view, not a new result namespace.
         combined = CURRENT / (CURRENT.name + "_all_experiments.tsv")
-        self.assertEqual(len(combined.read_text(encoding="utf-8").splitlines()), 1)
+        _, current, _ = report.load_data(CURRENT)
+        self.assertEqual(set(current.exp_id), {f"E{i:02}" for i in range(1, 10)})
+        self.assertTrue((current.n_learners == 2).all())
+        self.assertTrue((current.codebook_size == 4).all())
         self.assertEqual(sorted(p.name for p in CURRENT.glob("e0*.tsv")), [])
 
         _, historical, _ = report.load_data(HISTORICAL)

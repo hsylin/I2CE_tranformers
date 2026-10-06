@@ -1,0 +1,78 @@
+{
+  "configuration": "CB4/2 learners/shared I2/SVE128/Minor1core4GHz/L1D32KiB/L2=1MiB",
+  "study": "cb4-hierarchical-cache-packing",
+  "result_id": "E07",
+  "runner_id": 38,
+  "action": "L1 decoded weight tile",
+  "branch": "perf/cb4-l1-decoded-single-output",
+  "local_sha": "7249071b19a3baf163efb7ee9f40120dabe3697b",
+  "server_sha": "4a90231e8762b65521b7f8b01f350bc3774fbeca",
+  "source_tree": "7ef6f698174634f238348f3659cfc445c14adeb7",
+  "controller_sha": "3346892c009debc2e885646cab26c331b27b75a3",
+  "comparison_baseline_id": "E06",
+  "comparison_baseline_sha": "6b05de1c6b48305a2a3fd93c8fdac23ee3cdcb73",
+  "patch_application_baseline": "33d76aa29d8e199caee430f45ae59ae1ae16fd3b",
+  "ordered_patch_files": [
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0001-perf-gemm-remove-unused-activation-workspaces-for-CB.patch",
+      "sha256": "885b230ee60a54ac890bead6d036963d003366c568940976817af31b37198a17"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0002-perf-gemm-combine-CB4-direct-output-with-workspace-r.patch",
+      "sha256": "d653e4f2a1be685cca9c51b690890fa2aca643a65154acdae34ae48bb6e1dc0e"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0003-perf-attention-integrate-direct-int8-dense-output-in.patch",
+      "sha256": "a50a12c618859cbfdff14448a67ebdf25e5dcae2e74d0dc03414eceb6ad804ed"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0004-perf-gemm-prepare-CB4-tables-once-for-both-output-si.patch",
+      "sha256": "9e40517011eb8237babb8a29998ad19fb35f732f6279ac83baf53ee4e026ee1a"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0005-perf-gemm-integrate-complete-I2-decoding-into-prepar.patch",
+      "sha256": "e933465ab6afa7169a99251a11efacc21d630a8b8b6a36d3fd313a788edec36e"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0006-perf-gemm-integrate-row-first-traversal-into-CB4-non.patch",
+      "sha256": "dad5be246b81edb94a787c1391ee5f2eded750adf615bbb1cdf81616edb86988"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0007-perf-gemm-add-single-output-L1-compressed-CB4-cache-.patch",
+      "sha256": "f7ae63488acd0fefce903ec494f8a704ad251f7b0e047c0cfb0742bd6ec19ca3"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0008-fix-gemm-dispatch-cache-blocks-from-the-interleaved-.patch",
+      "sha256": "82cae4846945311bcc3d8ef7ab05084bc193c4dcaf55d42bf756866d433ea050"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0009-perf-gemm-decode-CB4-weights-once-per-L1-cache-tile.patch",
+      "sha256": "5af6a8d103321e8636f65898d59c4cc4f87aaec2a85419607dbfb2774ee8d38b"
+    },
+    {
+      "file": "cb4-hierarchical-cache-packing/experiments/E07/patches/0010-perf-gemm-vectorize-CB4-cache-packing-and-avoid-unus.patch",
+      "sha256": "c7780ab0c1cbcd943704e84a76988aee37e662bb4f33c7118eeac2d1d387ef66"
+    }
+  ],
+  "incremental_patch_baseline": "f489ee234bfc656b7cf50d77c62dbf4894a76634",
+  "run_dir": "/home/hlin/i2ce/exp-cb4-cache-packing-revision/38/out_20261006_075824",
+  "result_file": "cb4-hierarchical-cache-packing/e07_cb4_hierarchical_cache_packing_n2_cb4_sve128_4a90231e_run_20261006_075824.tsv",
+  "result_sha256": "7b6359511084043d82ad49f6a0e68a6daf423cb7944ad53f196671f6f1eabf95",
+  "binary_sha256": "444e9881887139fe30be0523c46371736ac459495a8b580f248cb9efb9df2977",
+  "generated_data_sha256": "ba6bff576aa1b693298e66ac194e95380990b1f86ddc889b0b108c0aeded6bcf",
+  "hardware_fingerprint_sha256": "144945f8c4e89368ff548b655e0723623c16bd9570a7e8c4a751bf452a07b473",
+  "machine_fingerprint_sha256": "d66ddc55199ec4d84d8e0415c246c635a7f27202954c28483272e71008c43524",
+  "checkpoint_fingerprint_sha256": "ac5ed87327126b75280908871f5dce7cba4bf74b475a3c0b4af284407e4fa018",
+  "correctness_status": "PASS 84 tensors vs E03; scope/limitations in review",
+  "simulated_ROI_seconds": 0.214704,
+  "host_elapsed_seconds_approx": 3289.452993631363,
+  "speedup_vs_comparison_baseline": 1.4459488411953199,
+  "runtime_change_percent": -30.84125997339354,
+  "speedup_vs_E03": 5.439246590655042,
+  "speedup_vs_E05": 1.6025132275132274,
+  "revision": "packing-v2",
+  "previous_server_sha": "f489ee234bfc656b7cf50d77c62dbf4894a76634",
+  "source_tag": "exp/cb4-cache/e07-v2",
+  "evidence_dir": "cb4-hierarchical-cache-packing/experiments/E07",
+  "raw_stats_sha256": "43b4204ac1a295bc540dc33e994beb25b6e7f75a8eb0f56bc880715253ba5c25"
+}

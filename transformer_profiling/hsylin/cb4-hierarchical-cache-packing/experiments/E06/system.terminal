@@ -1,0 +1,100 @@
+Loading new script...
+[guest] ===== exp 38: cb=4 learners=2 sve=128 =====
+0ee7e63c6bbda915c879fe102225739e0310e250335529e348b01584e2d3746d  transformer.o
+Welcome to TiC-SAT
+RWMA method
+SA_SIZE = 4
+KERNEL_DIM = 4
+MAX_COL = 1
+SVE_LENGTH = 128 bits
+SVE_LENGTH on Gem5/QEMU = 16 bytes = 128 bits
+float lanes = 4, int32 lanes = 4
+D_Q = 64
+D_SEQ = 512
+D_MODEL = 256
+NUM_HEAD = 4
+D_FF = 1024
+N_LEARNERS = 2
+CODEBOOK_SIZE = 4
+TILE_L1_SIZE = 1
+TILE_L2_SIZE = 1
+USE_F32 = 1
+CFG_RELOAD_WEIGHT = 1
+CFG_USE_NOTEBOOK_GENERATED_WEIGHTS = 1
+CFG_USE_CODEBOOK_GEMM = 1
+CFG_USE_CODEBOOK_REFERENCE = 0
+CFG_ENABLE_DEBUG_PRINT = 0
+CFG_PROFILE_GEMM_ONLY = 1
+CFG_GEM5_PROFILE_REGIONS = 1
+CFG_FULL_INTERLEAVED_PIPELINE = 1
+CFG_USE_FP32_TRANSFORMER = 0
+CFG_SIMD = 1
+CFG_DENSE_NO_SIMD_BASELINE = 0
+CODEBOOK_REGISTRY_N_LEARNERS = 2
+
+=============== LEARNER 0 ===============
+
+
+=============== LEARNER 1 ===============
+
+[GEM5_PROFILE] reset scope=group2_full_interleaved_transformer_block
+Head : 0
+Head : 1
+Head : 2
+Head : 3
+Condense
+Add Norm
+Feed Forward 0
+Feed Forward 1
+Add Norm
+[GEM5_PROFILE] dump 1 checkpoint=after_qkv_h interval=MHA_QKV
+[GEM5_PROFILE] dump 2 checkpoint=after_qk_h interval=MHA_QK
+[GEM5_PROFILE] dump 3 checkpoint=after_softmax_h interval=MHA_softmax
+[GEM5_PROFILE] dump 4 checkpoint=after_sv_h interval=MHA_SV
+[GEM5_PROFILE] dump 5 checkpoint=after_qkv_h interval=MHA_QKV
+[GEM5_PROFILE] dump 6 checkpoint=after_qk_h interval=MHA_QK
+[GEM5_PROFILE] dump 7 checkpoint=after_softmax_h interval=MHA_softmax
+[GEM5_PROFILE] dump 8 checkpoint=after_sv_h interval=MHA_SV
+[GEM5_PROFILE] dump 9 checkpoint=after_qkv_h interval=MHA_QKV
+[GEM5_PROFILE] dump 10 checkpoint=after_qk_h interval=MHA_QK
+[GEM5_PROFILE] dump 11 checkpoint=after_softmax_h interval=MHA_softmax
+[GEM5_PROFILE] dump 12 checkpoint=after_sv_h interval=MHA_SV
+[GEM5_PROFILE] dump 13 checkpoint=after_qkv_h interval=MHA_QKV
+[GEM5_PROFILE] dump 14 checkpoint=after_qk_h interval=MHA_QK
+[GEM5_PROFILE] dump 15 checkpoint=after_softmax_h interval=MHA_softmax
+[GEM5_PROFILE] dump 16 checkpoint=after_sv_h interval=MHA_SV
+[GEM5_PROFILE] dump 17 checkpoint=after_mha interval=MHA_out
+[GEM5_PROFILE] dump 18 checkpoint=after_projection interval=Projection
+[GEM5_PROFILE] dump 19 checkpoint=after_attn_addnorm interval=non_GEMM_after_projection
+[GEM5_PROFILE] dump 20 checkpoint=after_ff1 interval=FF1
+[GEM5_PROFILE] dump 21 checkpoint=after_ff2 interval=FF2
+[GEM5_PROFILE] dump 22 checkpoint=final_total interval=non_GEMM_after_ff2
+[guest] exp 38 exit code: 0
+[guest] ----- gem5_profile_regions.tsv -----
+scope	group2_full_interleaved_transformer_block
+dump_index	checkpoint	interval_since_previous
+1	after_qkv_h	MHA_QKV
+2	after_qk_h	MHA_QK
+3	after_softmax_h	MHA_softmax
+4	after_sv_h	MHA_SV
+5	after_qkv_h	MHA_QKV
+6	after_qk_h	MHA_QK
+7	after_softmax_h	MHA_softmax
+8	after_sv_h	MHA_SV
+9	after_qkv_h	MHA_QKV
+10	after_qk_h	MHA_QK
+11	after_softmax_h	MHA_softmax
+12	after_sv_h	MHA_SV
+13	after_qkv_h	MHA_QKV
+14	after_qk_h	MHA_QK
+15	after_softmax_h	MHA_softmax
+16	after_sv_h	MHA_SV
+17	after_mha	MHA_out
+18	after_projection	Projection
+19	after_attn_addnorm	non_GEMM_after_projection
+20	after_ff1	FF1
+21	after_ff2	FF2
+22	final_total	non_GEMM_after_ff2
+Opening "gem5_profile_regions.tsv".
+Wrote 637 bytes.
+[guest] done
