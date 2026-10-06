@@ -1488,6 +1488,37 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq(
  * Extended entry point: takes an optional pre-widened int32 codebook.
  * See Full_NN/inc/gemm_exec_internal.h for the contract.
  */
+int gemm_exec_cb4_2l_i8(gemm_t layer, const int8_t *input,
+    const uint32_t *indices, const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint8_t bits_per_cb) {
+#if CB_SIZE == 4 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
+    if (bits_per_cb != 2u || (((uintptr_t)input) & 1u)) return 0;
+    if (!layer.seq_len || !layer.output_size) return 1;
+    /* The old consumer finishes into a separate C32 matrix before narrowing,
+     * so input/output aliasing is safe there. Retain that behavior by declining
+     * this direct sink whenever the nonempty byte ranges overlap. Subtraction
+     * avoids wrapping an end address in the range comparison. */
+    const uintptr_t a = (uintptr_t)input, c = (uintptr_t)output;
+    const size_t a_bytes = (size_t)layer.seq_len * layer.input_size * 2u;
+    const size_t c_bytes = (size_t)layer.seq_len * layer.output_size * 2u;
+    if (a_bytes && c_bytes && ((a <= c) ? (c - a < a_bytes) : (a - c < c_bytes))) return 0;
+    if (!layer.input_size || !layer.n_words_row) {
+        for (uint32_t m = 0; m < layer.seq_len; ++m)
+            for (uint32_t n = 0; n < layer.output_size * 2u; ++n)
+                output[m * layer.output_size * 2u + n] = bias ? (int8_t)(uint8_t)bias[n] : 0;
+        return 1;
+    }
+    if (codebook == NULL || layer.n_words_row < (layer.input_size + 15u) / 16u) return 0;
+    return sve_gemm_cb4_2l_full_i8(indices, layer.n_words_row,
+        layer.seq_len, layer.output_size, layer.input_size,
+        input, codebook, bias, output);
+#else
+    (void)layer; (void)input; (void)indices; (void)codebook;
+    (void)bias; (void)output; (void)bits_per_cb;
+    return 0;
+#endif
+}
+
 void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,
@@ -1582,6 +1613,15 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
                                                       bits_per_cb);
         return;
     }
+
+#if CB_SIZE == 4 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
+    if (bits_per_cb == 2u && sve_gemm_cb4_2l_full_i32(
+            weight_idx, gemm_layer.n_words_row, gemm_layer.seq_len,
+            gemm_layer.output_size, gemm_layer.input_size, in_interleaved,
+            codebook_i32_interleaved, bias_interleaved, out_interleaved)) {
+        return;
+    }
+#endif
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
