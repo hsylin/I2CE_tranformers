@@ -25,8 +25,8 @@ python3 transformer_profiling/report.py
 
 The single script, `report.py`, writes
 `transformer_profiling/reports/profiling_report.html`. The English page contains
-charts and their controls only: no tutorials, warning banners, summary tables,
-or empty sections. It embeds Plotly.js and the data, so it opens offline. The
+charts and their controls, plus measured geometry in the cache-comparison tab:
+no tutorials, warning banners or empty sections. It embeds Plotly.js and the data, so it opens offline. The
 camera button exports individual charts to SVG. Generated reports are ignored
 by Git.
 
@@ -180,9 +180,58 @@ The CSVs supplement the historical experiment TSVs; they do not require the
 TSV region schema and do not change it. The input directory still needs at
 least one valid historical-schema experiment. The report does not perform tile
 sweeps, instrument kernels or infer new measurements from old aggregate stats.
-`--experiments` filters the historical TSV charts only; optional CSVs select
+`--experiments` filters TSV charts and the cache-variant comparison; optional CSVs select
 their own independent configurations. Use English configuration and phase names
 to keep all chart labels in English.
+
+### Cache tiling comparison: preserved CB4 E05–E09
+
+The current `hsylin/` input includes `cache_comparison.json`, so the default
+command adds a **Cache tiling comparison** tab. This compares E05 with the
+packing-v2 E06–E09 implementations using their existing single formal runs.
+It is separate from **Tile sweeps**: tile dimensions are fixed; representation
+and hierarchy change. No repeats, medians, interpolated results or additional
+simulations are used.
+
+The tab contains:
+
+- Whole-model and codebook-region simulated milliseconds (not host time).
+- Explicit baseline/candidate speedups, separating compressed/decoded and
+  L1/L2 comparisons. A ratio above 1 means the candidate is faster.
+- All ten phase runtimes and instruction/L1D/L2 demand metrics. Codebook time
+  is the sum of `MHA_QKV`, `Projection`, `FF1` and `FF2`. Unchanged QK and other
+  phases remain visible; their changes are not attributed to cache GEMM.
+- Measured `(S,O,K)` tiles, padded byte strides and allocated arena size.
+  Arena size is neither the cache working set nor measured traffic.
+
+For the canonical TSV, supply the metadata explicitly:
+
+```bash
+python3 transformer_profiling/report.py \
+  --input transformer_profiling/hsylin/comparisons/canonical_all_experiments.tsv \
+  --cache-comparison transformer_profiling/hsylin/cache_comparison.json \
+  --output /tmp/cb4_profiling.html
+```
+
+The metadata is derived from the measured `exp/cb4-cache/e05` and
+`exp/cb4-cache/e06-v2` through `e09-v2` source tags, not the later integrated
+source. Each entry pins its full source SHA, binary SHA256, study and run ID.
+The renderer checks every selected row against that identity and the common
+workload/compiler/cache configuration, and records the metadata file hash in
+the HTML provenance. Full raw-result/fingerprint verification remains available
+through `python3 transformer_profiling/hsylin/reproduction/verify_results.py`.
+
+The schema is intentionally small: `schema_version: 1`, a `configuration`
+mapping, `variants` with source/run identity and geometry, and `comparisons`
+with baseline/candidate IDs and labels. `--experiments` removes excluded
+variants and comparisons needing an excluded endpoint. A metadata file beside
+the selected input is discovered automatically and monitored by `--watch`.
+Historical datasets receive no cache tab unless given matching metadata.
+
+These results compare complete implementations, not separately timed packing,
+decode or SDOT substeps. In particular E07→E09 improves whole-model time while
+the summed codebook phases are nearly unchanged; inspect the phase chart before
+attributing the improvement to L2 tiling.
 
 ### Tile sweeps
 

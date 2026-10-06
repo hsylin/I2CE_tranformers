@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "configuration": {
+    "model": "BERT-mini",
+    "implementation": "Codebook SIMD int8",
+    "l1i": "48KiB",
+    "l1d": "32KiB",
+    "l2": "1MiB",
+    "compile_flags": "USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 I2CE_USE_LIBM5_FLAG=1",
+    "overrides": "-",
+    "d_q": 64,
+    "d_seq": 512,
+    "d_model": 256,
+    "num_head": 4,
+    "d_ff": 1024,
+    "n_learners": 2,
+    "codebook_size": 4,
+    "sve_bits": 128,
+    "cores": 1
+  },
+  "variants": [
+    {
+      "exp_id": "E05",
+      "label": "E05 · no tiling",
+      "source_sha": "e92999ac319bd89b965f59e0a64c4dd93111606f",
+      "binary_sha256": "0aaebfc2f3a85c90ce61ba8394020007e307d8423cf2fd70ad7cc8c6740d35b6",
+      "study": "cb4-baseline-optimization",
+      "run": "run_20261005_211934",
+      "representation": "Shared packed I2",
+      "l1_tile": null,
+      "l2_tile": null,
+      "l1_x_stride": null,
+      "l2_x_stride": null,
+      "weight_stride_bytes": "No staging",
+      "arena_bytes": 0
+    },
+    {
+      "exp_id": "E06",
+      "label": "E06 v2 · L1-I",
+      "source_sha": "6b05de1c6b48305a2a3fd93c8fdac23ee3cdcb73",
+      "binary_sha256": "0ee7e63c6bbda915c879fe102225739e0310e250335529e348b01584e2d3746d",
+      "study": "cb4-hierarchical-cache-packing",
+      "run": "run_20261006_075821",
+      "representation": "Shared packed I2",
+      "l1_tile": [
+        16,
+        32,
+        128
+      ],
+      "l2_tile": null,
+      "l1_x_stride": 144,
+      "l2_x_stride": null,
+      "weight_stride_bytes": "48 / —",
+      "arena_bytes": 10240
+    },
+    {
+      "exp_id": "E07",
+      "label": "E07 v2 · L1-W",
+      "source_sha": "4a90231e8762b65521b7f8b01f350bc3774fbeca",
+      "binary_sha256": "444e9881887139fe30be0523c46371736ac459495a8b580f248cb9efb9df2977",
+      "study": "cb4-hierarchical-cache-packing",
+      "run": "run_20261006_075824",
+      "representation": "Decoded int8 × 2",
+      "l1_tile": [
+        16,
+        32,
+        128
+      ],
+      "l2_tile": null,
+      "l1_x_stride": 144,
+      "l2_x_stride": null,
+      "weight_stride_bytes": "144 / —",
+      "arena_bytes": 17920
+    },
+    {
+      "exp_id": "E08",
+      "label": "E08 v2 · L1+L2-I",
+      "source_sha": "0f1184b6a44dd979fd4fb2f8075ab6b70822187d",
+      "binary_sha256": "b23e9d974650cf576bc55c757b36f3f78c5305a94ba75860e45edb92d03d4316",
+      "study": "cb4-hierarchical-cache-packing",
+      "run": "run_20261006_075826",
+      "representation": "Shared packed I2",
+      "l1_tile": [
+        16,
+        32,
+        128
+      ],
+      "l2_tile": [
+        128,
+        128,
+        512
+      ],
+      "l1_x_stride": 144,
+      "l2_x_stride": 528,
+      "weight_stride_bytes": "48 / 144",
+      "arena_bytes": 294912
+    },
+    {
+      "exp_id": "E09",
+      "label": "E09 v2 · L1+L2-W",
+      "source_sha": "fbc2d5fb6d94d67034c160108b408c5be85e05df",
+      "binary_sha256": "1094719b8e9b1c94b097752f374416f3db8839360cd83fac4bdb812b0e8881ae",
+      "study": "cb4-hierarchical-cache-packing",
+      "run": "run_20261006_075829",
+      "representation": "Decoded int8 × 2",
+      "l1_tile": [
+        16,
+        32,
+        128
+      ],
+      "l2_tile": [
+        128,
+        128,
+        512
+      ],
+      "l1_x_stride": 144,
+      "l2_x_stride": 528,
+      "weight_stride_bytes": "144 / 528",
+      "arena_bytes": 419328
+    }
+  ],
+  "comparisons": [
+    {
+      "baseline": "E05",
+      "candidate": "E06",
+      "label": "E05 → E06: add L1-I"
+    },
+    {
+      "baseline": "E05",
+      "candidate": "E07",
+      "label": "E05 → E07: add L1-W"
+    },
+    {
+      "baseline": "E06",
+      "candidate": "E07",
+      "label": "E06 → E07: L1 decoded vs packed"
+    },
+    {
+      "baseline": "E06",
+      "candidate": "E08",
+      "label": "E06 → E08: add L2-I"
+    },
+    {
+      "baseline": "E07",
+      "candidate": "E09",
+      "label": "E07 → E09: add L2-W"
+    },
+    {
+      "baseline": "E08",
+      "candidate": "E09",
+      "label": "E08 → E09: L2 decoded vs packed"
+    },
+    {
+      "baseline": "E05",
+      "candidate": "E09",
+      "label": "E05 → E09: full cache strategy"
+    }
+  ]
+}
