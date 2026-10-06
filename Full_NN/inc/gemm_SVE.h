@@ -2,12 +2,22 @@
 #define _GEMM_SVE_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <gemm_exec.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
+ * writes for unsupported geometry/configuration, aliasing, or allocation failure.
+ * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
+ * Callers must supply buffers of X[M*K*2], I[N*nw], CB[8], bias[N*2], Y[M*N*2]. */
+int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
+                        size_t M, size_t N, size_t K, const int8_t *input,
+                        const int32_t *cb, const int32_t *bias, int8_t *output,
+                        uint8_t bits);
 
 /**
  * @brief SVE row kernel for one int8 compact weight row and an input tile.

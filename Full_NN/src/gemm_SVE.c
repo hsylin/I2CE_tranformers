@@ -364,6 +364,8 @@ static inline int gemm_cb4_2l_full(
     return 1;
 }
 
+#include "gemm_cb4_cache.h"
+
 int sve_gemm_cb4_2l_full_i32(
     const uint32_t *indices, uint32_t n_words_row,
     uint32_t M, uint32_t N, uint32_t K, const int8_t *input,

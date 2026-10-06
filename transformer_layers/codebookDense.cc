@@ -3,6 +3,7 @@
 #include "../Full_NN/inc/gemm_exec.h"
 #ifdef SIMD
 #include "../Full_NN/inc/gemm_exec_internal.h"
+#include "../Full_NN/inc/gemm_SVE.h"
 #endif
 
 #include <cmath>
@@ -348,6 +349,23 @@ void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, u
     }
 
     std::vector<int32_t> output_acc(seq_len * output_size_, 0);
+
+    // Validate before the inherited uint16 descriptor or uint32 offset math.
+    // Reject unsupported large shapes instead of silently truncating them.
+    if (seq_len > UINT16_MAX || input_size_ > UINT16_MAX ||
+        output_size_ > UINT16_MAX || n_words_row_ > UINT16_MAX ||
+        seq_len * input_size_ > UINT32_MAX / 2u ||
+        seq_len * output_size_ > UINT32_MAX / 2u) {
+        throw std::length_error("CodebookDense 2D dimensions exceed the supported descriptor domain");
+    }
+#ifdef SIMD
+    if (sve_gemm_cb4_cache_i8(weight_idx_, n_words_row_, seq_len, output_size_, input_size_,
+            input_interleaved,
+            codebook_widened_i32_interleaved_cache_.empty() ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
+            output_interleaved, bits_per_cb_)) return;
+#endif
 
     gemm_t layer;
     layer.seq_len = static_cast<uint16_t>(seq_len);
