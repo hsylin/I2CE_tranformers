@@ -1,9 +1,16 @@
 /* Private implementation, included once by gemm_SVE.c.
- * Fixed CB4/shared-I2/SVE128 cache experiment. External X/Y remain interleaved;
- * only the arena's X uses learner planes. No multi-output register blocking.
+ * CB4/shared-I2/SVE128 cache implementation. External X/Y remain interleaved;
+ * arena X/W/C use learner planes. No multi-output register blocking.
  */
 #include <stdlib.h>
 #include <string.h>
+#include <gemm_cb4_cache_config.h>
+
+#if defined(I2CE_CB4_CACHE_CONFIG_REQUESTED) && \
+    (CB_SIZE != 4 || N_LEARNERS != 2 || BITS_PER_CB != 2 || \
+     TILE_L1_SIZE != 1 || TILE_L2_SIZE != 1 || SAME_SEQ != 1 || N_SVE_BYTE != 16)
+#error "Explicit cache tiles require CB4, two learners, shared I2, SVE128 and legacy tiles=1"
+#endif
 
 #ifdef I2CE_TEST_CB4_CACHE
 uint64_t i2ce_cb4_cache_calls = 0, i2ce_cb4_cache_outputs = 0;
@@ -16,20 +23,48 @@ extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
 #endif
 
 #if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
-enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
-       CACHE_X1_STRIDE = 144,
-       CACHE_S2 = 128, CACHE_O2 = 128, CACHE_K2 = 512, CACHE_X2_STRIDE = 528 };
+enum { CACHE_S1 = I2CE_CACHE_S1, CACHE_O1 = I2CE_CACHE_O1, CACHE_K1 = I2CE_CACHE_K1,
+       CACHE_X1_STRIDE = I2CE_CACHE_X1_STRIDE,
+       CACHE_S2 = I2CE_CACHE_S2, CACHE_O2 = I2CE_CACHE_O2, CACHE_K2 = I2CE_CACHE_K2,
+       CACHE_X2_STRIDE = I2CE_CACHE_X2_STRIDE };
 
 /* Every field has a size divisible by 64; one aligned allocation, no malloc
  * inside the tile loops. W1 contains two learner-specific decoded planes. */
 typedef struct {
-    int8_t x1[2][CACHE_S1][CACHE_X1_STRIDE];
-    uint32_t c1[2][CACHE_S1][CACHE_O1];
-    int8_t w1[2][CACHE_O1][CACHE_X1_STRIDE];
-    int8_t x2[2][CACHE_S2][CACHE_X2_STRIDE];
-    uint32_t c2[2][CACHE_S2][CACHE_O2];
-    int8_t w2[2][CACHE_O2][CACHE_X2_STRIDE];
+    int8_t x1[2u * CACHE_S1 * CACHE_X1_STRIDE];
+    uint32_t c1[2u * CACHE_S1 * CACHE_O1];
+    int8_t w1[2u * CACHE_O1 * CACHE_X1_STRIDE];
+    int8_t x2[2u * CACHE_S2 * CACHE_X2_STRIDE];
+    uint32_t c2[2u * CACHE_S2 * CACHE_O2];
+    int8_t w2[2u * CACHE_O2 * CACHE_X2_STRIDE];
 } cb4_cache_arena;
+
+/* True flat storage keeps helper pointer arithmetic within each array object.
+ * It preserves the measured E09 bytes, offsets and planar learner layout. */
+static inline size_t cache_offset(size_t learner, size_t row, size_t column,
+                                  size_t rows, size_t stride) {
+    return (learner * rows + row) * stride + column;
+}
+#if defined(__cplusplus)
+#define CACHE_STATIC_ASSERT static_assert
+#else
+#define CACHE_STATIC_ASSERT _Static_assert
+#endif
+CACHE_STATIC_ASSERT(sizeof(cb4_cache_arena) == I2CE_CACHE_ARENA_BYTES, "Unexpected arena padding");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x2) % 64 == 0, "X2 alignment changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c2) % 64 == 0, "C2 alignment changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w2) % 64 == 0, "W2 alignment changed");
+#if I2CE_CACHE_DEFAULT_GEOMETRY
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x1) == 0, "X1 layout changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c1) == 4608, "C1 layout changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w1) == 8704, "W1 layout changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x2) == 17920, "X2 layout changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c2) == 153088, "C2 layout changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w2) == 284160, "W2 layout changed");
+CACHE_STATIC_ASSERT(sizeof(cb4_cache_arena) == 419328, "Arena size changed");
+#endif
+#undef CACHE_STATIC_ASSERT
+
 
 static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
 
@@ -115,8 +150,8 @@ void cache_transfer_c(cb4_cache_arena *a, size_t sb, size_t ob,
         for (size_t s = 0; s < ss; ++s)
             for (size_t o = 0; o < os; o += 4u) {
                 const svbool_t valid = svwhilelt_b32((uint64_t)o, (uint64_t)os);
-                uint32_t *inner = &a->c1[l][s][o];
-                uint32_t *outer = &a->c2[l][sb + s][ob + o];
+                uint32_t *inner = a->c1 + cache_offset(l, s, o, CACHE_S1, CACHE_O1);
+                uint32_t *outer = a->c2 + cache_offset(l, sb + s, ob + o, CACHE_S2, CACHE_O2);
                 svst1_u32(valid, to_inner ? inner : outer,
                           svld1_u32(valid, to_inner ? outer : inner));
             }
@@ -136,13 +171,19 @@ static void cache_write_y(const uint32_t *c, size_t plane, size_t stride,
                           size_t N, size_t sb, size_t ob) {
     for (size_t s = 0; s < rows; ++s)
         for (size_t o = 0; o < cols; ++o) {
+#ifdef I2CE_TEST_CB4_CACHE_C32
+            /* Correctness-only observer before low8 conversion. */
+            extern void i2ce_cb4_cache_check_c32(size_t, size_t, uint32_t, uint32_t);
+            i2ce_cb4_cache_check_c32(sb + s, ob + o,
+                                    c[s * stride + o], c[plane + s * stride + o]);
+#endif
             output[((sb + s) * N + ob + o) * 2u] = (int8_t)(uint8_t)c[s * stride + o];
             output[((sb + s) * N + ob + o) * 2u + 1u] = (int8_t)(uint8_t)c[plane + s * stride + o];
         }
 }
 
-/* One (s,o), two independent learners. At most 128 signed-byte products
- * per learner: |partial| <= 128*128*128 = 2,097,152, safely int32.
+/* One (s,o), two independent learners. At most CACHE_K1 signed-byte products
+ * per learner. The configured bound K1 <= 65520 keeps K1*16384 < INT32_MAX.
  * Only the cross-K-tile accumulation uses modulo-2^32 arithmetic. */
 static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t ks) {
     const svbool_t pg = svptrue_b8();
@@ -150,14 +191,14 @@ static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t
         for (size_t o = 0; o < os; ++o) {
             svint32_t v0 = svdup_s32(0), v1 = svdup_s32(0);
             for (size_t k = 0; k < ks; k += 16u) {
-                v0 = svdot_s32(v0, svld1_s8(pg, a->x1[0][s] + k),
-                               svld1_s8(pg, a->w1[0][o] + k));
-                v1 = svdot_s32(v1, svld1_s8(pg, a->x1[1][s] + k),
-                               svld1_s8(pg, a->w1[1][o] + k));
+                v0 = svdot_s32(v0, svld1_s8(pg, a->x1 + cache_offset(0, s, k, CACHE_S1, CACHE_X1_STRIDE)),
+                               svld1_s8(pg, a->w1 + cache_offset(0, o, k, CACHE_O1, CACHE_X1_STRIDE)));
+                v1 = svdot_s32(v1, svld1_s8(pg, a->x1 + cache_offset(1, s, k, CACHE_S1, CACHE_X1_STRIDE)),
+                               svld1_s8(pg, a->w1 + cache_offset(1, o, k, CACHE_O1, CACHE_X1_STRIDE)));
                 CACHE_COUNT(chunks, 1);
             }
-            a->c1[0][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v0);
-            a->c1[1][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v1);
+            a->c1[cache_offset(0, s, o, CACHE_S1, CACHE_O1)] += (uint32_t)svaddv_s32(svptrue_b32(), v0);
+            a->c1[cache_offset(1, s, o, CACHE_S1, CACHE_O1)] += (uint32_t)svaddv_s32(svptrue_b32(), v1);
             CACHE_COUNT(outputs, 1);
         }
 }
@@ -206,11 +247,11 @@ int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
         const size_t ss = cache_min(CACHE_S2, M - sb);
         for (size_t ob = 0; ob < N; ob += CACHE_O2) {
             const size_t os = cache_min(CACHE_O2, N - ob);
-            cache_init_c(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, bias, ob);
+            cache_init_c(a->c2, CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, bias, ob);
             for (size_t kb = 0; kb < K; kb += CACHE_K2) {
                 const size_t ks = cache_min(CACHE_K2, K - kb);
-                cache_pack_x(&a->x2[0][0][0],ss,CACHE_X2_STRIDE,CACHE_S2 * CACHE_X2_STRIDE,input,K,sb,kb,ks);
-                cache_pack_w(&a->w2[0][0][0],CACHE_X2_STRIDE,CACHE_O2 * CACHE_X2_STRIDE,
+                cache_pack_x(a->x2,ss,CACHE_X2_STRIDE,CACHE_S2 * CACHE_X2_STRIDE,input,K,sb,kb,ks);
+                cache_pack_w(a->w2,CACHE_X2_STRIDE,CACHE_O2 * CACHE_X2_STRIDE,
                              indices,nw,ob,os,kb,ks,cb0,cb1,byte_sel,shifts);
                 for (size_t s1 = 0; s1 < ss; s1 += CACHE_S1) {
                     const size_t ms = cache_min(CACHE_S1, ss - s1);
@@ -219,17 +260,17 @@ int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
                         cache_transfer_c(a,s1,o1,ms,ns,1);
                         for (size_t k1 = 0; k1 < ks; k1 += CACHE_K1) {
                             const size_t kk = cache_min(CACHE_K1, ks - k1);
-                            cache_copy_panel(&a->x1[0][0][0],CACHE_S1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
-                                &a->x2[0][0][0],CACHE_S2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,s1,k1,ms,kk);
-                            cache_copy_panel(&a->w1[0][0][0],CACHE_O1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
-                                &a->w2[0][0][0],CACHE_O2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,o1,k1,ns,kk);
+                            cache_copy_panel(a->x1,CACHE_S1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
+                                a->x2,CACHE_S2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,s1,k1,ms,kk);
+                            cache_copy_panel(a->w1,CACHE_O1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
+                                a->w2,CACHE_O2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,o1,k1,ns,kk);
                             cache_compute_inner(a,ms,ns,kk);
                         }
                         cache_transfer_c(a,s1,o1,ms,ns,0);
                     }
                 }
             }
-            cache_write_y(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, output, N, sb, ob);
+            cache_write_y(a->c2, CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, output, N, sb, ob);
         }
     }
     free(storage);

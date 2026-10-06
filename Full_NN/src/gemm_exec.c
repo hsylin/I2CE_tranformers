@@ -30,6 +30,7 @@
  * packed-row length.
  */
 
+#include <gemm_wrap.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -645,8 +646,10 @@ void gemm_exec_compact_int_interleaved_2Learners_same_seq(gemm_t gemm_layer,
                     &in_interleaved[((seq * gemm_layer.input_size) + in_idx) * 2u];
                 uint32_t cb_idx = get_packed_index(packed_row, in_idx, bits_per_cb);
 
-                acc0 += (int32_t)in_vals[0] * (int32_t)codebook_interleaved[cb_idx * 2u + 0u];
-                acc1 += (int32_t)in_vals[1] * (int32_t)codebook_interleaved[cb_idx * 2u + 1u];
+                acc0 = gemm_add_i32_wrap(acc0,
+                    (int32_t)in_vals[0] * (int32_t)codebook_interleaved[cb_idx * 2u + 0u]);
+                acc1 = gemm_add_i32_wrap(acc1,
+                    (int32_t)in_vals[1] * (int32_t)codebook_interleaved[cb_idx * 2u + 1u]);
             }
 
             out_slot[0] = acc0;

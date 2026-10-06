@@ -1,5 +1,8 @@
 # TiC-SAT
 
+CB4 cache study: [E01–E09 results and measured tags](transformer_profiling/hsylin/README.md),
+[E09-based tile parameters and manual validation](docs/cb4-cache-parameters.md).
+
 TiC-SAT is an architecture and framework for tightly-coupled systolic arrays devoted to accelerating transformer applications. 
 It is a  model for systolic array acceleration in the gem5-X full system simulator and defined its interface with custom extensions to the ARMv8 instruction set. 
 

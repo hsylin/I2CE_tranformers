@@ -34,6 +34,7 @@
 
 #include <codebooks_def.h>
 #include <gemm_SVE.h>
+#include <gemm_wrap.h>
 
 /*
  * Navigation declarations for the public GEMM SVE entry points.
@@ -305,12 +306,12 @@ static inline void gemm_sdot_rows_2l(
             continue;
         }
         if (add_bias && (bias_interleaved != NULL)) {
-            acc0 += bias_interleaved[0];
-            acc1 += bias_interleaved[1];
+            acc0 = gemm_add_i32_wrap(acc0, bias_interleaved[0]);
+            acc1 = gemm_add_i32_wrap(acc1, bias_interleaved[1]);
         }
         int32_t *out_slot =
             &out_mat_interleaved[row * ld_out_interleaved + out_col * 2u];
-        if (accumulate) { out_slot[0] += acc0; out_slot[1] += acc1; }
+        if (accumulate) { out_slot[0] = gemm_add_i32_wrap(out_slot[0], acc0); out_slot[1] = gemm_add_i32_wrap(out_slot[1], acc1); }
         else            { out_slot[0] = acc0;  out_slot[1] = acc1;  }
     }
 }
@@ -1747,8 +1748,8 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                 (add_bias && (bias_interleaved != NULL)) ? bias_interleaved[1] : 0;
 
             if (accumulate) {
-                out_slot[0] += bias0;
-                out_slot[1] += bias1;
+                out_slot[0] = gemm_add_i32_wrap(out_slot[0], bias0);
+                out_slot[1] = gemm_add_i32_wrap(out_slot[1], bias1);
             } else {
                 out_slot[0] = bias0;
                 out_slot[1] = bias1;
@@ -1963,8 +1964,8 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
         int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
 
         if (add_bias && (bias_interleaved != NULL)) {
-            acc0 += bias_interleaved[0];
-            acc1 += bias_interleaved[1];
+            acc0 = gemm_add_i32_wrap(acc0, bias_interleaved[0]);
+            acc1 = gemm_add_i32_wrap(acc1, bias_interleaved[1]);
         }
 
         /*
@@ -1974,8 +1975,8 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
         int32_t *out_slot =
             &out_mat_interleaved[row * ld_out_interleaved + out_col * 2u];
         if (accumulate) {
-            out_slot[0] += acc0;
-            out_slot[1] += acc1;
+            out_slot[0] = gemm_add_i32_wrap(out_slot[0], acc0);
+            out_slot[1] = gemm_add_i32_wrap(out_slot[1], acc1);
         } else {
             out_slot[0] = acc0;
             out_slot[1] = acc1;

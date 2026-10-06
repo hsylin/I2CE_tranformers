@@ -29,6 +29,7 @@
 # overrides is "-" or comma-separated key=value with these keys:
 #   BUILD-time (regenerate artifacts + rebuild binary):
 #       seq_len d_model num_heads d_ff d_q        (BERT-mini defaults 512/256/4/1024/64)
+#       tile_s1 tile_o1 tile_k1 tile_s2 tile_o2 tile_k2 (CB4 cache only)
 #   SIM-time (gem5 flags only, binary unchanged):
 #       l1i l1d l2   cache sizes, e.g. l1d=64KiB  (stock 48KiB/32KiB/1MiB)
 #       cores        number of CPU cores (default 1)
@@ -155,6 +156,7 @@ load_row() {
   # ---- overrides ----
   OV_SEQ_LEN="" OV_D_MODEL="" OV_NUM_HEADS="" OV_D_FF="" OV_D_Q=""
   OV_L1I="" OV_L1D="" OV_L2="" OV_CORES=""
+  CACHE_BUILD_FLAGS=""
   if [[ -n "$OVR" && "$OVR" != "-" ]]; then
     local kv k v
     local _kvs=()
@@ -174,9 +176,23 @@ load_row() {
         l1d)       OV_L1D="$v" ;;
         l2)        OV_L2="$v" ;;
         cores)     OV_CORES="$v" ;;
-        *) die "[exp $EID] unknown override key '$k' (known: seq_len d_model num_heads d_ff d_q l1i l1d l2 cores)" ;;
+        tile_s1|tile_o1|tile_k1|tile_s2|tile_o2|tile_k2)
+          if [[ ! "$v" =~ ^[1-9][0-9]{0,4}$ ]] || (( v > 65535 )); then
+            die "[exp $EID] $k must be a decimal integer in 1..65535"
+          fi
+          local axis
+          axis=$(printf '%s' "${k#tile_}" | tr '[:lower:]' '[:upper:]')
+          CACHE_BUILD_FLAGS="$CACHE_BUILD_FLAGS I2CE_CACHE_${axis}=$v" ;;
+
+        *) die "[exp $EID] unknown override key '$k' (known: seq_len d_model num_heads d_ff d_q l1i l1d l2 cores tile_s1 tile_o1 tile_k1 tile_s2 tile_o2 tile_k2)" ;;
       esac
     done
+  fi
+  if [[ -n "$CACHE_BUILD_FLAGS" ]]; then
+    [[ "$CB" == 4 && "$NL" == 2 && "$SVE" == 128 ]] \
+      || die "[exp $EID] explicit cache tiles require CB4 / two learners / SVE128"
+    grep -q 'I2CE_CB4_CACHE_CONFIG_REQUESTED' "$REPO_ROOT/compile_transformer.sh" \
+      || die "[exp $EID] source does not support explicit cache tiles; refusing an ignored override"
   fi
   local d
   for d in "$OV_SEQ_LEN" "$OV_D_MODEL" "$OV_NUM_HEADS" "$OV_D_FF" "$OV_D_Q"; do
@@ -209,6 +225,9 @@ load_row() {
   if [[ -n "$OV_SEQ_LEN$OV_D_MODEL$OV_NUM_HEADS$OV_D_FF$OV_D_Q" ]]; then MODEL_IS_DEFAULT=0; fi
 
   CORES="${OV_CORES:-$NUM_CORES}"
+  if [[ -n "$CACHE_BUILD_FLAGS" && "$CORES" != 1 ]]; then
+    die "[exp $EID] explicit cache tiles require one core"
+  fi
   EDIR="$EXP_ROOT/$EID"; SHARE="$EDIR/share"; STAGE="$EXP_ROOT/_stage/$EID"
   # checkpoint key: sve + cores (cache sizes and model dims do not affect the
   # atomic boot, so those share checkpoints). cores=1 keeps the legacy name.
@@ -331,7 +350,7 @@ build_one() {
   BUILD_FLAGS="$BUILD_FLAGS USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0"
   BUILD_FLAGS="$BUILD_FLAGS ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1"
   BUILD_FLAGS="$BUILD_FLAGS GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0"
-  BUILD_FLAGS="$BUILD_FLAGS I2CE_USE_LIBM5_FLAG=$USE_LIBM5"
+  BUILD_FLAGS="$BUILD_FLAGS I2CE_USE_LIBM5_FLAG=$USE_LIBM5$CACHE_BUILD_FLAGS"
   # Fail before the lock, with the remedy, rather than deep inside build.log.
   if [[ "$USE_LIBM5" == 1 ]]; then
     [[ -f "$LIBM5_A" ]] || die "[build $EID] libm5.a missing at $LIBM5_A -- run '$SELF_DIR/exp.sh build-libm5' first. (USE_LIBM5=0 in runner.conf falls back to std::system(\"m5 ...\"), which forks a guest shell inside every measured region; runs built either way are NOT comparable.)"
@@ -347,6 +366,8 @@ build_one() {
       cp "$HDR_SRC"/*.h Full_NN/gemm_definitions/
     fi
     set +e
+    # No ambient tile configuration: row overrides are the recorded authority.
+    unset I2CE_CACHE_S1 I2CE_CACHE_O1 I2CE_CACHE_K1 I2CE_CACHE_S2 I2CE_CACHE_O2 I2CE_CACHE_K2
     env $BUILD_FLAGS GEM5_ROOT="$GEM5_ROOT" LIBM5_A="$LIBM5_A" M5_INC="$M5_INC" \
       bash ./compile_transformer.sh > "$EDIR/build.log" 2>&1
     RC=$?
@@ -759,6 +780,7 @@ cmd_dryrun() {
   if [[ "$MODEL_IS_DEFAULT" != 1 ]]; then
     note "model dims" "d_q=$D_Q_EFF seq_len=$SEQ_EFF d_model=$DM_EFF num_heads=$NH_EFF d_ff=$DFF_EFF (UNTESTED path — smoke first)"
   fi
+  note "cache tiles" "${CACHE_BUILD_FLAGS:-source defaults (recorded source/header)}"
   note "binary"     "$SHARE/transformer.o"
   note "checkpoint" "$CPT_DIR (shared per sve+cores)"
   gem5_extra run
