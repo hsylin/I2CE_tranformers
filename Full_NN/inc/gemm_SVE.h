@@ -2,12 +2,22 @@
 #define _GEMM_SVE_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <gemm_exec.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
+ * writes for unsupported geometry/configuration, aliasing, or allocation failure.
+ * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
+ * Callers must supply buffers of X[M*K*2], I[N*nw], CB[8], bias[N*2], Y[M*N*2]. */
+int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
+                        size_t M, size_t N, size_t K, const int8_t *input,
+                        const int32_t *cb, const int32_t *bias, int8_t *output,
+                        uint8_t bits);
 
 /**
  * @brief SVE row kernel for one int8 compact weight row and an input tile.
@@ -309,6 +319,28 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
+/* Full-K C8 sink for CB4/I2. Setup stays per output column, as in the
+ * original C32 path. Returns 0 without stores if the codebook is ineligible. */
+int sve_gemm_cb4_2l_row_i8(
+    const uint32_t *indices, uint32_t n_words_row, uint32_t K,
+    const int8_t *input, uint32_t M, uint32_t ld_in,
+    const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint32_t n, uint32_t ld_out);
+
+/* Full CB4/I2 GEMM with one setup per call, M -> N -> K, no cache tiles.
+ * Returns 0 without writing output if the specialization is not applicable.
+ * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
+ * codebook [4][2] int32 values in int8 range, output [M][N][2]. */
+int sve_gemm_cb4_2l_full_i32(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int32_t *output);
+/* Same preparation and traversal, with a final low-byte C8 sink. */
+int sve_gemm_cb4_2l_full_i8(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int8_t *output);
+
 void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
@@ -412,6 +444,12 @@ void sve_gemm_dense_int8_interleaved_4Learners(
  * @param out_interleaved Output matrix stored as
  *                        [lhs_rows][rhs_cols][2 learners].
  */
+/* Same full-K dense traversal, narrowing only after the final reduction.
+ * The attention consumer applies its existing PV shift after this int8 cast. */
+void sve_gemm_dense_int8_interleaved_2Learners_to_int8(
+    const int8_t *lhs, const int8_t *rhs, uint32_t M, uint32_t N,
+    uint32_t K, int8_t *output);
+
 void sve_gemm_dense_int8_interleaved_2Learners(
     const int8_t *lhs_interleaved,
     const int8_t *rhs_by_col_interleaved,
