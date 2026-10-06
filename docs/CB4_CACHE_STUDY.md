@@ -1,7 +1,7 @@
 # Fixed single-output CB4 cache study
 
-This source is E06: L1 compressed-index blocking, derived from the measured
-E05 non-tiling baseline. It targets two learners, CB4, shared 2-bit indices and
+This source is E07: L1 decoded-weight blocking, derived from E06 and the
+measured E05 non-tiling baseline. It targets two learners, CB4, shared 2-bit indices and
 SVE128. Other configurations decline the new entry and retain the E05 caller's
 fallback. The production caller already checks the two-learner shared-index
 contract. This is not a general tiled GEMM interface.
@@ -15,21 +15,21 @@ before constructing its descriptor. This does not repair other legacy APIs.
 
 Fixed S1/O1/K1 = 16/32/128. Loop order is s1, o1, k1, s, o, vector-K.
 One arena per GEMM holds X1[2][16][144] (4,608 B), C1[2][16][32] uint32
-(4,096 B), I1[32][12] uint32 (1,536 B): 10,240 B actually allocated,
+(4,096 B), W1[2][32][144] int8 (9,216 B): 17,920 B actually allocated,
 with a 64-byte aligned base and fields at 64-byte aligned offsets.
 No multi-output register block: each (s,o) has two SDOT vector accumulators.
-X1 is deinterleaved once per tile; I1 is copied once, but each sequence row
-decodes it again. Zero activation padding makes the final SDOT vector safe.
+X1 is deinterleaved once per tile; shared indices are decoded once per tile
+into both W1 planes, reused by all valid sequence rows. There is no I1 buffer. Zero activation padding makes the final SDOT vector safe.
 Bias initializes C1 once, modulo-2^32 partial sums accumulate across all K1,
 and only the final result is narrowed to its low byte. Signed partial sums
 are bounded by 2,097,152; the two learners are never summed together.
 
-The conservative L1 budget remains 15,808 B: arena 10,240 + bias 256 + setup
+The conservative L1 budget remains 23,488 B: arena 17,920 + bias 256 + setup
 1,024 + alignment/separation reserve 192 + source streaming reserve 4,096.
 Setup includes two 256-byte codebook scratch arrays. The 192-byte alignment
 reserve is headroom, not an additional arena allocation. This is below the
 24 KiB target budget in a 32 KiB, 2-way L1D, but it does not guarantee residency
-or eliminate set conflicts. There is no outer L2 tile in E06.
+or eliminate set conflicts. There is no outer L2 tile in E07.
 
 Allocation failure returns before any output write; the caller then executes
 E05. Test-only allocator injection follows the same status-check branch, and

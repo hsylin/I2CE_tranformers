@@ -17,14 +17,14 @@ extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
 
 #if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
 enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
-       CACHE_X1_STRIDE = 144, CACHE_I1_WORDS = 12 };
+       CACHE_X1_STRIDE = 144 };
 
 /* Every field has a size divisible by 64; one aligned allocation, no malloc
- * inside the tile loops. The four padding words in I1 are not source reads. */
+ * inside the tile loops. W1 contains two learner-specific decoded planes. */
 typedef struct {
     int8_t x1[2][CACHE_S1][CACHE_X1_STRIDE];
     uint32_t c1[2][CACHE_S1][CACHE_O1];
-    uint32_t i1[CACHE_O1][CACHE_I1_WORDS];
+    int8_t w1[2][CACHE_O1][CACHE_X1_STRIDE];
 } cb4_cache_arena;
 
 static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
@@ -57,13 +57,26 @@ static void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
     }
 }
 
-static void cache_pack_i(uint32_t *dst, size_t stride, const uint32_t *indices,
-                         size_t nw, size_t ob, size_t os, size_t kb, size_t ks) {
-    const size_t words = (ks + 15u) / 16u;
+/* Decode a shared index once into both learner weight planes. No I1 copy. */
+static void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
+                         const uint32_t *indices, size_t nw, size_t ob,
+                         size_t os, size_t kb, size_t ks,
+                         svint8_t cb0, svint8_t cb1,
+                         svuint8_t byte_sel, svuint8_t shifts) {
+    const svbool_t pg = svptrue_b8();
     for (size_t o = 0; o < os; ++o) {
-        memcpy(dst + o * stride, indices + (ob + o) * nw + kb / 16u,
-               words * sizeof(uint32_t));
-        memset(dst + o * stride + words, 0, (stride - words) * sizeof(uint32_t));
+        for (size_t k = 0; k < ks; k += 16u) {
+            const svuint8_t packed = svreinterpret_u8_u32(
+                svdup_n_u32(indices[(ob + o) * nw + (kb + k) / 16u]));
+            const svuint8_t ix = svand_n_u8_x(pg,
+                svlsr_u8_x(pg, svtbl_u8(packed, byte_sel), shifts), 3u);
+            const svbool_t tail = svwhilelt_b8((uint64_t)k, (uint64_t)ks);
+            svst1_s8(tail, dst + o * stride + k, svtbl_s8(cb0, ix));
+            svst1_s8(tail, dst + plane + o * stride + k, svtbl_s8(cb1, ix));
+            CACHE_COUNT(decoded, cache_min(16u, ks - k));
+        }
+        memset(dst + o * stride + ks, 0, stride - ks);
+        memset(dst + plane + o * stride + ks, 0, stride - ks);
     }
 }
 
@@ -89,20 +102,17 @@ static void cache_write_y(const uint32_t *c, size_t plane, size_t stride,
 /* One (s,o), two independent learners. At most 128 signed-byte products
  * per learner: |partial| <= 128*128*128 = 2,097,152, safely int32.
  * Only the cross-K-tile accumulation uses modulo-2^32 arithmetic. */
-static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t ks,
-                               svint8_t cb0, svint8_t cb1,
-                               svuint8_t byte_sel, svuint8_t shifts) {
+static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t ks) {
     const svbool_t pg = svptrue_b8();
     for (size_t s = 0; s < ss; ++s)
         for (size_t o = 0; o < os; ++o) {
             svint32_t v0 = svdup_s32(0), v1 = svdup_s32(0);
             for (size_t k = 0; k < ks; k += 16u) {
-                const svuint8_t packed = svreinterpret_u8_u32(svdup_n_u32(a->i1[o][k / 16u]));
-                const svuint8_t ix = svand_n_u8_x(pg,
-                    svlsr_u8_x(pg, svtbl_u8(packed, byte_sel), shifts), 3u);
-                v0 = svdot_s32(v0, svld1_s8(pg, a->x1[0][s] + k), svtbl_s8(cb0, ix));
-                v1 = svdot_s32(v1, svld1_s8(pg, a->x1[1][s] + k), svtbl_s8(cb1, ix));
-                CACHE_COUNT(chunks, 1); CACHE_COUNT(decoded, cache_min(16u, ks - k));
+                v0 = svdot_s32(v0, svld1_s8(pg, a->x1[0][s] + k),
+                               svld1_s8(pg, a->w1[0][o] + k));
+                v1 = svdot_s32(v1, svld1_s8(pg, a->x1[1][s] + k),
+                               svld1_s8(pg, a->w1[1][o] + k));
+                CACHE_COUNT(chunks, 1);
             }
             a->c1[0][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v0);
             a->c1[1][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v1);
@@ -158,8 +168,9 @@ int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
             for (size_t kb = 0; kb < K; kb += CACHE_K1) {
                 const size_t ks = cache_min(CACHE_K1, K - kb);
                 cache_pack_x(&a->x1[0][0][0],ss,CACHE_X1_STRIDE,CACHE_S1 * CACHE_X1_STRIDE,input,K,sb,kb,ks);
-                cache_pack_i(&a->i1[0][0],CACHE_I1_WORDS,indices,nw,ob,os,kb,ks);
-                cache_compute_inner(a,ss,os,ks,cb0,cb1,byte_sel,shifts);
+                cache_pack_w(&a->w1[0][0][0],CACHE_X1_STRIDE,CACHE_O1 * CACHE_X1_STRIDE,
+                             indices,nw,ob,os,kb,ks,cb0,cb1,byte_sel,shifts);
+                cache_compute_inner(a,ss,os,ks);
             }
             cache_write_y(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, output, N, sb, ob);
         }

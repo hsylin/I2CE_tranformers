@@ -129,7 +129,7 @@ int main() {
         require(sve_gemm_cb4_cache_i8(idx,2,2,4,32,x,cb,b,y,2),"counter example rejected");
         require(i2ce_cb4_cache_calls==1 && i2ce_cb4_cache_outputs==8 && i2ce_cb4_cache_chunks==16,
                 "single-output path not exercised");
-        require(i2ce_cb4_cache_decoded==256,"compressed decode accounting");
+        require(i2ce_cb4_cache_decoded==128,"decoded panel accounting");
     } else require(i2ce_cb4_cache_calls==0,"unsupported config entered cache path");
     std::printf("PASS cache oracle %u cases; SVE%zu CB%d L%d; tails/wrap/aliases/range/fault injection\n",
                 cases,size_t(svcntb()*8),CB_SIZE,N_LEARNERS);
