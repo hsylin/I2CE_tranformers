@@ -33,9 +33,9 @@ Toolchain: conda-forge AArch64 GCC 13.4.0-19; QEMU AArch64 10.0.0.
 | Forced C32 SDOT/widening/scalar paths, nonzero products, extreme bias/output, all 32 bits | 56 row cases plus wrapper checks per SVE128/256/512; PASS with signed-overflow sanitizer |
 | Same new C32 test against original E09 | Correctly detects signed overflow; preserved negative evidence |
 | Default cache oracle and unsupported dispatch controls | PASS; bounds, poisoned tails, aliases, pre-narrowing rejection, allocation failure |
-| Parameter configurations | Default 16/32/128 : 128/128/512; small 8/16/64 : 64/64/256; uneven 12/20/48 : 28/36/80 |
-| Scalar oracle for those configurations | 184 / 188 / 188 cases; full C2 bits checked before low8 output, plus guard-page cases |
-| Consumer integration | All three configurations enter the cache path; allocation/alias/shared-mode/dimension fallback/rejection checks PASS |
+| Parameter configurations | Default 16/32/128 : 128/128/512; small 8/16/64 : 64/64/256; uneven 12/20/48 : 28/36/80; minimum 4/4/16 : 4/4/16 |
+| Scalar oracle for those configurations | 184 / 188 / 188 / 144 cases; full C2 bits checked before low8 output, plus guard-page cases |
+| Consumer integration | All four configurations enter the cache path; allocation/alias/shared-mode/dimension fallback/rejection checks PASS |
 | Illegal configurations | Eight illegal geometries and three incompatible generated CB/index/SVE configurations rejected |
 | Build/runner interface | Four host tests PASS, including invalid shell values, disabled path, incompatible/ignored overrides and separate cache-size options |
 | Full pipeline, final source above, E09 generated inputs | All 84 tensor SHA256 values match the preserved E09 reference |
@@ -80,3 +80,7 @@ additional optimization variants and arbitrary SVE/multicore support. Existing
 hardware size controls need actual-config/provenance verification in future runs.
 Large external simulator/data assets are not yet a public turnkey rerun package;
 see the archived result [reproduction notes](../transformer_profiling/hsylin/reproduction/README.md).
+
+A follow-up test correction derives the partial-output counter from K1 instead
+of assuming K1 >= 32, and adds the minimum legal 4/4/16 : 4/4/16 geometry.
+It changes tests only; production source remains the validated commit above.

@@ -107,7 +107,7 @@ python3 -O tests/cb4_publication_test.py
 python3 -O transformer_profiling/hsylin/reproduction/verify_results.py
 ```
 
-The parameter test checks default, smaller and non-dividing inner/outer tiles,
+The parameter test checks default, smaller, non-dividing inner/outer and minimum legal tiles,
 actual consumer dispatch, all 32 accumulator bits before low8 conversion,
 poisoned tails, guarded bounds, alias/allocation fallback and invalid geometry.
 An intentional child SIGSEGV verifies guard-page enforcement; the parent must report PASS.

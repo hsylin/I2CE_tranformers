@@ -10,11 +10,14 @@ COMMON=(-std=c++17 -O2 -march=armv8-a+sve -static
   -ffunction-sections -fdata-sections -Wl,--gc-sections
   -DI2CE_TEST_CB4_CACHE -DI2CE_CB4_CACHE_CONFIG_REQUESTED=1
   -I"$ROOT/Full_NN/inc" -I"$ROOT/tests/gemm_definitions_cb4")
-for GEOMETRY in default small uneven; do
+for GEOMETRY in default small uneven minimum; do
   DEFS=()
   if [[ "$GEOMETRY" == small ]]; then
     DEFS=(-DI2CE_CACHE_S1=8 -DI2CE_CACHE_O1=16 -DI2CE_CACHE_K1=64
       -DI2CE_CACHE_S2=64 -DI2CE_CACHE_O2=64 -DI2CE_CACHE_K2=256)
+  elif [[ "$GEOMETRY" == minimum ]]; then
+    DEFS=(-DI2CE_CACHE_S1=4 -DI2CE_CACHE_O1=4 -DI2CE_CACHE_K1=16
+      -DI2CE_CACHE_S2=4 -DI2CE_CACHE_O2=4 -DI2CE_CACHE_K2=16)
   elif [[ "$GEOMETRY" == uneven ]]; then
     # No requirement that the inner tile divide the outer tile.
     DEFS=(-DI2CE_CACHE_S1=12 -DI2CE_CACHE_O1=20 -DI2CE_CACHE_K1=48
@@ -61,4 +64,4 @@ for MODE in cb16 separate_indices sve256; do
   fi
   grep -q 'Explicit cache tiles require' "$OUT/$MODE/rejected.log" || exit 1
 done
-echo "PASS 3 geometries, 8 illegal geometries and 3 incompatible dispatch configurations; artifacts: $OUT"
+echo "PASS 4 geometries, 8 illegal geometries and 3 incompatible dispatch configurations; artifacts: $OUT"
