@@ -20,7 +20,12 @@ extern int i2ce_cb4_cache_fail_alloc;
 static unsigned failed_allocations;
 int i2ce_cb4_cache_test_allocate(void **p, size_t alignment, size_t bytes) {
     if (i2ce_cb4_cache_fail_alloc) { *p=nullptr; ++failed_allocations; return ENOMEM; }
-    return posix_memalign(p,alignment,bytes);
+    const int result=posix_memalign(p,alignment,bytes);
+    // Poison every new arena: stale/uninitialized tail lanes must not be
+    // hidden by zero-filled allocator pages after packing stops clearing
+    // unused stride padding. All observable results still match the oracle.
+    if (!result) std::memset(*p,0xa5,bytes);
+    return result;
 }
 static void require(bool b, const char *message) {
     if (!b) { std::printf("FAIL %s\n",message); std::exit(1); }
