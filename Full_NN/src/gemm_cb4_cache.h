@@ -17,7 +17,8 @@ extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
 
 #if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
 enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
-       CACHE_X1_STRIDE = 144 };
+       CACHE_X1_STRIDE = 144,
+       CACHE_S2 = 128, CACHE_O2 = 128, CACHE_K2 = 512, CACHE_X2_STRIDE = 528 };
 
 /* Every field has a size divisible by 64; one aligned allocation, no malloc
  * inside the tile loops. W1 contains two learner-specific decoded planes. */
@@ -25,6 +26,9 @@ typedef struct {
     int8_t x1[2][CACHE_S1][CACHE_X1_STRIDE];
     uint32_t c1[2][CACHE_S1][CACHE_O1];
     int8_t w1[2][CACHE_O1][CACHE_X1_STRIDE];
+    int8_t x2[2][CACHE_S2][CACHE_X2_STRIDE];
+    uint32_t c2[2][CACHE_S2][CACHE_O2];
+    int8_t w2[2][CACHE_O2][CACHE_X2_STRIDE];
 } cb4_cache_arena;
 
 static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
@@ -78,6 +82,29 @@ static void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
         memset(dst + o * stride + ks, 0, stride - ks);
         memset(dst + plane + o * stride + ks, 0, stride - ks);
     }
+}
+
+/* Copy a bounded subpanel from two packed learner planes into L1. */
+static void cache_copy_panel(int8_t *dst, size_t dp, size_t ds,
+                             const int8_t *src, size_t sp, size_t stride,
+                             size_t row, size_t k, size_t rows, size_t ks) {
+    for (size_t l = 0; l < 2u; ++l)
+        for (size_t i = 0; i < rows; ++i) {
+            memcpy(dst + l * dp + i * ds, src + l * sp + (row + i) * stride + k, ks);
+            memset(dst + l * dp + i * ds + ks, 0, ds - ks);
+        }
+}
+
+/* C2 holds bias plus all earlier K2 panels. C1 is loaded before the K1
+ * sequence and written back after it, never reinitialized with bias. */
+static void cache_transfer_c(cb4_cache_arena *a, size_t sb, size_t ob,
+                             size_t ss, size_t os, int to_inner) {
+    for (size_t l = 0; l < 2u; ++l)
+        for (size_t s = 0; s < ss; ++s)
+            for (size_t o = 0; o < os; ++o) {
+                if (to_inner) a->c1[l][s][o] = a->c2[l][sb + s][ob + o];
+                else a->c2[l][sb + s][ob + o] = a->c1[l][s][o];
+            }
 }
 
 static void cache_init_c(uint32_t *c, size_t plane, size_t stride,
@@ -160,19 +187,34 @@ int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
     const svint8_t cb1 = gemm_sdot_cb_table(cb,4u,2u,1u,scratch1);
     svuint8_t byte_sel, shifts; gemm_sdot_lane_patterns(2u,&byte_sel,&shifts);
     CACHE_COUNT(calls, 1);
-    for (size_t sb = 0; sb < M; sb += CACHE_S1) {
-        const size_t ss = cache_min(CACHE_S1, M - sb);
-        for (size_t ob = 0; ob < N; ob += CACHE_O1) {
-            const size_t os = cache_min(CACHE_O1, N - ob);
-            cache_init_c(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, bias, ob);
-            for (size_t kb = 0; kb < K; kb += CACHE_K1) {
-                const size_t ks = cache_min(CACHE_K1, K - kb);
-                cache_pack_x(&a->x1[0][0][0],ss,CACHE_X1_STRIDE,CACHE_S1 * CACHE_X1_STRIDE,input,K,sb,kb,ks);
-                cache_pack_w(&a->w1[0][0][0],CACHE_X1_STRIDE,CACHE_O1 * CACHE_X1_STRIDE,
+    for (size_t sb = 0; sb < M; sb += CACHE_S2) {
+        const size_t ss = cache_min(CACHE_S2, M - sb);
+        for (size_t ob = 0; ob < N; ob += CACHE_O2) {
+            const size_t os = cache_min(CACHE_O2, N - ob);
+            cache_init_c(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, bias, ob);
+            for (size_t kb = 0; kb < K; kb += CACHE_K2) {
+                const size_t ks = cache_min(CACHE_K2, K - kb);
+                cache_pack_x(&a->x2[0][0][0],ss,CACHE_X2_STRIDE,CACHE_S2 * CACHE_X2_STRIDE,input,K,sb,kb,ks);
+                cache_pack_w(&a->w2[0][0][0],CACHE_X2_STRIDE,CACHE_O2 * CACHE_X2_STRIDE,
                              indices,nw,ob,os,kb,ks,cb0,cb1,byte_sel,shifts);
-                cache_compute_inner(a,ss,os,ks);
+                for (size_t s1 = 0; s1 < ss; s1 += CACHE_S1) {
+                    const size_t ms = cache_min(CACHE_S1, ss - s1);
+                    for (size_t o1 = 0; o1 < os; o1 += CACHE_O1) {
+                        const size_t ns = cache_min(CACHE_O1, os - o1);
+                        cache_transfer_c(a,s1,o1,ms,ns,1);
+                        for (size_t k1 = 0; k1 < ks; k1 += CACHE_K1) {
+                            const size_t kk = cache_min(CACHE_K1, ks - k1);
+                            cache_copy_panel(&a->x1[0][0][0],CACHE_S1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
+                                &a->x2[0][0][0],CACHE_S2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,s1,k1,ms,kk);
+                            cache_copy_panel(&a->w1[0][0][0],CACHE_O1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
+                                &a->w2[0][0][0],CACHE_O2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,o1,k1,ns,kk);
+                            cache_compute_inner(a,ms,ns,kk);
+                        }
+                        cache_transfer_c(a,s1,o1,ms,ns,0);
+                    }
+                }
             }
-            cache_write_y(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, output, N, sb, ob);
+            cache_write_y(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, output, N, sb, ob);
         }
     }
     free(storage);
