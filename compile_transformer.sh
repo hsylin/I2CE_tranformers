@@ -77,12 +77,28 @@ fi
 # --- Optional experiment overrides -------------------------------------------
 # CORE_NUM_FLAG unset -> -DCORE_NUM=1, the value this script has always used.
 #
-# Tile sizes are intentionally NOT settable here. TILE_L1_SIZE and
-# TILE_L2_SIZE come solely from the notebook-generated
-# Full_NN/gemm_definitions/codebooks_def.h (both 1 = no tiling). A
-# -DTILE_L1_SIZE_OVERRIDE path used to exist, but the runner never set it and
-# no tiling strategy has been designed against it, so it was removed rather
-# than kept as a knob nothing drives.
+# Generated TILE_L1_SIZE/TILE_L2_SIZE retain their legacy meaning. The six
+# I2CE_CACHE_* environment variables configure only the E09 CB4 cache path;
+# the header supplies defaults, fixed K+16 padding and compile-time legality.
+CACHE_DEFS=()
+for CACHE_AXIS in S1 O1 K1 S2 O2 K2; do
+  CACHE_NAME="I2CE_CACHE_${CACHE_AXIS}"
+  if [[ -n "${!CACHE_NAME+x}" ]]; then
+    CACHE_VALUE="${!CACHE_NAME}"
+    if [[ ! "$CACHE_VALUE" =~ ^[1-9][0-9]{0,4}$ ]] || (( CACHE_VALUE > 65535 )); then
+      echo "ERROR: $CACHE_NAME must be a decimal integer in 1..65535" >&2
+      exit 1
+    fi
+    CACHE_DEFS+=("-D${CACHE_NAME}=${CACHE_VALUE}")
+  fi
+done
+if (( ${#CACHE_DEFS[@]} )); then
+  if [[ "${SIMD_FLAG:-0}" != 1 || "${USE_CODEBOOK_GEMM_FLAG:-0}" != 1 || "${CORE_NUM_FLAG:-1}" != 1 ]]; then
+    echo "ERROR: explicit CB4 cache tiles require SIMD_FLAG=1, USE_CODEBOOK_GEMM_FLAG=1 and CORE_NUM_FLAG=1" >&2
+    exit 1
+  fi
+  CACHE_DEFS+=("-DI2CE_CB4_CACHE_CONFIG_REQUESTED=1")
+fi
 CORE_NUM_VALUE="${CORE_NUM_FLAG:-1}"
 
 # --- libm5: issue m5 ops as instructions instead of forking a guest shell ----
@@ -123,6 +139,7 @@ if [ "${I2CE_USE_LIBM5_FLAG:-0}" = "1" ]; then
 fi
 
 echo "Compile options:"
+echo "  CB4 cache overrides: ${CACHE_DEFS[*]:-(none; defaults in gemm_cb4_cache_config.h)}"
 echo "  RELOAD_WEIGHT_FLAG=${RELOAD_WEIGHT_FLAG:-1}"
 echo "  USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=${USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG:-1}"
 echo "  USE_CODEBOOK_GEMM_FLAG=${USE_CODEBOOK_GEMM_FLAG:-0}"
@@ -141,6 +158,7 @@ echo "  I2CE_USE_LIBM5_FLAG=${I2CE_USE_LIBM5_FLAG:-0}${LIBM5_LINK:+  ($LIBM5_LIN
 
 "$A64CXX" -std=c++17 -O2 -Wall \
   $EXTRA_CXXFLAGS \
+  ${CACHE_DEFS[@]+"${CACHE_DEFS[@]}"} \
   transformer.cpp \
   transformer_layers/*.cc \
   Full_NN/src/gemm_exec.c \

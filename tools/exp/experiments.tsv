@@ -7,6 +7,7 @@
 # impl        codebook_int8 | dense_int8
 # overrides   "-" or comma-separated key=value:
 #   build-time (notebook regeneration + rebuild):  seq_len d_model num_heads d_ff d_q
+#   build-time (CB4 cache only): tile_s1 tile_o1 tile_k1 tile_s2 tile_o2 tile_k2
 #              BERT-mini defaults: seq_len=512 d_model=256 num_heads=4 d_ff=1024 d_q=64
 #   sim-time (gem5 flags, same binary):  l1i l1d l2 (cache sizes; stock 48KiB/32KiB/1MiB;
 #              need ./exp.sh patch-gem5)   cores (CPU cores, default 1)

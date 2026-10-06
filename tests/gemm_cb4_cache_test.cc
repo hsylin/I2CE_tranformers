@@ -1,5 +1,7 @@
 // Correctness only: independent scalar oracle, fixed seeds, no timing output.
 #include <gemm_SVE.h>
+#include <gemm_cb4_cache_config.h>
+#include <algorithm>
 #include <arm_sve.h>
 #include <cerrno>
 #include <cstdio>
@@ -30,6 +32,17 @@ int i2ce_cb4_cache_test_allocate(void **p, size_t alignment, size_t bytes) {
 static void require(bool b, const char *message) {
     if (!b) { std::printf("FAIL %s\n",message); std::exit(1); }
 }
+#ifdef I2CE_TEST_CB4_CACHE_C32
+static const std::vector<uint32_t> *expected_c32;
+static size_t expected_columns, observed_outputs;
+void i2ce_cb4_cache_check_c32(size_t s, size_t o, uint32_t v0, uint32_t v1) {
+    if (!expected_c32) return;
+    require(v0 == expected_c32->at((s * expected_columns + o) * 2) &&
+            v1 == expected_c32->at((s * expected_columns + o) * 2 + 1),
+            "full C2 bits differ before low8 writeback");
+    ++observed_outputs;
+}
+#endif
 static bool eligible() { return CB_SIZE==4 && N_LEARNERS==2 && svcntb()==16; }
 
 template<class T> struct Guarded {
@@ -82,8 +95,23 @@ int main() {
         {129,1,17},{1,127,17},{1,128,17},{1,129,17},
         {1,1,511},{1,1,512},{1,1,513},{17,33,513},{129,129,129},
         {17,129,513},{129,33,513},{2,4,65535}};
+    // Exercise the actual configured tile boundaries as well as historical
+    // regressions. Vary one dimension at a time to keep this test bounded.
+    for (const size_t tile : {I2CE_CACHE_S1, I2CE_CACHE_S2})
+        for (int d : {-1, 0, 1}) shapes.push_back({tile + d, 3, 17});
+    for (const size_t tile : {I2CE_CACHE_O1, I2CE_CACHE_O2})
+        for (int d : {-1, 0, 1}) shapes.push_back({3, tile + d, 17});
+    for (const size_t tile : {I2CE_CACHE_K1, I2CE_CACHE_K2})
+        for (int d : {-1, 0, 1}) shapes.push_back({3, 5, tile + d});
+    shapes.push_back({I2CE_CACHE_S1 + 1, I2CE_CACHE_O1 + 1, I2CE_CACHE_K2 + 1});
+    std::sort(shapes.begin(), shapes.end());
+    shapes.erase(std::unique(shapes.begin(), shapes.end()), shapes.end());
     for (const auto shape:shapes) for (bool biased:{false,true}) for (size_t offset:{0u,1u}) {
         const size_t M=shape[0],N=shape[1],K=shape[2],nw=(K+15)/16;
+#ifdef I2CE_TEST_CB4_CACHE_C32
+        std::vector<uint32_t> want_c32(M*N*2);
+        expected_c32 = &want_c32; expected_columns = N; observed_outputs = 0;
+#endif
         std::vector<int8_t> x(M*K*2+2),y(M*N*2+32,91),want=y;
         int8_t *input=x.data()+offset;
         std::vector<uint32_t> idx(N*nw+1,0);
@@ -99,10 +127,17 @@ int main() {
             for(size_t k=0;k<K;++k)
                 sum+=int64_t(input[(s*K+k)*2+l])*cb[2*((idx[o*nw+k/16]>>(2*(k%16)))&3)+l];
             want[(s*N+o)*2+l]=int8_t(uint8_t(uint64_t(sum)));
+#ifdef I2CE_TEST_CB4_CACHE_C32
+            want_c32[(s*N+o)*2+l]=uint32_t(uint64_t(sum));
+#endif
         }
         const int ok=sve_gemm_cb4_cache_i8(idx.data(),nw,M,N,K,input,cb,biased?b.data():nullptr,y.data(),2);
         if(eligible()) require(ok && y==want,"cache scalar oracle or output guard");
         else require(!ok && y==std::vector<int8_t>(y.size(),91),"unsupported dispatch wrote output");
+#ifdef I2CE_TEST_CB4_CACHE_C32
+        require(observed_outputs == (eligible() && K ? M*N : 0), "C32 observer not exercised");
+        expected_c32 = nullptr;
+#endif
         ++cases;
     }
     // Each rejected invocation must preserve the entire output before fallback.

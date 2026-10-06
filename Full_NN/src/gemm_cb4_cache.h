@@ -1,9 +1,16 @@
 /* Private implementation, included once by gemm_SVE.c.
- * Fixed CB4/shared-I2/SVE128 cache experiment. External X/Y remain interleaved;
- * only the arena's X uses learner planes. No multi-output register blocking.
+ * CB4/shared-I2/SVE128 cache implementation. External X/Y remain interleaved;
+ * arena X/W/C use learner planes. No multi-output register blocking.
  */
 #include <stdlib.h>
 #include <string.h>
+#include <gemm_cb4_cache_config.h>
+
+#if defined(I2CE_CB4_CACHE_CONFIG_REQUESTED) && \
+    (CB_SIZE != 4 || N_LEARNERS != 2 || BITS_PER_CB != 2 || \
+     TILE_L1_SIZE != 1 || TILE_L2_SIZE != 1 || SAME_SEQ != 1 || N_SVE_BYTE != 16)
+#error "Explicit cache tiles require CB4, two learners, shared I2, SVE128 and legacy tiles=1"
+#endif
 
 #ifdef I2CE_TEST_CB4_CACHE
 uint64_t i2ce_cb4_cache_calls = 0, i2ce_cb4_cache_outputs = 0;
@@ -16,9 +23,10 @@ extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
 #endif
 
 #if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
-enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
-       CACHE_X1_STRIDE = 144,
-       CACHE_S2 = 128, CACHE_O2 = 128, CACHE_K2 = 512, CACHE_X2_STRIDE = 528 };
+enum { CACHE_S1 = I2CE_CACHE_S1, CACHE_O1 = I2CE_CACHE_O1, CACHE_K1 = I2CE_CACHE_K1,
+       CACHE_X1_STRIDE = I2CE_CACHE_X1_STRIDE,
+       CACHE_S2 = I2CE_CACHE_S2, CACHE_O2 = I2CE_CACHE_O2, CACHE_K2 = I2CE_CACHE_K2,
+       CACHE_X2_STRIDE = I2CE_CACHE_X2_STRIDE };
 
 /* Every field has a size divisible by 64; one aligned allocation, no malloc
  * inside the tile loops. W1 contains two learner-specific decoded planes. */
@@ -42,6 +50,11 @@ static inline size_t cache_offset(size_t learner, size_t row, size_t column,
 #else
 #define CACHE_STATIC_ASSERT _Static_assert
 #endif
+CACHE_STATIC_ASSERT(sizeof(cb4_cache_arena) == I2CE_CACHE_ARENA_BYTES, "Unexpected arena padding");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x2) % 64 == 0, "X2 alignment changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c2) % 64 == 0, "C2 alignment changed");
+CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w2) % 64 == 0, "W2 alignment changed");
+#if I2CE_CACHE_DEFAULT_GEOMETRY
 CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x1) == 0, "X1 layout changed");
 CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c1) == 4608, "C1 layout changed");
 CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w1) == 8704, "W1 layout changed");
@@ -49,6 +62,7 @@ CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, x2) == 17920, "X2 layout changed")
 CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, c2) == 153088, "C2 layout changed");
 CACHE_STATIC_ASSERT(offsetof(cb4_cache_arena, w2) == 284160, "W2 layout changed");
 CACHE_STATIC_ASSERT(sizeof(cb4_cache_arena) == 419328, "Arena size changed");
+#endif
 #undef CACHE_STATIC_ASSERT
 
 
@@ -157,13 +171,19 @@ static void cache_write_y(const uint32_t *c, size_t plane, size_t stride,
                           size_t N, size_t sb, size_t ob) {
     for (size_t s = 0; s < rows; ++s)
         for (size_t o = 0; o < cols; ++o) {
+#ifdef I2CE_TEST_CB4_CACHE_C32
+            /* Correctness-only observer before low8 conversion. */
+            extern void i2ce_cb4_cache_check_c32(size_t, size_t, uint32_t, uint32_t);
+            i2ce_cb4_cache_check_c32(sb + s, ob + o,
+                                    c[s * stride + o], c[plane + s * stride + o]);
+#endif
             output[((sb + s) * N + ob + o) * 2u] = (int8_t)(uint8_t)c[s * stride + o];
             output[((sb + s) * N + ob + o) * 2u + 1u] = (int8_t)(uint8_t)c[plane + s * stride + o];
         }
 }
 
-/* One (s,o), two independent learners. At most 128 signed-byte products
- * per learner: |partial| <= 128*128*128 = 2,097,152, safely int32.
+/* One (s,o), two independent learners. At most CACHE_K1 signed-byte products
+ * per learner. The configured bound K1 <= 65520 keeps K1*16384 < INT32_MAX.
  * Only the cross-K-tile accumulation uses modulo-2^32 arithmetic. */
 static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t ks) {
     const svbool_t pg = svptrue_b8();
