@@ -46,52 +46,68 @@ static int cache_overlap(const void *a, size_t an, const void *b, size_t bn) {
     return x <= y ? y - x < an : x - y < bn;
 }
 
-static void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
-                         size_t plane, const int8_t *input, size_t K,
-                         size_t sb, size_t kb, size_t ks) {
+static inline __attribute__((always_inline))
+void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
+                  size_t plane, const int8_t *input, size_t K,
+                  size_t sb, size_t kb, size_t ks) {
+    const svbool_t all = svptrue_b8();
     for (size_t s = 0; s < rows; ++s) {
         const int8_t *src = input + ((sb + s) * K + kb) * 2u;
-        for (size_t k = 0; k < ks; ++k) {
-            dst[s * stride + k] = src[2u * k];
-            dst[plane + s * stride + k] = src[2u * k + 1u];
+        for (size_t k = 0; k < ks; k += 16u) {
+            const svbool_t valid = svwhilelt_b8((uint64_t)k, (uint64_t)ks);
+            const svint8x2_t x = svld2_s8(valid, src + 2u * k);
+            /* Predicated LD2 zeros inactive lanes. Store the complete final
+             * vector because SDOT is unpredicated; later stride padding is
+             * neither read nor cleared. The entry guard requires SVE128. */
+            svst1_s8(all, dst + s * stride + k, svget2_s8(x, 0));
+            svst1_s8(all, dst + plane + s * stride + k, svget2_s8(x, 1));
         }
-        /* SDOT has no predicate. Zero the remaining activation bytes of the
-         * final vector; extra row padding is initialized for bounds tests. */
-        memset(dst + s * stride + ks, 0, stride - ks);
-        memset(dst + plane + s * stride + ks, 0, stride - ks);
     }
 }
 
-static void cache_pack_i(uint32_t *dst, size_t stride, const uint32_t *indices,
-                         size_t nw, size_t ob, size_t os, size_t kb, size_t ks) {
+static inline __attribute__((always_inline))
+void cache_pack_i(uint32_t *dst, size_t stride, const uint32_t *indices,
+                  size_t nw, size_t ob, size_t os, size_t kb, size_t ks) {
     const size_t words = (ks + 15u) / 16u;
-    for (size_t o = 0; o < os; ++o) {
-        memcpy(dst + o * stride, indices + (ob + o) * nw + kb / 16u,
-               words * sizeof(uint32_t));
-        memset(dst + o * stride + words, 0, (stride - words) * sizeof(uint32_t));
-    }
+    for (size_t o = 0; o < os; ++o)
+        for (size_t w = 0; w < words; w += 4u) {
+            const svbool_t valid = svwhilelt_b32((uint64_t)w, (uint64_t)words);
+            svst1_u32(valid, dst + o * stride + w,
+                svld1_u32(valid, indices + (ob + o) * nw + kb / 16u + w));
+        }
+    /* The kernel reads exactly ceil(ks/16) shared words. Allocated stride
+     * padding is deliberately untouched, never fetched from the source. */
 }
 
-/* Copy a bounded subpanel from two packed learner planes into L1. */
-static void cache_copy_panel(int8_t *dst, size_t dp, size_t ds,
-                             const int8_t *src, size_t sp, size_t stride,
-                             size_t row, size_t k, size_t rows, size_t ks) {
+/* Copy one bounded panel with zero inactive lanes in its final SDOT vector.
+ * Avoid library calls while the outer codebook table vectors are live. */
+static inline __attribute__((always_inline))
+void cache_copy_panel(int8_t *dst, size_t dp, size_t ds,
+                      const int8_t *src, size_t sp, size_t stride,
+                      size_t row, size_t k, size_t rows, size_t ks) {
+    const svbool_t all = svptrue_b8();
     for (size_t l = 0; l < 2u; ++l)
-        for (size_t i = 0; i < rows; ++i) {
-            memcpy(dst + l * dp + i * ds, src + l * sp + (row + i) * stride + k, ks);
-            memset(dst + l * dp + i * ds + ks, 0, ds - ks);
-        }
+        for (size_t i = 0; i < rows; ++i)
+            for (size_t j = 0; j < ks; j += 16u) {
+                const svbool_t valid = svwhilelt_b8((uint64_t)j, (uint64_t)ks);
+                svst1_s8(all, dst + l * dp + i * ds + j,
+                    svld1_s8(valid, src + l * sp + (row + i) * stride + k + j));
+            }
 }
 
 /* C2 holds bias plus all earlier K2 panels. C1 is loaded before the K1
  * sequence and written back after it, never reinitialized with bias. */
-static void cache_transfer_c(cb4_cache_arena *a, size_t sb, size_t ob,
-                             size_t ss, size_t os, int to_inner) {
+static inline __attribute__((always_inline))
+void cache_transfer_c(cb4_cache_arena *a, size_t sb, size_t ob,
+                      size_t ss, size_t os, int to_inner) {
     for (size_t l = 0; l < 2u; ++l)
         for (size_t s = 0; s < ss; ++s)
-            for (size_t o = 0; o < os; ++o) {
-                if (to_inner) a->c1[l][s][o] = a->c2[l][sb + s][ob + o];
-                else a->c2[l][sb + s][ob + o] = a->c1[l][s][o];
+            for (size_t o = 0; o < os; o += 4u) {
+                const svbool_t valid = svwhilelt_b32((uint64_t)o, (uint64_t)os);
+                uint32_t *inner = &a->c1[l][s][o];
+                uint32_t *outer = &a->c2[l][sb + s][ob + o];
+                svst1_u32(valid, to_inner ? inner : outer,
+                          svld1_u32(valid, to_inner ? outer : inner));
             }
 }
 
