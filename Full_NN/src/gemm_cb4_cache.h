@@ -41,24 +41,28 @@ static int cache_overlap(const void *a, size_t an, const void *b, size_t bn) {
     return x <= y ? y - x < an : x - y < bn;
 }
 
-static void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
-                         size_t plane, const int8_t *input, size_t K,
-                         size_t sb, size_t kb, size_t ks) {
+static inline __attribute__((always_inline))
+void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
+                  size_t plane, const int8_t *input, size_t K,
+                  size_t sb, size_t kb, size_t ks) {
+    const svbool_t all = svptrue_b8();
     for (size_t s = 0; s < rows; ++s) {
         const int8_t *src = input + ((sb + s) * K + kb) * 2u;
-        for (size_t k = 0; k < ks; ++k) {
-            dst[s * stride + k] = src[2u * k];
-            dst[plane + s * stride + k] = src[2u * k + 1u];
+        for (size_t k = 0; k < ks; k += 16u) {
+            const svbool_t valid = svwhilelt_b8((uint64_t)k, (uint64_t)ks);
+            const svint8x2_t x = svld2_s8(valid, src + 2u * k);
+            /* Predicated LD2 zeros inactive lanes. Store the complete final
+             * vector because SDOT is unpredicated; later stride padding is
+             * neither read nor cleared. The entry guard requires SVE128. */
+            svst1_s8(all, dst + s * stride + k, svget2_s8(x, 0));
+            svst1_s8(all, dst + plane + s * stride + k, svget2_s8(x, 1));
         }
-        /* SDOT has no predicate. Zero the remaining activation bytes of the
-         * final vector; extra row padding is initialized for bounds tests. */
-        memset(dst + s * stride + ks, 0, stride - ks);
-        memset(dst + plane + s * stride + ks, 0, stride - ks);
     }
 }
 
 /* Decode a shared index once into both learner weight planes. No I1 copy. */
-static void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
+static inline __attribute__((always_inline))
+void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
                          const uint32_t *indices, size_t nw, size_t ob,
                          size_t os, size_t kb, size_t ks,
                          svint8_t cb0, svint8_t cb1,
@@ -71,12 +75,14 @@ static void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
             const svuint8_t ix = svand_n_u8_x(pg,
                 svlsr_u8_x(pg, svtbl_u8(packed, byte_sel), shifts), 3u);
             const svbool_t tail = svwhilelt_b8((uint64_t)k, (uint64_t)ks);
-            svst1_s8(tail, dst + o * stride + k, svtbl_s8(cb0, ix));
-            svst1_s8(tail, dst + plane + o * stride + k, svtbl_s8(cb1, ix));
+            svst1_s8(pg, dst + o * stride + k,
+                svsel_s8(tail, svtbl_s8(cb0, ix), svdup_s8(0)));
+            svst1_s8(pg, dst + plane + o * stride + k,
+                svsel_s8(tail, svtbl_s8(cb1, ix), svdup_s8(0)));
             CACHE_COUNT(decoded, cache_min(16u, ks - k));
         }
-        memset(dst + o * stride + ks, 0, stride - ks);
-        memset(dst + plane + o * stride + ks, 0, stride - ks);
+        /* Only the final vector needs zero inactive lanes; subsequent
+         * stride padding is not read by the single-output kernel. */
     }
 }
 
