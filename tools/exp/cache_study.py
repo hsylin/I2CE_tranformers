@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed-ID CB4 baseline/cache studies. One formal run per action; no medians."""
+"""Isolated packing revision: reuse E01-E05; one new run per E06-E09."""
 import argparse
 import configparser
 from contextlib import contextmanager
@@ -16,7 +16,7 @@ import subprocess
 import time
 ROOT = Path(__file__).resolve().parents[2]
 EXP = ROOT/'tools/exp'
-STATE = Path.home()/'i2ce/cb4-cache-study'
+STATE = Path.home()/'i2ce/cb4-cache-packing-revision'
 B0 = '33d76aa29d8e199caee430f45ae59ae1ae16fd3b'
 ROW = '38'
 
@@ -61,7 +61,7 @@ def config():
     c=json.loads(subprocess.check_output(['bash','-c',script,'bash',str(EXP/'runner.conf'),*keys],text=True))
     require(Path(c['REPO_ROOT']).resolve()==ROOT,'runner.conf points at another checkout')
     require(c['USE_LIBM5']=='1','Study requires libm5')
-    require(Path(c['EXP_ROOT']).resolve()==Path.home()/'i2ce/exp-cb4-cache-study', 'Use the isolated cache-study experiment root')
+    require(Path(c['EXP_ROOT']).resolve()==Path.home()/'i2ce/exp-cb4-cache-packing-revision', 'Use the isolated cache-study experiment root')
     c['GEM5_CFG']=c['GEM5_CFG'] or 'configs/example/arm/starter_fs.py'
     c['GEM5_ROOT']=c['GEM5_ROOT'] or c['GEM5_CWD']
     c['LIBM5_A']=c['LIBM5_A'] or c['GEM5_ROOT']+'/util/m5/build/arm64/out/libm5.a'
@@ -132,7 +132,7 @@ def fingerprint(c):
 
 def study(eid):
     require(re.fullmatch(r'E0[1-9]', eid), 'Expected E01 through E09')
-    return 'cb4-baseline-optimization' if int(eid[1:]) <= 5 else 'cb4-hierarchical-cache-tiling'
+    return 'cb4-baseline-optimization' if int(eid[1:]) <= 5 else 'cb4-hierarchical-cache-packing'
 
 
 def manifest():
@@ -182,6 +182,7 @@ def prepared_data(build):
 
 
 def prepare(eid):
+    require(eid in ['E06','E07','E08','E09'], 'Original baseline runs are read-only references')
     with lock('submit'):
         checked(); gate_for(eid); row=source(eid); c=config()
         require(not (STATE/'prepared'/(eid+'.json')).exists(), 'Already prepared; reuse the recorded immutable build')
@@ -245,6 +246,7 @@ def checkpoint(c):
 
 
 def submit(eid):
+    require(eid in ['E06','E07','E08','E09'], 'Original baseline runs are read-only references')
     with lock('submit'):
         checked(); gate_for(eid); row=source(eid); c=config()
         for folder in ['runs','pending']:
@@ -253,6 +255,9 @@ def submit(eid):
         validation=json.loads((STATE/'correctness'/eid/'result.json').read_text())
         require(validation['source_sha']==row['server_sha'] and validation.get('passed') is True, 'Correctness is not verified')
         require(validation['input_generation']==prepared['generated'], 'Correctness used different generated inputs')
+        ready=json.loads((STATE/'packing-ready.json').read_text())[eid]
+        require(ready.get('passed') is True and ready['source_sha']==row['server_sha'] and
+                ready['binary_sha256']==prepared['build']['binary_sha256'], 'Production packing gate not approved')
         require(prepared_data(Path(prepared['build_dir']))==prepared['generated'], 'Prepared data changed')
         require(sha(Path(prepared['build_dir'])/'transformer.o')==prepared['build']['binary_sha256'], 'Prepared binary changed')
         hardware=fingerprint(c); require(hardware==json.loads((STATE/'hardware.json').read_text()), 'Hardware/compiler changed')
@@ -362,6 +367,19 @@ def read_result(eid, exports=None):
     return r,common,phases
 
 
+def verify_comparison_controllers(base, cand, b, c, exports=None):
+    if b['controller'] == c['controller']:
+        return
+    directory = exports if exports else STATE
+    reference = json.loads((directory/'reference-controller.json').read_text())
+    revision = json.loads((directory/'controller.json').read_text())
+    require(base in ['E01','E02','E03','E04','E05'] and cand in ['E06','E07','E08','E09']
+            and b['controller'] == reference and c['controller'] == revision,
+            'Comparison controller is neither the frozen baseline nor this revision')
+    # Only the explicitly preserved E01-E05 may cross the two tool versions.
+    # Hardware, generated data, actual machine, ROI and checkpoint stay strict.
+
+
 def compare(exports=None, output=None, only=None):
     output=output or (exports/'comparisons' if exports else STATE/'comparisons');output.mkdir(parents=True,exist_ok=True)
     summary=['# CB4 single-run comparisons','', 'Simulated ROI seconds; no median or repeat-stability claim. Host elapsed time is separate.','', '| Control | Candidate | Control s | Candidate s | Speedup | Time change |','|---|---|---:|---:|---:|---:|']
@@ -371,8 +389,9 @@ def compare(exports=None, output=None, only=None):
         if any(not p.exists() or 'result_file' not in json.loads(p.read_text()) for p in paths):continue
         b,bc,bp=read_result(base,exports);c,cc,cp=read_result(cand,exports)
         require(bc==cc and bp.keys()==cp.keys(),'Different table configuration/ROI phases')
-        for k in ['hardware','generated','machine_config','controller','checkpoint']:
+        for k in ['hardware','generated','machine_config','checkpoint']:
             require(b[k]==c[k],'Comparison fingerprint mismatch: '+k)
+        verify_comparison_controllers(base, cand, b, c, exports)
         result=[]
         for phase in bp:
             x,y=bp[phase],cp[phase]
@@ -392,7 +411,7 @@ def compare(exports=None, output=None, only=None):
 def export(output):
     with lock('collect'):
         checked();output.mkdir(parents=True,exist_ok=True)
-        for name in ['manifest.json','controller.json','hardware.json','generated-data.json','baseline-gate.json']:
+        for name in ['manifest.json','controller.json','reference-controller.json','hardware.json','generated-data.json','baseline-gate.json']:
             if (STATE/name).exists():shutil.copy2(STATE/name,output/name)
         for name in ['cache_study.py','cache_correctness.py']:
             (output/'tools').mkdir(exist_ok=True);shutil.copy2(EXP/name,output/'tools'/name)

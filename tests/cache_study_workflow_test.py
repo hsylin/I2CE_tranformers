@@ -54,4 +54,23 @@ class Workflow(unittest.TestCase):
                 study.compare(exports,exports/'corrupt-comparison')
 
 
+class RevisionControllerTests(unittest.TestCase):
+    def test_only_frozen_baseline_can_cross_controller(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            old={'sha':'old','files':{'exp':'old-hash'}}
+            new={'sha':'new','files':{'exp':'new-hash'}}
+            (root/'reference-controller.json').write_text(json.dumps(old))
+            (root/'controller.json').write_text(json.dumps(new))
+            study.verify_comparison_controllers('E05','E06',{'controller':old},{'controller':new},root)
+            for base,cand,b,c in [('E06','E07',old,new),('E05','E06',old,{'sha':'tampered'}),('E05','E06',new,old)]:
+                with self.assertRaisesRegex(RuntimeError,'Comparison controller'):
+                    study.verify_comparison_controllers(base,cand,{'controller':b},{'controller':c},root)
+
+    def test_original_baselines_cannot_be_prepared_or_submitted(self):
+        for eid in ['E01','E02','E03','E04','E05']:
+            for fn in [study.prepare,study.submit]:
+                with self.assertRaisesRegex(RuntimeError,'read-only references'):
+                    fn(eid)
+
 if __name__=='__main__':unittest.main()

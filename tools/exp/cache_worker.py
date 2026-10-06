@@ -20,9 +20,9 @@ def invoke(*args):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('phase',choices=['baseline','hierarchy']);a=p.parse_args()
-    ids=['E01','E02','E03','E04','E05'] if a.phase=='baseline' else ['E06','E07','E08','E09']
-    prepare_order=['E03','E01','E02','E04','E05'] if a.phase=='baseline' else ids
+    p.add_argument('phase',choices=['hierarchy']);a=p.parse_args()
+    ids=['E06','E07','E08','E09']
+    prepare_order=ids
     with study.lock('worker'):
         study.checked()
         for eid in ids:study.gate_for(eid)
@@ -30,6 +30,12 @@ def main():
             if not (study.STATE/'prepared'/(eid+'.json')).exists():invoke('prepare',eid)
             if not (study.STATE/'correctness'/eid/'result.json').exists():
                 subprocess.run([sys.executable,'-B',str(study.EXP/'cache_correctness.py'),eid],check=True)
+        ready=json.loads((study.STATE/'packing-ready.json').read_text())
+        for eid in ids:
+            prepared=json.loads((study.STATE/'prepared'/(eid+'.json')).read_text())
+            study.require(ready[eid]['source_sha']==prepared['server_sha'] and
+                          ready[eid]['binary_sha256']==prepared['build']['binary_sha256'] and
+                          ready[eid]['passed'] is True, 'Production packing gate not approved')
         for eid in ids:
             if (study.STATE/'runs'/(eid+'.json')).exists():continue
             if (study.STATE/'pending'/(eid+'.json')).exists():invoke('recover',eid)
