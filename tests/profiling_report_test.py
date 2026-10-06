@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,7 @@ SOURCE = HISTORICAL / "final_all_experiments.tsv"
 CURRENT = ROOT / "transformer_profiling/hsylin"
 sys.path.insert(0, str(SCRIPT.parent))
 import report
+import cache_comparison
 report.load_dependencies()
 pd = report.pd
 
@@ -49,6 +51,78 @@ class ReportTest(unittest.TestCase):
     def cli(self, *args, no_site=False):
         return subprocess.run([sys.executable, *(["-S"] if no_site else []), str(SCRIPT), *map(str, args)],
                               cwd=self.directory, capture_output=True, text=True)
+
+    def cache_fixture(self):
+        frame, _, _ = report.load_data(CURRENT)
+        metadata = json.loads((CURRENT / 'cache_comparison.json').read_text())
+        path = self.directory / 'cache_comparison.json'
+        path.write_text(json.dumps(metadata))
+        return frame, metadata, path
+
+    def test_cache_comparison_keeps_single_runs_and_exact_pair_ratios(self):
+        frame, _, path = self.cache_fixture()
+        figures = cache_comparison.comparison_charts(path, frame, report.layout, report.switch_menu)
+        self.assertEqual(len(figures), 4)
+        for got, expected in zip(figures[0]['data'][0]['y'], [344.066, 310.451, 214.704, 315.61, 198.159]):
+            self.assertAlmostEqual(got, expected)
+        for got, expected in zip(figures[0]['data'][1]['y'], [259.626, 224.516, 122.916, 226.315, 122.932]):
+            self.assertAlmostEqual(got, expected)
+        # E07 -> E09: whole model improves, modified phases do not.
+        self.assertAlmostEqual(figures[1]['data'][0]['y'][4], .214704 / .198159)
+        self.assertLess(figures[1]['data'][1]['y'][4], 1)
+        self.assertIn('MHA_QK', figures[2]['data'][0]['y'])
+        self.assertEqual(figures[3]['data'][0]['cells']['values'][3][-1], '128 × 128 × 512')
+        self.assertEqual(figures[3]['data'][0]['cells']['values'][6][-1], '409.5')
+        # The variant path must not aggregate repeated observations as medians.
+        with mock.patch.object(pd.core.groupby.generic.SeriesGroupBy, 'median', side_effect=AssertionError('median')):
+            cache_comparison.comparison_charts(path, frame, report.layout, report.switch_menu)
+
+    def test_cache_comparison_rejects_identity_configuration_and_accounting_mismatch(self):
+        frame, _, path = self.cache_fixture()
+        for field, value in [('repo_commit', '0' * 12), ('binary_sha256', '0' * 64),
+                             ('gem5_timestamp', 'another-run'), ('l2', '512KiB'),
+                             ('compile_flags', 'different'), ('phase_timing_valid', False)]:
+            changed = frame.copy()
+            changed.loc[changed.exp_id == 'E09', field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                cache_comparison.load_variants(path, changed)
+        # Reusing historical E05 IDs cannot attach current geometry.
+        with self.assertRaises(ValueError):
+            cache_comparison.load_variants(path, report.load_data(HISTORICAL)[0])
+
+    def test_cache_comparison_subset_and_missing_endpoints(self):
+        frame, _, path = self.cache_fixture()
+        subset = frame[frame.exp_id.isin(['E07', 'E09'])]
+        figures = cache_comparison.comparison_charts(path, subset, report.layout, report.switch_menu)
+        self.assertEqual(len(figures[0]['data'][0]['x']), 2)
+        self.assertEqual(len(figures[1]['data'][0]['x']), 1)
+        self.assertEqual(cache_comparison.comparison_charts(path, frame[frame.exp_id == 'E01'], report.layout, report.switch_menu), [])
+
+    def test_cache_comparison_invalid_metadata_is_rejected(self):
+        frame, metadata, path = self.cache_fixture()
+        metadata['variants'].append(metadata['variants'][0])
+        path.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            cache_comparison.load_variants(path, frame)
+        metadata['variants'].pop()
+        metadata['variants'][0]['l1_tile'] = [0, 32, 128]
+        path.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError, 'tile'):
+            cache_comparison.load_variants(path, frame)
+
+    def test_cache_tab_offline_generation_and_metadata_fingerprint(self):
+        output = self.directory / 'cache.html'
+        result = self.cli('--output', output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = output.read_text()
+        self.assertIn('data-view="cache"', text)
+        self.assertNotIn('data-view="tiles"', text)
+        meta = json.loads(re.search(r'id="report-provenance">(.*?)</script>', text, re.S).group(1))
+        self.assertEqual(meta['cache_comparison']['sha256'], hashlib.sha256((CURRENT / 'cache_comparison.json').read_bytes()).hexdigest())
+        self.assertNotRegex(text, r'<script[^>]+src=')
+        result = self.cli('--output', output, '--experiments', 'E01', 'E03')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('data-view="cache"', output.read_text())
 
     def test_historical_metrics_and_source_anomalies(self):
         frame, total, stage = self.load(self.raw)

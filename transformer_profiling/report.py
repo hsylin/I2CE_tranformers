@@ -28,7 +28,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_INPUT = SCRIPT_DIR / "hsylin"
 DEFAULT_OUTPUT = SCRIPT_DIR / "reports" / "profiling_report.html"
 OPTIONAL_RESULTS = {"tile_results": "tile_results.csv", "scaling_results": "scaling_results.csv",
-                    "phase_results": "phase_results.csv"}
+                    "phase_results": "phase_results.csv", "cache_comparison": "cache_comparison.json"}
 # Loaded after argparse, so --help works before the dependencies are installed.
 pd = None
 
@@ -658,7 +658,7 @@ main{max-width:1360px;margin:auto;padding:24px 28px 40px}h1{margin:0;font-size:2
 """
 
 
-def build_report(frame, totals, stages, bundle, source_name, tile_path=None, scaling_path=None, provenance=None, phase_path=None):
+def build_report(frame, totals, stages, bundle, source_name, tile_path=None, scaling_path=None, provenance=None, phase_path=None, cache_path=None):
     specs, sections = {}, []
 
     def graph(figure, tab):
@@ -684,6 +684,12 @@ def build_report(frame, totals, stages, bundle, source_name, tile_path=None, sca
         sections.append('</div>')
 
     tabs = [("stages", "Overview"), ("curves", "Parameters")]
+    if cache_path:
+        from cache_comparison import comparison_charts
+        figures = comparison_charts(cache_path, frame, layout, switch_menu)
+        if figures:
+            tabs.append(("cache", "Cache tiling comparison"))
+            sections.extend(graph(figure, "cache") for figure in figures)
     for key, label, figures in [
         ("tiles", "Tile sweeps", tile_charts(tile_path) if tile_path else []),
         ("scaling", "Multicore", scaling_charts(scaling_path) if scaling_path else []),
@@ -712,7 +718,7 @@ function refresh(){
  document.querySelectorAll('.model-view').forEach(e=>e.classList.toggle('hidden',e.dataset.model!==model.value));
  document.querySelectorAll('[data-tab]').forEach(e=>e.classList.toggle('hidden',e.dataset.tab!==activeTab));
  document.querySelectorAll('[data-view]').forEach(e=>{e.classList.toggle('active',e.dataset.view===activeTab);e.setAttribute('aria-pressed',e.dataset.view===activeTab);});
- model.disabled=['tiles','scaling','phases'].includes(activeTab);
+ model.disabled=['tiles','scaling','phases','cache'].includes(activeTab);
  document.querySelectorAll('.graph').forEach(e=>{if(e.offsetParent!==null){if(!e.dataset.drawn){e.dataset.drawn='1';const s=specs[e.id];Plotly.newPlot(e,s.data,s.layout,{responsive:true,displaylogo:false,locale:'en',toImageButtonOptions:{format:'svg',filename:e.id}});}else{Plotly.Plots.resize(e);}}});
 }
 model.addEventListener('change',refresh);document.querySelectorAll('[data-view]').forEach(e=>e.addEventListener('click',()=>{activeTab=e.dataset.view;refresh();}));refresh();
@@ -780,7 +786,7 @@ def generate(args, get_plotlyjs):
     provenance["plotly"] = plotly.__version__
     report = build_report(frame, totals, stages, get_plotlyjs(), args.input.name,
                           tile_path=optional["tile_results"], scaling_path=optional["scaling_results"],
-                          phase_path=optional["phase_results"], provenance=provenance)
+                          phase_path=optional["phase_results"], cache_path=optional["cache_comparison"], provenance=provenance)
     metrics = frame.to_csv(sep="\t", index=False) if args.metrics_output else None
     atomic_write(args.output, report)
     if args.metrics_output:
@@ -812,6 +818,7 @@ def main(argv=None):
     parser.add_argument("--tile-results", type=Path)
     parser.add_argument("--scaling-results", type=Path)
     parser.add_argument("--phase-results", type=Path, help="Measured exclusive wall/worker phase durations")
+    parser.add_argument("--cache-comparison", type=Path, help="Single-run variant identities and fixed cache tile metadata")
     parser.add_argument("--experiments", nargs="+", help="Optional experiment IDs; by default include every collected experiment")
     parser.add_argument("--watch", action="store_true", help="Regenerate when local result files change; stop with Ctrl-C")
     parser.add_argument("--watch-interval", type=float, default=2.0, help="Polling interval in seconds")
