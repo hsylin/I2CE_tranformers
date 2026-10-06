@@ -1,6 +1,10 @@
-# Fixed single-output CB4 cache study
+# Measured single-output CB4 cache study
 
-This source is E09: L1/L2 decoded-weight blocking, derived from E07 and the
+This note describes measured `exp/cb4-cache/e09-v2`. Current build parameters
+and manual checks are documented in [CB4 cache parameters](cb4-cache-parameters.md).
+Array notation below describes logical planar views; current scratch arrays are flat.
+
+E09 uses L1/L2 decoded-weight blocking, derived from E07 and the
 measured E05 non-tiling baseline. It targets two learners, CB4, shared 2-bit indices and
 SVE128. Other configurations decline the new entry and retain the E05 caller's
 fallback. The production caller already checks the two-learner shared-index
@@ -21,7 +25,8 @@ with a 64-byte aligned base and fields at 64-byte aligned offsets.
 No multi-output register block: each (s,o) has two SDOT vector accumulators.
 X2 is deinterleaved and shared indices are decoded into W2 once per outer
 window. X1/W1 copy subpanels from X2/W2. There is no I1 or I2 buffer. Zero activation padding makes the final SDOT vector safe.
-Bias initializes C1 once, modulo-2^32 partial sums accumulate across all K1,
+Bias initializes C2 once; C1 receives the current C2 values before each K1
+sequence. Modulo-2^32 partial sums accumulate across all K1,
 and only the final result is narrowed to its low byte. Signed partial sums
 are bounded by 2,097,152; the two learners are never summed together.
 
@@ -51,9 +56,9 @@ alias rejection, allocation failure and SVE/compile-time dispatch checks.
 The deliberate guard-page probe child must receive SIGSEGV; it is not a
 kernel crash. Full-pipeline validation separately compares 84 tensors to E03.
 
-There is no tuning interface or environment-selected tile size. Keep measured
-source commits and result provenance immutable; report actual simulated ROI
-and phase-level counters after the single formal run.
+The measured tag has fixed tile sizes. The current compile-time interface is
+separate from that immutable evidence; it does not revise the recorded results.
+Report actual simulated ROI and phase counters for any future configuration.
 
 Design references are the approved plan's layered packing/cache model, adapted
 to shared compressed indices and per-learner weights. Capacity is only one

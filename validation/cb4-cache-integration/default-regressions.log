@@ -1,0 +1,10 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+/bin/sh: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+PASS cache oracle 184 cases; SVE128 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS cache oracle 184 cases; SVE256 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS cache oracle 184 cases; SVE512 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS cache oracle 184 cases; SVE128 CB16 L2; tails/wrap/aliases/range/fault injection
+PASS cache oracle 184 cases; SVE128 CB4 L4; tails/wrap/aliases/range/fault injection
+Correctness-only artifacts: /home/hlin/i2ce/cb4-integration-validation/final-default-regressions

@@ -1,0 +1,13 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+/bin/sh: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+PASS cache oracle 184 cases; SVE128 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS consumer SVE128: actual dispatch, allocation-failure fallback, alias fallback, pre-narrowing guards, shared-mode guard
+qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+PASS cache oracle 188 cases; SVE128 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS consumer SVE128: actual dispatch, allocation-failure fallback, alias fallback, pre-narrowing guards, shared-mode guard
+qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+PASS cache oracle 188 cases; SVE128 CB4 L2; tails/wrap/aliases/range/fault injection
+PASS consumer SVE128: actual dispatch, allocation-failure fallback, alias fallback, pre-narrowing guards, shared-mode guard
+PASS 3 geometries, 8 illegal geometries and 3 incompatible dispatch configurations; artifacts: /home/hlin/i2ce/cb4-integration-validation/parameter-final-tests

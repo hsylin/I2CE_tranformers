@@ -1,0 +1,3 @@
+bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+/bin/sh: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+PASS: all 84 tensors match measured E09 v2 correctness reference
