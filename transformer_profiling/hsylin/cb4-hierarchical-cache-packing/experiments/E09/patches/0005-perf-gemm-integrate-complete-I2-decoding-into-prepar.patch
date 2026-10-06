@@ -1,0 +1,105 @@
+From d4e76060e38c7ff61b8322f86ab25f54fd9a26d0 Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Mon, 5 Oct 2026 11:22:13 +0200
+Subject: [PATCH 05/11] perf(gemm): integrate complete I2 decoding into
+ prepared CB4 outputs
+
+---
+ Full_NN/src/gemm_SVE.c             | 26 ++++++++++++++++-
+ tests/gemm_cb4_tail_bounds_test.cc | 47 ++++++++++++++++++++++++++++++
+ 2 files changed, 72 insertions(+), 1 deletion(-)
+ create mode 100644 tests/gemm_cb4_tail_bounds_test.cc
+
+diff --git a/Full_NN/src/gemm_SVE.c b/Full_NN/src/gemm_SVE.c
+index d42807d3..c7fe28eb 100644
+--- a/Full_NN/src/gemm_SVE.c
++++ b/Full_NN/src/gemm_SVE.c
+@@ -241,7 +241,31 @@ static inline void gemm_sdot_rows_2l(
+         const uint32_t by_w = (n_words_row + words_per_iter - 1u) / words_per_iter;
+         const uint32_t n_iters = (by_k < by_w) ? by_k : by_w;
+ 
+-        for (uint32_t it = 0; it < n_iters; it++) {
++#if CB_SIZE == 4
++        /* CB4/I2 already uses one word per 16 K values in the baseline.
++         * Separate complete 16-K iterations from the guarded final tail;
++         * this does not introduce tiling or eliminate a second I4 word. */
++        const uint32_t full_k = k_elems / 16u;
++        const uint32_t full_w = n_words_row;
++        const uint32_t full_iters = words_per_iter == 1u
++            ? ((full_k < full_w) ? full_k : full_w) : 0u;
++        const svbool_t pg16 = svwhilelt_b8((uint64_t)0, (uint64_t)16);
++        for (uint32_t it = 0; it < full_iters; ++it) {
++            const uint32_t cw = it;
++            const uint32_t packed = packed_row[cw];
++            const svuint8_t spread = svtbl_u8(
++                svreinterpret_u8_u32(svdup_n_u32(packed)), byte_sel);
++            const svuint8_t ix = svand_n_u8_x(pg16,
++                svlsr_u8_x(pg16, spread, shifts8), idx_mask8);
++            const svint8x2_t a = svld2_s8(pg16, &row_in[input_idx * 2u]);
++            acc_v0 = svdot_s32(acc_v0, svget2_s8(a, 0), svtbl_s8(cb0_b, ix));
++            acc_v1 = svdot_s32(acc_v1, svget2_s8(a, 1), svtbl_s8(cb1_b, ix));
++            input_idx += 16u;
++        }
++#else
++        const uint32_t full_iters = 0u;
++#endif
++        for (uint32_t it = full_iters; it < n_iters; it++) {
+             const uint32_t cw = it * words_per_iter;
+             const uint32_t missing_total = k_elems - input_idx;
+             const uint32_t active = (missing_total < 16u) ? missing_total : 16u;
+diff --git a/tests/gemm_cb4_tail_bounds_test.cc b/tests/gemm_cb4_tail_bounds_test.cc
+new file mode 100644
+index 00000000..e61f5dcc
+--- /dev/null
++++ b/tests/gemm_cb4_tail_bounds_test.cc
+@@ -0,0 +1,47 @@
++// Guard pages make both speculative-width reads and tail overreads observable.
++#include <gemm_SVE.h>
++#include <sys/mman.h>
++#include <unistd.h>
++#include <cstdint>
++#include <initializer_list>
++#include <cstdio>
++#include <cstdlib>
++
++template<class T> struct Guarded {
++    size_t page; void *mapping; T *data;
++    explicit Guarded(size_t count) : page(size_t(sysconf(_SC_PAGESIZE))) {
++        if (count*sizeof(T)>page) std::abort();
++        mapping=mmap(nullptr,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
++        if (mapping==MAP_FAILED || mprotect(static_cast<char*>(mapping)+page,page,PROT_NONE)) std::abort();
++        data=reinterpret_cast<T*>(static_cast<char*>(mapping)+page-count*sizeof(T));
++    }
++    ~Guarded(){munmap(mapping,page*2);}
++};
++int main() {
++    unsigned cases=0;
++    for (unsigned K : {0u,1u,15u,16u,17u,31u,32u,33u,63u,64u,65u,127u,128u,129u,511u,512u,513u,1024u})
++    for (unsigned NW : {0u,1u,2u,3u,4u,7u,8u,9u,16u,32u,33u,64u}) {
++        Guarded<uint32_t> packed(NW);
++        Guarded<int8_t> input(K*2u);
++        int32_t cb[8],out[2]={0,0},bias[2]={53,-71};
++        for (unsigned i=0;i<8;++i) cb[i]=i%2?127:-128;
++        for (unsigned w=0;w<NW;++w) packed.data[w]=0xfedcba98u^(w*0x13579u);
++        for (unsigned i=0;i<K*2u;++i) input.data[i]=int8_t(i*67u);
++        sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
++            packed.data,NW,K,input.data,1,K*2,cb,4,out,0,2,bias,1,0,2);
++        // I2 row ABI consumes one packed word per complete 16-K group.
++        unsigned effective=NW*16;
++        if (effective>K) effective=K;
++        for(unsigned l=0;l<2;++l) {
++            int64_t sum=bias[l];
++            for(unsigned k=0;k<effective;++k) {
++                unsigned word=k/16<NW?packed.data[k/16]:0;
++                unsigned ix=(word>>(2*(k%16)))&3;
++                sum+=int64_t(input.data[k*2+l])*cb[ix*2+l];
++            }
++            if (out[l]!=sum) {std::printf("FAIL guarded K=%u NW=%u l=%u\n",K,NW,l);return 1;}
++        }
++        ++cases;
++    }
++    std::printf("PASS guarded CB4/I2 tails: %u cases\n",cases);
++}
+-- 
+2.51.0
+

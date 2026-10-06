@@ -1,0 +1,222 @@
+From fe5e6b7ac392fb9f7d2767fd4296d7cb365e641d Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Mon, 5 Oct 2026 11:22:12 +0200
+Subject: [PATCH 04/11] perf(gemm): prepare CB4 tables once for both output
+ sinks
+
+---
+ Full_NN/inc/gemm_SVE.h      | 14 +++++++++
+ Full_NN/src/gemm_SVE.c      | 42 +++++++++++++++++++++++++
+ Full_NN/src/gemm_exec.c     | 19 +++++++-----
+ tests/gemm_cb4_c8_test.cc   |  6 ++++
+ tests/gemm_cb4_full_test.cc | 61 +++++++++++++++++++++++++++++++++++++
+ 5 files changed, 135 insertions(+), 7 deletions(-)
+ create mode 100644 tests/gemm_cb4_full_test.cc
+
+diff --git a/Full_NN/inc/gemm_SVE.h b/Full_NN/inc/gemm_SVE.h
+index 1c968d57..c765903b 100644
+--- a/Full_NN/inc/gemm_SVE.h
++++ b/Full_NN/inc/gemm_SVE.h
+@@ -317,6 +317,20 @@ int sve_gemm_cb4_2l_row_i8(
+     const int32_t *codebook, const int32_t *bias,
+     int8_t *output, uint32_t n, uint32_t ld_out);
+ 
++/* Full CB4/I2 GEMM with one setup per call, N -> M -> K, no cache tiles.
++ * Returns 0 without writing output if the specialization is not applicable.
++ * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
++ * codebook [4][2] int32 values in int8 range, output [M][N][2]. */
++int sve_gemm_cb4_2l_full_i32(
++    const uint32_t *indices, uint32_t n_words_row,
++    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
++    const int32_t *codebook, const int32_t *bias, int32_t *output);
++/* Same preparation and traversal, with a final low-byte C8 sink. */
++int sve_gemm_cb4_2l_full_i8(
++    const uint32_t *indices, uint32_t n_words_row,
++    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
++    const int32_t *codebook, const int32_t *bias, int8_t *output);
++
+ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
+     const uint32_t *packed_row,
+     uint32_t n_words_row,
+diff --git a/Full_NN/src/gemm_SVE.c b/Full_NN/src/gemm_SVE.c
+index e9077802..d42807d3 100644
+--- a/Full_NN/src/gemm_SVE.c
++++ b/Full_NN/src/gemm_SVE.c
+@@ -308,6 +308,48 @@ int sve_gemm_cb4_2l_row_i8(
+     return 1;
+ }
+ 
++/* Both output sinks share the prepared traversal. The always-inline helper
++ * lets each public entry remove the unused sink at compile time. */
++__attribute__((always_inline))
++static inline int gemm_cb4_2l_full(
++    const uint32_t *indices, uint32_t n_words_row,
++    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
++    const int32_t *codebook, const int32_t *bias,
++    int32_t *output, int8_t *output_i8) {
++    if (n_words_row < (K + 15u) / 16u ||
++        !gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
++    int8_t cb_bytes0[256] = {0};
++    int8_t cb_bytes1[256] = {0};
++    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
++    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
++    svuint8_t byte_sel, shifts8;
++    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
++    /* N -> M -> K; only invariant setup is hoisted at this stage. */
++    for (uint32_t n = 0; n < N; ++n) {
++        gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
++            input, M, K * 2u, output, n, N * 2u,
++            bias ? bias + n * 2u : NULL, 1, 0,
++            cb0, cb1, byte_sel, shifts8, 3u, 1u, output_i8);
++    }
++    return 1;
++}
++
++int sve_gemm_cb4_2l_full_i32(
++    const uint32_t *indices, uint32_t n_words_row,
++    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
++    const int32_t *codebook, const int32_t *bias, int32_t *output) {
++    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
++                           codebook, bias, output, NULL);
++}
++
++int sve_gemm_cb4_2l_full_i8(
++    const uint32_t *indices, uint32_t n_words_row,
++    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
++    const int32_t *codebook, const int32_t *bias, int8_t *output) {
++    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
++                           codebook, bias, NULL, output);
++}
++
+ /* Four interleaved streams. All four share one index row in the same_seq
+  * layout, so one decoded byte vector drives four table lookups. */
+ __attribute__((always_inline))
+diff --git a/Full_NN/src/gemm_exec.c b/Full_NN/src/gemm_exec.c
+index 4802fb4a..01240dba 100644
+--- a/Full_NN/src/gemm_exec.c
++++ b/Full_NN/src/gemm_exec.c
+@@ -1509,13 +1509,9 @@ int gemm_exec_cb4_2l_i8(gemm_t layer, const int8_t *input,
+         return 1;
+     }
+     if (codebook == NULL || layer.n_words_row < (layer.input_size + 15u) / 16u) return 0;
+-    for (uint32_t n = 0; n < layer.output_size; ++n) {
+-        if (!sve_gemm_cb4_2l_row_i8(indices + n * layer.n_words_row,
+-                layer.n_words_row, layer.input_size, input, layer.seq_len,
+-                layer.input_size * 2u, codebook, bias ? bias + n * 2u : NULL,
+-                output, n, layer.output_size * 2u)) return 0;
+-    }
+-    return 1;
++    return sve_gemm_cb4_2l_full_i8(indices, layer.n_words_row,
++        layer.seq_len, layer.output_size, layer.input_size,
++        input, codebook, bias, output);
+ #else
+     (void)layer; (void)input; (void)indices; (void)codebook;
+     (void)bias; (void)output; (void)bits_per_cb;
+@@ -1618,6 +1614,15 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
+         return;
+     }
+ 
++#if CB_SIZE == 4 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
++    if (bits_per_cb == 2u && sve_gemm_cb4_2l_full_i32(
++            weight_idx, gemm_layer.n_words_row, gemm_layer.seq_len,
++            gemm_layer.output_size, gemm_layer.input_size, in_interleaved,
++            codebook_i32_interleaved, bias_interleaved, out_interleaved)) {
++        return;
++    }
++#endif
++
+     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
+     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);
+     const uint32_t tile_k_words = gemm_sve_l1_tile_or_full(gemm_layer.n_words_row);
+diff --git a/tests/gemm_cb4_c8_test.cc b/tests/gemm_cb4_c8_test.cc
+index b5052de3..7a280c94 100644
+--- a/tests/gemm_cb4_c8_test.cc
++++ b/tests/gemm_cb4_c8_test.cc
+@@ -1,4 +1,5 @@
+ #include <gemm_exec_internal.h>
++#include <gemm_SVE.h>
+ #include <algorithm>
+ #include <cstdint>
+ #include <cstdio>
+@@ -36,6 +37,11 @@ int main() {
+                 biased?bias.data():nullptr,got.data(),2) || got!=want) {
+             std::printf("FAIL C8 M=%u N=%u K=%u bias=%d\n",M,N,K,biased);return 1;
+         }
++        std::fill(got.begin(),got.end(),91);
++        if (!sve_gemm_cb4_2l_full_i8(indices.data(),NW,M,N,K,input.data(),cb,
++                biased?bias.data():nullptr,got.data()) || got!=want) {
++            std::puts("FAIL prepared C8 sink");return 1;
++        }
+         std::fill(got.begin(),got.end(),91);const auto saved=got;
+         if (gemm_exec_cb4_2l_i8(shape,input.data()+1,indices.data(),cb,nullptr,got.data(),2) || got!=saved ||
+             gemm_exec_cb4_2l_i8(shape,input.data(),indices.data(),cb,nullptr,got.data(),3) || got!=saved) {
+diff --git a/tests/gemm_cb4_full_test.cc b/tests/gemm_cb4_full_test.cc
+new file mode 100644
+index 00000000..9222492c
+--- /dev/null
++++ b/tests/gemm_cb4_full_test.cc
+@@ -0,0 +1,61 @@
++// Full matrix oracle: independent scalar index extraction and int64 products.
++#include <gemm_SVE.h>
++#include <gemm_exec_internal.h>
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <vector>
++
++int main() {
++    unsigned cases = 0;
++    for (unsigned M : {0u, 1u, 2u, 5u})
++    for (unsigned N : {0u, 1u, 3u, 7u})
++    for (unsigned K : {0u, 1u, 15u, 16u, 17u, 31u, 32u, 33u, 63u, 64u, 65u, 127u, 128u, 129u, 511u, 512u, 513u, 1024u})
++    for (unsigned offset : {0u, 1u})
++    for (bool biased : {false, true}) {
++        const unsigned NW = (K + 15u) / 16u;
++        std::vector<uint32_t> packed(N * NW + 1u, 0);
++        std::vector<int8_t> storage(M * K * 2u + 2u, -128);
++        int8_t *in = storage.data() + offset;
++        int8_t cb8[8]; int32_t cb[8];
++        std::vector<int32_t> bias(N * 2u);
++        // Keep every table entry in range while covering the signed extremes.
++        for (unsigned i = 0; i < 8; ++i) cb8[i] = cb[i] = i % 2 ? 127 - int(i % 7) : -128 + int(i % 7);
++        for (unsigned i = 0; i < M * K * 2u; ++i) in[i] = int8_t((i * 53u + 19u) & 255u);
++        for (unsigned n = 0; n < N; ++n) {
++            for (unsigned k = 0; k < NW * 16u; ++k)
++                packed[n * NW + k / 16u] |= ((k + 3u * n) & 3u) << (2u * (k % 16u));
++            bias[2u*n] = 103; bias[2u*n+1] = -177;
++        }
++        std::vector<int32_t> got(M * N * 2u + 8u, 0x34561234);
++        std::vector<int32_t> want = got;
++        for (unsigned m=0; m<M; ++m) for (unsigned n=0; n<N; ++n)
++        for (unsigned l=0; l<2; ++l) {
++            int64_t sum = biased ? bias[2*n+l] : 0;
++            for (unsigned k=0; k<K; ++k) {
++                unsigned ix = (packed[n*NW+k/16] >> (2*(k%16))) & 3u;
++                sum += int64_t(in[(m*K+k)*2+l]) * cb[ix*2+l];
++            }
++            uint32_t bits=uint32_t(sum);std::memcpy(&want[(m*N+n)*2+l],&bits,4);
++        }
++        gemm_t shape{uint16_t(M),uint16_t(K),uint16_t(N),uint16_t(NW)};
++        gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
++            shape,in,packed.data(),cb8,biased?bias.data():nullptr,got.data(),2,
++            cb,nullptr,0);
++        if (got != want) { std::printf("FAIL wrapper M=%u N=%u K=%u off=%u\n",M,N,K,offset); return 1; }
++        // Exercise the hoisted entry directly, including empty axes.
++        std::fill(got.begin(),got.end(),0x34561234);
++        if (!sve_gemm_cb4_2l_full_i32(packed.data(),NW,M,N,K,in,cb,
++                                     biased?bias.data():nullptr,got.data()) || got!=want) {
++            std::printf("FAIL prepared M=%u N=%u K=%u\n",M,N,K); return 1;
++        }
++        cb[3]=128;
++        std::vector<int32_t> saved=got;
++        if (sve_gemm_cb4_2l_full_i32(packed.data(),NW,M,N,K,in,cb,nullptr,got.data()) || got!=saved) {
++            std::puts("FAIL ineligible codebook modified output");return 1;
++        }
++        ++cases;
++    }
++    std::printf("PASS full CB4/I2 oracle: %u cases, both learners and guard values\n",cases);
++}
+-- 
+2.51.0
+

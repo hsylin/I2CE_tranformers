@@ -1,0 +1,163 @@
+From 970994972546587f1a14b0e811c47a96f76d9463 Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Tue, 6 Oct 2026 02:28:48 +0200
+Subject: [PATCH 10/11] perf(gemm): reuse decoded CB4 panels across L2 cache
+ blocks
+
+---
+ Full_NN/src/gemm_cb4_cache.h | 66 +++++++++++++++++++++++++++++-------
+ docs/CB4_CACHE_STUDY.md      | 21 +++++++++---
+ 2 files changed, 70 insertions(+), 17 deletions(-)
+
+diff --git a/Full_NN/src/gemm_cb4_cache.h b/Full_NN/src/gemm_cb4_cache.h
+index d3e38fed..bdd45bff 100644
+--- a/Full_NN/src/gemm_cb4_cache.h
++++ b/Full_NN/src/gemm_cb4_cache.h
+@@ -17,7 +17,8 @@ extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
+ 
+ #if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
+ enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
+-       CACHE_X1_STRIDE = 144 };
++       CACHE_X1_STRIDE = 144,
++       CACHE_S2 = 128, CACHE_O2 = 128, CACHE_K2 = 512, CACHE_X2_STRIDE = 528 };
+ 
+ /* Every field has a size divisible by 64; one aligned allocation, no malloc
+  * inside the tile loops. W1 contains two learner-specific decoded planes. */
+@@ -25,6 +26,9 @@ typedef struct {
+     int8_t x1[2][CACHE_S1][CACHE_X1_STRIDE];
+     uint32_t c1[2][CACHE_S1][CACHE_O1];
+     int8_t w1[2][CACHE_O1][CACHE_X1_STRIDE];
++    int8_t x2[2][CACHE_S2][CACHE_X2_STRIDE];
++    uint32_t c2[2][CACHE_S2][CACHE_O2];
++    int8_t w2[2][CACHE_O2][CACHE_X2_STRIDE];
+ } cb4_cache_arena;
+ 
+ static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
+@@ -80,6 +84,29 @@ static void cache_pack_w(int8_t *dst, size_t stride, size_t plane,
+     }
+ }
+ 
++/* Copy a bounded subpanel from two packed learner planes into L1. */
++static void cache_copy_panel(int8_t *dst, size_t dp, size_t ds,
++                             const int8_t *src, size_t sp, size_t stride,
++                             size_t row, size_t k, size_t rows, size_t ks) {
++    for (size_t l = 0; l < 2u; ++l)
++        for (size_t i = 0; i < rows; ++i) {
++            memcpy(dst + l * dp + i * ds, src + l * sp + (row + i) * stride + k, ks);
++            memset(dst + l * dp + i * ds + ks, 0, ds - ks);
++        }
++}
++
++/* C2 holds bias plus all earlier K2 panels. C1 is loaded before the K1
++ * sequence and written back after it, never reinitialized with bias. */
++static void cache_transfer_c(cb4_cache_arena *a, size_t sb, size_t ob,
++                             size_t ss, size_t os, int to_inner) {
++    for (size_t l = 0; l < 2u; ++l)
++        for (size_t s = 0; s < ss; ++s)
++            for (size_t o = 0; o < os; ++o) {
++                if (to_inner) a->c1[l][s][o] = a->c2[l][sb + s][ob + o];
++                else a->c2[l][sb + s][ob + o] = a->c1[l][s][o];
++            }
++}
++
+ static void cache_init_c(uint32_t *c, size_t plane, size_t stride,
+                          size_t rows, size_t cols, const int32_t *bias, size_t ob) {
+     for (size_t s = 0; s < rows; ++s)
+@@ -160,19 +187,34 @@ int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
+     const svint8_t cb1 = gemm_sdot_cb_table(cb,4u,2u,1u,scratch1);
+     svuint8_t byte_sel, shifts; gemm_sdot_lane_patterns(2u,&byte_sel,&shifts);
+     CACHE_COUNT(calls, 1);
+-    for (size_t sb = 0; sb < M; sb += CACHE_S1) {
+-        const size_t ss = cache_min(CACHE_S1, M - sb);
+-        for (size_t ob = 0; ob < N; ob += CACHE_O1) {
+-            const size_t os = cache_min(CACHE_O1, N - ob);
+-            cache_init_c(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, bias, ob);
+-            for (size_t kb = 0; kb < K; kb += CACHE_K1) {
+-                const size_t ks = cache_min(CACHE_K1, K - kb);
+-                cache_pack_x(&a->x1[0][0][0],ss,CACHE_X1_STRIDE,CACHE_S1 * CACHE_X1_STRIDE,input,K,sb,kb,ks);
+-                cache_pack_w(&a->w1[0][0][0],CACHE_X1_STRIDE,CACHE_O1 * CACHE_X1_STRIDE,
++    for (size_t sb = 0; sb < M; sb += CACHE_S2) {
++        const size_t ss = cache_min(CACHE_S2, M - sb);
++        for (size_t ob = 0; ob < N; ob += CACHE_O2) {
++            const size_t os = cache_min(CACHE_O2, N - ob);
++            cache_init_c(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, bias, ob);
++            for (size_t kb = 0; kb < K; kb += CACHE_K2) {
++                const size_t ks = cache_min(CACHE_K2, K - kb);
++                cache_pack_x(&a->x2[0][0][0],ss,CACHE_X2_STRIDE,CACHE_S2 * CACHE_X2_STRIDE,input,K,sb,kb,ks);
++                cache_pack_w(&a->w2[0][0][0],CACHE_X2_STRIDE,CACHE_O2 * CACHE_X2_STRIDE,
+                              indices,nw,ob,os,kb,ks,cb0,cb1,byte_sel,shifts);
+-                cache_compute_inner(a,ss,os,ks);
++                for (size_t s1 = 0; s1 < ss; s1 += CACHE_S1) {
++                    const size_t ms = cache_min(CACHE_S1, ss - s1);
++                    for (size_t o1 = 0; o1 < os; o1 += CACHE_O1) {
++                        const size_t ns = cache_min(CACHE_O1, os - o1);
++                        cache_transfer_c(a,s1,o1,ms,ns,1);
++                        for (size_t k1 = 0; k1 < ks; k1 += CACHE_K1) {
++                            const size_t kk = cache_min(CACHE_K1, ks - k1);
++                            cache_copy_panel(&a->x1[0][0][0],CACHE_S1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
++                                &a->x2[0][0][0],CACHE_S2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,s1,k1,ms,kk);
++                            cache_copy_panel(&a->w1[0][0][0],CACHE_O1 * CACHE_X1_STRIDE,CACHE_X1_STRIDE,
++                                &a->w2[0][0][0],CACHE_O2 * CACHE_X2_STRIDE,CACHE_X2_STRIDE,o1,k1,ns,kk);
++                            cache_compute_inner(a,ms,ns,kk);
++                        }
++                        cache_transfer_c(a,s1,o1,ms,ns,0);
++                    }
++                }
+             }
+-            cache_write_y(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, output, N, sb, ob);
++            cache_write_y(&a->c2[0][0][0], CACHE_S2 * CACHE_O2, CACHE_O2, ss, os, output, N, sb, ob);
+         }
+     }
+     free(storage);
+diff --git a/docs/CB4_CACHE_STUDY.md b/docs/CB4_CACHE_STUDY.md
+index 13362c24..5ab44372 100644
+--- a/docs/CB4_CACHE_STUDY.md
++++ b/docs/CB4_CACHE_STUDY.md
+@@ -1,6 +1,6 @@
+ # Fixed single-output CB4 cache study
+ 
+-This source is E07: L1 decoded-weight blocking, derived from E06 and the
++This source is E09: L1/L2 decoded-weight blocking, derived from E07 and the
+ measured E05 non-tiling baseline. It targets two learners, CB4, shared 2-bit indices and
+ SVE128. Other configurations decline the new entry and retain the E05 caller's
+ fallback. The production caller already checks the two-learner shared-index
+@@ -13,13 +13,14 @@ and rejects output overlap with inputs, indices, codebook or bias without writes
+ The caller rejects dimensions outside its inherited uint16/uint32 offset domain
+ before constructing its descriptor. This does not repair other legacy APIs.
+ 
+-Fixed S1/O1/K1 = 16/32/128. Loop order is s1, o1, k1, s, o, vector-K.
++Fixed S1/O1/K1 = 16/32/128 and S2/O2/K2 = 128/128/512. Loop order is
++s2, o2, k2, s1, o1, k1, s, o, vector-K.
+ One arena per GEMM holds X1[2][16][144] (4,608 B), C1[2][16][32] uint32
+ (4,096 B), W1[2][32][144] int8 (9,216 B): 17,920 B actually allocated,
+ with a 64-byte aligned base and fields at 64-byte aligned offsets.
+ No multi-output register block: each (s,o) has two SDOT vector accumulators.
+-X1 is deinterleaved once per tile; shared indices are decoded once per tile
+-into both W1 planes, reused by all valid sequence rows. There is no I1 buffer. Zero activation padding makes the final SDOT vector safe.
++X2 is deinterleaved and shared indices are decoded into W2 once per outer
++window. X1/W1 copy subpanels from X2/W2. There is no I1 or I2 buffer. Zero activation padding makes the final SDOT vector safe.
+ Bias initializes C1 once, modulo-2^32 partial sums accumulate across all K1,
+ and only the final result is narrowed to its low byte. Signed partial sums
+ are bounded by 2,097,152; the two learners are never summed together.
+@@ -29,7 +30,17 @@ The conservative L1 budget remains 23,488 B: arena 17,920 + bias 256 + setup
+ Setup includes two 256-byte codebook scratch arrays. The 192-byte alignment
+ reserve is headroom, not an additional arena allocation. This is below the
+ 24 KiB target budget in a 32 KiB, 2-way L1D, but it does not guarantee residency
+-or eliminate set conflicts. There is no outer L2 tile in E07.
++or eliminate set conflicts. The outer arena adds X2[2][128][528] (135,168 B), C2[2][128][128] uint32
++(131,072 B), W2[2][128][528] int8 (135,168 B). Total allocation is 419,328 B.
++C2 receives bias once before all K2 blocks. Each C1 loads existing C2, accumulates
++K1 subpanels, then writes back. Final Y is written after all K. W2 amortizes
++shared-index decode and both lookups over up to 128 sequence rows. E09 descends
++from E07, not E08; neither compressed-index staging buffer is allocated.
++The conservative L2 budget is 634,752 B (619.875 KiB): inner/outer arena plus
++384 B alignment reserve, 131,072 B raw X, 16,384 B raw shared I, 32,768 B final Y,
++1,024 B bias, 1,024 B setup, and 32,768 B other/cache-line/streaming reserve.
++This is below 768 KiB of the 1 MiB L2. Shared source I must still be read even
++though decoded W has two learner planes.
+ 
+ Allocation failure returns before any output write; the caller then executes
+ E05. Test-only allocator injection follows the same status-check branch, and
+-- 
+2.51.0
+

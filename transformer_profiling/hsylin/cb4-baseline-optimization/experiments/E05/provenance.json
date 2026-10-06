@@ -1,0 +1,60 @@
+{
+  "configuration": "CB4/2 learners/shared I2/SVE128/Minor1core4GHz/L1D32KiB/L2=1MiB",
+  "study": "cb4-baseline-optimization",
+  "result_id": "E05",
+  "runner_id": 38,
+  "action": "E04 plus row-first traversal",
+  "branch": "perf/cb4-cache-study-baseline",
+  "local_sha": "ce0670b04ca304946d9f75aee440cb0b9dc20852",
+  "server_sha": "e92999ac319bd89b965f59e0a64c4dd93111606f",
+  "source_tree": "db1117c7d07101941f5208a2c14164dd8086f51f",
+  "controller_sha": "0fe7aaeee1c44ba6f32909ab967049920403f420",
+  "comparison_baseline_id": "E04",
+  "comparison_baseline_sha": "e62309bca2c25bfca4e1c4e31365672989efcf3f",
+  "patch_application_baseline": "33d76aa29d8e199caee430f45ae59ae1ae16fd3b",
+  "ordered_patch_files": [
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0001-perf-gemm-remove-unused-activation-workspaces-for-CB.patch",
+      "sha256": "7d6747a2d5b3ca7a0b47d7355fb507e4a577a14c8911e1cd8b6a4c1a5a3c385c"
+    },
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0002-perf-gemm-combine-CB4-direct-output-with-workspace-r.patch",
+      "sha256": "758864e3dae0b793c1bd6e2449c64f7b50eb3a6a7d9781041ab9e6099dd4f6cd"
+    },
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0003-perf-attention-integrate-direct-int8-dense-output-in.patch",
+      "sha256": "d58544c2f4038234187c70c442e9fe205ee55cebd5a65f2e94f3abb576121a51"
+    },
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0004-perf-gemm-prepare-CB4-tables-once-for-both-output-si.patch",
+      "sha256": "38fceafca0f8dc84ace7cf0a9b4547d26384e3dd4f25901955349724573adcec"
+    },
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0005-perf-gemm-integrate-complete-I2-decoding-into-prepar.patch",
+      "sha256": "55b89bbdb61580a6cf7f9a423109d51452081feeb1861b3f726af54abc48c3b0"
+    },
+    {
+      "file": "cb4-baseline-optimization/experiments/E05/patches/0006-perf-gemm-integrate-row-first-traversal-into-CB4-non.patch",
+      "sha256": "822e8e08a1aa594907126ff23230a83a5a01660d0bb4a691ec78c27349b55c86"
+    }
+  ],
+  "incremental_patch_baseline": null,
+  "run_dir": "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211934",
+  "result_file": "cb4-baseline-optimization/e05_cb4_baseline_optimization_n2_cb4_sve128_e92999ac_run_20261005_211934.tsv",
+  "result_sha256": "6164d860c22d8a1fbe3205f03c34548e387b535bc390b40a32f4d74f1c6982a7",
+  "binary_sha256": "0aaebfc2f3a85c90ce61ba8394020007e307d8423cf2fd70ad7cc8c6740d35b6",
+  "generated_data_sha256": "ba6bff576aa1b693298e66ac194e95380990b1f86ddc889b0b108c0aeded6bcf",
+  "hardware_fingerprint_sha256": "144945f8c4e89368ff548b655e0723623c16bd9570a7e8c4a751bf452a07b473",
+  "machine_fingerprint_sha256": "d66ddc55199ec4d84d8e0415c246c635a7f27202954c28483272e71008c43524",
+  "checkpoint_fingerprint_sha256": "ac5ed87327126b75280908871f5dce7cba4bf74b475a3c0b4af284407e4fa018",
+  "correctness_status": "PASS 84 tensors vs E03; scope/limitations in review",
+  "simulated_ROI_seconds": 0.344066,
+  "host_elapsed_seconds_approx": 3727.3874871730804,
+  "speedup_vs_comparison_baseline": 2.242595897298774,
+  "runtime_change_percent": -55.408818806611194,
+  "speedup_vs_E03": 3.3941976248742978,
+  "speedup_vs_E05": 1.0,
+  "source_tag": "exp/cb4-cache/e05",
+  "evidence_dir": "cb4-baseline-optimization/experiments/E05",
+  "raw_stats_sha256": "f103ac1e616b9485ca7750548591d7c637bc3ca29ce9c181df59db357a6375bf"
+}

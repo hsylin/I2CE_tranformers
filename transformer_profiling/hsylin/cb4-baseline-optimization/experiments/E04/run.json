@@ -1,0 +1,1834 @@
+{
+  "study": "cb4-baseline-optimization",
+  "action": "NT01-NT05, output-first traversal",
+  "branch": "perf/cb4-nontiling-cleanups",
+  "local_sha": "d4e76060e38c7ff61b8322f86ab25f54fd9a26d0",
+  "server_sha": "e62309bca2c25bfca4e1c4e31365672989efcf3f",
+  "source_tree": "5dc2f2763cbdd475e6f9d3267900300e6539d1e1",
+  "comparison_baseline": "E03",
+  "patch_baseline_sha": "33d76aa29d8e199caee430f45ae59ae1ae16fd3b",
+  "patch_files": [
+    "patches/E04/0001-perf-gemm-remove-unused-activation-workspaces-for-CB.patch",
+    "patches/E04/0002-perf-gemm-combine-CB4-direct-output-with-workspace-r.patch",
+    "patches/E04/0003-perf-attention-integrate-direct-int8-dense-output-in.patch",
+    "patches/E04/0004-perf-gemm-prepare-CB4-tables-once-for-both-output-si.patch",
+    "patches/E04/0005-perf-gemm-integrate-complete-I2-decoding-into-prepar.patch"
+  ],
+  "patch_roundtrip_tree": "5dc2f2763cbdd475e6f9d3267900300e6539d1e1",
+  "eid": "E04",
+  "build": {
+    "exp_id": "38",
+    "built_at": "2026-10-05T19:17:43Z",
+    "impl": "codebook_int8",
+    "codebook_size": "4",
+    "n_learners": "2",
+    "sve_bits": "128",
+    "sve_lanes": "4",
+    "cores": "1",
+    "overrides": "-",
+    "model_dims": "d_q=64 seq_len=512 d_model=256 num_heads=4 d_ff=1024",
+    "default_artifacts": "0",
+    "idx_bits_byte_aligned": "1",
+    "repo_commit": "e62309bca2c2",
+    "repo_commit_full": "e62309bca2c25bfca4e1c4e31365672989efcf3f",
+    "commit_subject": "perf(gemm): integrate complete I2 decoding into prepared CB4 outputs",
+    "compile_flags": "USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 I2CE_USE_LIBM5_FLAG=1",
+    "binary_sha256": "55a3e5e2922c39031c335641503f63debb0f4754acb95005c86ee7ca06620e73",
+    "libm5_sha256": "f201959e636d139fe544e3346685e728a225712384add5f04c3f29c45d4709b5",
+    "codebooks_def_sha256": "37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd",
+    "gem5_bin": "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+    "gem5_cfg": "/home/hlin/i2ce/gem5-tianrui/configs/example/arm/starter_fs.py",
+    "build_dir": "/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc"
+  },
+  "build_dir": "/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc",
+  "generated": {
+    "headers": {
+      "codebooks_def.h": "37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd",
+      "gemm_header_0.h": "172404bcff3ff1a2fe6c8f4c25cf35acf1f06e7827412935d59ed77d9e36de34",
+      "gemm_header_1.h": "37a5b42be99962f2f768730d4e3f98c530b75b9a92e25d72c60bd28c2346a665",
+      "gemm_header_10.h": "e8203d5480c887dd5c062c4c102769fbd03dde2c4fbb8101cffc5fb7bd41564c",
+      "gemm_header_11.h": "fe32d97e484c71b824eee7010967836ae2df7d84d297db4fa768caf8afc85b22",
+      "gemm_header_12.h": "5e6c80e931f13561ccb96a8559c56d8f2c69c0624e2b8085e52da95040add4d4",
+      "gemm_header_13.h": "fd2dadf5c22dd2b4eccfdf0d570aa8d3466428a8b30c2f194b752ac65987d307",
+      "gemm_header_14.h": "70142fabda8ccb58c546b1b710dfb82d3955cf9ec794cdcccb79fb4cd5d6dbbe",
+      "gemm_header_2.h": "db27d0ca5f26b758caac982f55c755859448d100cc94d2cda483b724ce975b7e",
+      "gemm_header_3.h": "50f12cf370a28540da51d7ea0127327c158eea364e1d4b1c53fa46937eb56d4d",
+      "gemm_header_4.h": "1155dd314aee8697ff4d50bc2bb5a984eb89bca3159354d9ebe5eae5758e6c85",
+      "gemm_header_5.h": "7327ab9950a45a95339c594c50ca1652bf49149668627be0d5a7fe9422267246",
+      "gemm_header_6.h": "f2716c76d497d300dca6604e9b24b483bd7ce3eb2b42aab355514497de5c3ee7",
+      "gemm_header_7.h": "76a1aef6b66c15ceccdd7241f1ae7afd2f8c00be25d8ae429395f1937a373db5",
+      "gemm_header_8.h": "865351a2fcab9cae8db137f7662788adb4e1a62e75d8cb9fa1ab130d18d223e9",
+      "gemm_header_9.h": "1e58405e4f5e580d34bb2f8764b86f22fa9d4f4c5d3e24c43845b9a0a479db72",
+      "generated_codebook_registry.h": "e30296de7223d46a8e567c6ef81281ee25cbc2bc61719333283684c055b4d1e0",
+      "input_matrix.h": "2e8e19161ff0d023de49d6b4767a666a31b1819f9959b05b6cc2e7844f411197"
+    },
+    "weights": {
+      "generated_from_notebook/H-1_L-1.bin": "965d55b18e5408ea39601dd9898e8fbc4a3f53752fc612a64fa6e7147605cdb9",
+      "generated_from_notebook/learner0/H-1_L0.bin": "e20c8e00e2f54fd5e0f6d198e271f1c71e60a5da6bae9f70d2fbc99ed9301e71",
+      "generated_from_notebook/learner0/H-1_L1.bin": "579e84c666c67eddc19a15867df13e74cc966b520e6f9e91f8a72fa63d1ac04a",
+      "generated_from_notebook/learner0/H-1_L2.bin": "c3dfe329606d4cf6c65ce60d39e240f85a029563c082c0513da21c1c3ed98018",
+      "generated_from_notebook/learner0/H0_L0.bin": "ac3b2d17a60f360208e78bac4aa6564662a23d61efdec0f1f8ef2b1fbac31fbc",
+      "generated_from_notebook/learner0/H0_L1.bin": "9157fef8e1ef72ed6642f79c63295d076d935b804367665c74e23de032dfe145",
+      "generated_from_notebook/learner0/H0_L2.bin": "5d46ff8c0564ba86f58827f4a86156ae75a70cc797fce95902c639404aa6b8e3",
+      "generated_from_notebook/learner0/H1_L0.bin": "89a29cbf9ee3fe09dd2ed17f4b408f06abc3757ca4065eaf5ed15514608f70e3",
+      "generated_from_notebook/learner0/H1_L1.bin": "98adb890bd7a3ab4a3eb20da83ff6a4037219f7faf7aa987f5585126e8a2b154",
+      "generated_from_notebook/learner0/H1_L2.bin": "f67835772eba0b10161f8b094bdcdadf8b70c919e564605d8e9d50b7b1147ebe",
+      "generated_from_notebook/learner0/H2_L0.bin": "e505bb4bfd87f1e198172f4c29556cc31aa02311cec0764e414398d5ec3990c6",
+      "generated_from_notebook/learner0/H2_L1.bin": "ba9f898dfcc03041bd98f93f093ecb485bb6e2cae5fe0d2070fe3bbcb8ebc641",
+      "generated_from_notebook/learner0/H2_L2.bin": "be6d14dcb15b2d1ca967a5e17224ce4c8459f2c69eb5df4d3e0b55b3c8da9f72",
+      "generated_from_notebook/learner0/H3_L0.bin": "f830f82f4013bb191df2e0592144cf223772133b02e286e061c422a5f4880d0a",
+      "generated_from_notebook/learner0/H3_L1.bin": "3d7abad662f9071ca9923c0d4f861beb8075a63f192ec555e74191f9c79b8625",
+      "generated_from_notebook/learner0/H3_L2.bin": "4ff6b637f2eb8cbc6ca3a2ec9dd2c837e9bf732a212eedc5e48588b0c2edbbe8",
+      "generated_from_notebook/learner1/H-1_L0.bin": "203d536ef68148d014a6046db3266133f9cac5df35de1aa5ca1d3face89c819f",
+      "generated_from_notebook/learner1/H-1_L1.bin": "30becc498b87622e641d4274ed3aed54a820faf2ef52dffc4e92bfefbc99c0ae",
+      "generated_from_notebook/learner1/H-1_L2.bin": "5cff0eb25fa0c44b045e7ed5318c33161dd3da0616c55638e742de1b7611c8c0",
+      "generated_from_notebook/learner1/H0_L0.bin": "8304d172513b339fcdd3f8941a125e1ef4d7fce2f785ae08931aaa0cebe9cb72",
+      "generated_from_notebook/learner1/H0_L1.bin": "5b37c6f769a7fb70611c957341e2f605ae98f9b49d6275dd00c573cbad76ab4e",
+      "generated_from_notebook/learner1/H0_L2.bin": "e2bbf5da93db027a0585749da4d1ee6d443a6fd82352a3985990f5fd0260699c",
+      "generated_from_notebook/learner1/H1_L0.bin": "62f482797b1af7164c4b5596caf485495554075420a7bc43b6223864dbbcef17",
+      "generated_from_notebook/learner1/H1_L1.bin": "e02de8f6ad76283999343773aba4836ea86a104f5bf3c722c0d5023d3d378cd2",
+      "generated_from_notebook/learner1/H1_L2.bin": "9cc6a8efab5a62204008d1a65c45ae8b4be9a507456cb42aeffd6662194e2809",
+      "generated_from_notebook/learner1/H2_L0.bin": "d65c8c35eb321323161f0024071cabe624d1feb51dd8b1841aa315fa68c6a9c9",
+      "generated_from_notebook/learner1/H2_L1.bin": "7f9a19510247b55ab630763517b91e191ea04fd786d532b3313e3b737fa495e8",
+      "generated_from_notebook/learner1/H2_L2.bin": "4fd9dd3e55cb0327e782a2821e626a017dd2136f86572886ed8e350da1186b51",
+      "generated_from_notebook/learner1/H3_L0.bin": "e393a6ca8a57caf3a7e3bb894f6fb5790c836142a95a5cb1568ad287aea39ae2",
+      "generated_from_notebook/learner1/H3_L1.bin": "e6506c2534db51284523978b8749ec3bee3bee42892f6746083d16bb6539a62b",
+      "generated_from_notebook/learner1/H3_L2.bin": "0d711a0f928e19927c415afa719f1a3380b71445d06fa753a32fc61e8a0e73e6"
+    }
+  },
+  "controller": {
+    "sha": "0fe7aaeee1c44ba6f32909ab967049920403f420",
+    "files": {
+      "tools/exp/runner.conf": "e7ad9042ee0a9ab1ebc250ec63052ee4da7c2831c092cef4179916efaff39145",
+      "tools/exp/exp.sh": "eb5f30d229dcea3785952777b2a5ea5cf9312200aab16907746ba38d79fa9607",
+      "tools/exp/experiments.tsv": "1e8f5b27e8bd432edb9d84b91e51d49da6b1c66a38506897c68deec85ed43e15",
+      "tools/exp/cache_study.py": "4ab9cd31dfe2b7a3fa7705f38ec7420973b6334fc4367651f899869c746d9857",
+      "tools/exp/cache_correctness.py": "52fbec66d4672c61f34fa7577db85a1eeddead143318bac2535e9dc29374ef08",
+      "tools/exp/cache_worker.py": "1a7b66bfdba30a3652d7cb07e59e01ffdc049092b3b6a1d07ee5e33f9dee12d9",
+      "tools/exp/lib/simulation_slots.py": "8e005b6186a2c0373575d0d294161b128ff5689f8a986920b18c913719c1627c",
+      "tools/exp/lib/run.rcS.tmpl": "a5186d838983b8d19491530a90ff8a717d7afb4fd82359510779b3d228b2bdfd",
+      "tools/exp/lib/gen_artifacts.py": "9aebc733b64632f34e90833dcaf803aee76ed99145caec662262cfd734008fae",
+      "transformer_profiling/add_experiment.py": "2b25491e851579a426b7f79443e298688dd58d8ac0903a0e301a3b8761ac60d1"
+    }
+  },
+  "hardware": {
+    "GEM5_BIN": {
+      "path": "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+      "sha256": "659694abecf942f520d8d65a16b05429db6744f5bcf23afa3447f2e007bf9ce4"
+    },
+    "KERNEL": {
+      "path": "/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+      "sha256": "ed5d908f3dc3c0a8bdec2a176beb71d021eb627b5f8f8b9f6bb20b69a35391f1"
+    },
+    "DISK": {
+      "path": "/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+      "sha256": "eb6d8091b9ec38a92bcc1b1b7e9ecd4a4cbcfe32f80c2b5db21ecf7ad3c96b3c"
+    },
+    "LIBM5_A": {
+      "path": "/home/hlin/i2ce/gem5-tianrui/util/m5/build/arm64/out/libm5.a",
+      "sha256": "f201959e636d139fe544e3346685e728a225712384add5f04c3f29c45d4709b5"
+    },
+    "starter_fs": {
+      "path": "/home/hlin/i2ce/gem5-tianrui/configs/example/arm/starter_fs.py",
+      "sha256": "0d1ef467a94e587bd020c383d6088077d99a83dfc23fb84ee1ccf1b468d30931"
+    },
+    "devices": {
+      "path": "/home/hlin/i2ce/gem5-tianrui/configs/example/arm/devices.py",
+      "sha256": "6c490d71329314f4530e23d2c30eae210ba3f1d2ca6a19e12063629f23a48509"
+    },
+    "compiler": {
+      "path": "/home/hlin/i2ce/miniforge3/envs/gem5_env/bin/aarch64-conda-linux-gnu-g++",
+      "sha256": "0ae1f915ca96076bd40b822631ca6446cbd28b226848bc3261aa2ff2303a942a"
+    },
+    "gem5_sha": "ed752e78a2ddd5587c1954e2cda51f94cbbe554e",
+    "gem5_diff_sha256": "21c877695b2ace125beba6faf951765262ef40ff419543863594b5362f7f4a67",
+    "compiler_version": "aarch64-conda-linux-gnu-g++ (conda-forge gcc 13.4.0-19) 13.4.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+  },
+  "checkpoint": {
+    "m5.cpt": "0b0938973def9f5c2de5474caceb6606819c58ccaaa34136bb24b5015b77996d",
+    "system.pci_devices0.vio.image.cow": "3f71217f6d3bb4914545f9662a6884e88f674e07fc9ffa0d8da098eaabf7ae26",
+    "system.physmem.store0.pmem": "cfd272ec8e0605f2515d4b12621af95af01b7408c2bcc3d8dd22a2d36d7a295d",
+    "system.physmem.store1.pmem": "1db520007a888e04dac9fb7397003a41f6f7baacb1d1eab93d6d7da68f59056c",
+    "system.physmem.store2.pmem": "2d274fbd5d0ffaebfc4f8a26036d86e85ca758418d4d057fa901fadc4c3c1892",
+    "system.physmem.store3.pmem": "d3ad03799083a62fc258b7c8ed18c775c3353b6eef19c9f5df636463e5915649",
+    "system.physmem.store4.pmem": "d3ad03799083a62fc258b7c8ed18c775c3353b6eef19c9f5df636463e5915649",
+    "system.physmem.store5.pmem": "2d274fbd5d0ffaebfc4f8a26036d86e85ca758418d4d057fa901fadc4c3c1892",
+    "system.physmem.store6.pmem": "bd2a155012c1c8af28a46691f2d71a5d399e5f07393e5391911666db9f837c7b",
+    "system.physmem.store7.pmem": "0636ae6db1958257e064537e9a229acf80347f12f6c9dced25e1f69edab91b8f"
+  },
+  "correctness": {
+    "eid": "E04",
+    "source_sha": "e62309bca2c25bfca4e1c4e31365672989efcf3f",
+    "passed": true,
+    "backend": "qemu-sve128",
+    "tensors": {
+      "learner0/after_attn_addnorm.txt": "acfb90b167384a01e4486c93d35d4f877f04512a55516aba48e35acb6d98d4f1",
+      "learner0/condense_out.txt": "5716fdaf2e027b3d95f51e5a14db795f77b3de4eab7a98754f7c9023fde9ee3a",
+      "learner0/ff0_out.txt": "5f5730a26563da75ef32e2b627926f80565815749f5e74a79b68fa7ba414f5fd",
+      "learner0/ff1_out.txt": "089538d50e63ee745149646278c2c35af4790aa07c49e08f3b74bd7d2fa6d59e",
+      "learner0/final_out.txt": "a1f1e6daa323231b5f146092bc094ae2dec3e37f11eef47fb274aa7597a6a565",
+      "learner0/head_out_h0.txt": "3b5719f76f809a410fe1ba7ac36376145c6c2c98789e95af415bf594bc0698bb",
+      "learner0/head_out_h1.txt": "04e6c3bcb1faf9efe74dbb83f69252c54a01a3075d7e79d22d3260f36362d42d",
+      "learner0/head_out_h2.txt": "7b35d784ad8ae038b8a82e8cbc83aed286e7e11fb868e1bbd42e33309607fa14",
+      "learner0/head_out_h3.txt": "6e418159b722f6a2ec64cae56588afc37f8f0dec76f594f9583a41354d73b8b9",
+      "learner0/head_out_post_h0.txt": "5378409ed7bf7723e3d85ce5d45bdfc1bf36df73674659afa411656548c75a8d",
+      "learner0/head_out_post_h1.txt": "29c0939361daf3d57ac69ef8be4f84dca3848e13b3606f78cb7132f3d6dfd235",
+      "learner0/head_out_post_h2.txt": "f2bb1c4de9cfca2d4f53b6279bf2049a73afd4716cc6ca95b2a88797ba5b2a17",
+      "learner0/head_out_post_h3.txt": "5b7613134f6a6dd643661f0e0b292a6d08e67e0addb5cc8ba8646db3f259d09b",
+      "learner0/k_h0.txt": "fc21aa83b73d4cdaaaeef1dec449bf6add3479d61e39825314c2207010468f2c",
+      "learner0/k_h1.txt": "18064d4ef9500031a6045602a43500f44161303da1897d2c7b9934abfdec90f5",
+      "learner0/k_h2.txt": "35940f3b97f4e3bcd2c00e7e4bd6cc3912299193789e56cfb660347e874eefb6",
+      "learner0/k_h3.txt": "cb6ec8e08491bd474bc13f2384015865f51a0e2d96fafc3f42b3603d5a99ce16",
+      "learner0/multihead_out.txt": "e46a636d4ffea41c2cf57c0fc049fa994879ecd2749990ffe7a13f4f32672978",
+      "learner0/q_h0.txt": "6aa3898d2a4d196494c39b39ecd2a7b8bbac533a1c7e931b90791cb446b70030",
+      "learner0/q_h1.txt": "48b3fb1e27a0447b88ce317c0035298c537da630dd1041162bccd8c4a28c9a8b",
+      "learner0/q_h2.txt": "cb0b135435529f41804c93ad3391f52b77564f38bd579ac56abab7600a6d7a19",
+      "learner0/q_h3.txt": "6af76f180ebf225193f2cb5730cdd118295df8d2025158e4a1f6fa772f18510c",
+      "learner0/qk_scores_h0.txt": "e4a3ef3a12be74bc51e63551a263a390f6fbd4bd39672997948b66d0f2c6540f",
+      "learner0/qk_scores_h1.txt": "ff8ccdf647622794d305b3cabda31bcecaad0111b34a2aa45b0622a1466719cf",
+      "learner0/qk_scores_h2.txt": "423906ba8b86b15b7cfcd484dbfbfc5185389bd39be824cd8039fd6a770c1bae",
+      "learner0/qk_scores_h3.txt": "9e6c4a058b8f9ba0ddd584e07fb2aa9d6d067a928351eb18f3d8e836b10eefb4",
+      "learner0/softmax_qk_h0.txt": "956dd09694f258bfa184e6c056f9f609e953658523d65d16feb2a9874884303f",
+      "learner0/softmax_qk_h1.txt": "8728025648a0863314a0f7a1d8aef95922db9381352084a8f8fd01e92b5a2480",
+      "learner0/softmax_qk_h2.txt": "8a80f34c3ea5c729347a42cc378c5c7983474be55151d71c8b070f17b15deffe",
+      "learner0/softmax_qk_h3.txt": "96c61540c486c646126adbadbb98e5b34c0439a4e60ed8d2705adfaab5479c9e",
+      "learner0/softmax_v_pre_post_h0.txt": "3b5719f76f809a410fe1ba7ac36376145c6c2c98789e95af415bf594bc0698bb",
+      "learner0/softmax_v_pre_post_h1.txt": "04e6c3bcb1faf9efe74dbb83f69252c54a01a3075d7e79d22d3260f36362d42d",
+      "learner0/softmax_v_pre_post_h2.txt": "7b35d784ad8ae038b8a82e8cbc83aed286e7e11fb868e1bbd42e33309607fa14",
+      "learner0/softmax_v_pre_post_h3.txt": "6e418159b722f6a2ec64cae56588afc37f8f0dec76f594f9583a41354d73b8b9",
+      "learner0/v_by_col_h0.txt": "4d94b067d6f77c509265d4327cb426c2b6d2442da1a96f5de34280ac5039fed9",
+      "learner0/v_by_col_h1.txt": "cd8e6aa08902c7f5b8fff110e3658577527891fac8f7885f5683855eac7ea354",
+      "learner0/v_by_col_h2.txt": "595cff20754281d17ac8a64ea27fd677df77ebe192810013bace707fea7c9eae",
+      "learner0/v_by_col_h3.txt": "3bf92f8e6a98a9966434a337feba963989b588368f055567353709053e294f9e",
+      "learner0/v_h0.txt": "ddaae948f6a2c63581aa5fbfde7c187991492a98e8680324a3d0bc2fc7f98424",
+      "learner0/v_h1.txt": "9b355acbb80ecbd302bc5a4cead1d4bcae49a90db9f243a8172965c1d04e810e",
+      "learner0/v_h2.txt": "2715f43e53ded33a05c328fdcf10618feaefa691baa261d91c0917919c664515",
+      "learner0/v_h3.txt": "bfb7581fe189b4d770f9c1486f1511bc53291a23d984ee3dc250ecab1ef5b962",
+      "learner1/after_attn_addnorm.txt": "29df1d03777ddf333e83937278052f1011d29c6e2a24998de99fc21ed2900d58",
+      "learner1/condense_out.txt": "4a8ba071f280fb5cadf6afedec5b5f6a6ecbe805a3a1b529c53db192a2fab3ae",
+      "learner1/ff0_out.txt": "2aa6f41c8e50b3ce8b5d17f19f4fb6a24e6ad5deb1fbac14e3b1bc750a88ccf9",
+      "learner1/ff1_out.txt": "4186a467f1e46f6ca109c695289edeab8f4c0aec8f63c82757539648c489aa32",
+      "learner1/final_out.txt": "cd61a1a00817e6136bffc0b2410088a8ec3dbae94be4d945a619026189f9f912",
+      "learner1/head_out_h0.txt": "4a02fdb47007f8f83aa772318aeb8ede195497009148da21dfafdaacb6ecd56a",
+      "learner1/head_out_h1.txt": "b6eb891edfdd6219f92a14258f53316ebdab49a214d0f7e636e0892ced8f6048",
+      "learner1/head_out_h2.txt": "715bf5686f7dc9e128ad59b6ca3ca7de389939627c0e2df3732d37903d108a79",
+      "learner1/head_out_h3.txt": "cf03008b43c37a488fa0138a83715f4350a9c85e0f440c805639bac02493ccdb",
+      "learner1/head_out_post_h0.txt": "eaa716cf59e3416cd39683d5912aa9aa1756bbd2f3d9e577fb13ddce1bfa4217",
+      "learner1/head_out_post_h1.txt": "84fa9d63e6b6a956f2c13b7901c25c1fe7ced2febb384fa72ad63bddb98ce78d",
+      "learner1/head_out_post_h2.txt": "2e4afaa39bd033306d6dfcbff33b196cd4d14674853d119ca9484e80ad543059",
+      "learner1/head_out_post_h3.txt": "cf03008b43c37a488fa0138a83715f4350a9c85e0f440c805639bac02493ccdb",
+      "learner1/k_h0.txt": "3a7c565b5d085c405752d2fb2a1429db5c10168aee71be969da09fca164f09c6",
+      "learner1/k_h1.txt": "fd43627fcff96c651ed788ff2246a0dc5bcb3c6a20e32d30e4d1800a199e80fd",
+      "learner1/k_h2.txt": "ae3172ce269064274bacfdced6d0533c6894066d003725cbc560affb11209ac6",
+      "learner1/k_h3.txt": "94595fd480734459af18213ce6f90665ee3468fe92105ba9d61c1387b3de3de5",
+      "learner1/multihead_out.txt": "adc6cdbad32d8790f4d1877c45e731a36fcd8c6e782103ed541379a8c6cef547",
+      "learner1/q_h0.txt": "d589855fa249e6a769e639453b3b260245bff739471a375d866bcdb7c15a6fe6",
+      "learner1/q_h1.txt": "30cd1e321da8ff411f955e43e240747033d3f2b8f82d28e8283bab95f372d810",
+      "learner1/q_h2.txt": "7d6fbc82e47e3164154e764bf0cdc3372648924e6742dde221637fd7336d1637",
+      "learner1/q_h3.txt": "2f0bc69f873aafd279292b1d2f1bc48c82858a24bdf6e14e6d7f270037d4422f",
+      "learner1/qk_scores_h0.txt": "5a54dee28ffd0a9bd79610fb48af7eb1e40364f8cab0713ef4aa9cc8b440aa47",
+      "learner1/qk_scores_h1.txt": "4d830410bc346314ae2e81b4d92941d820ee84a737592a393b14baf4b9945487",
+      "learner1/qk_scores_h2.txt": "ecab5bce2c7f1844c55e9261c68240d4d1f5da6599917df6c8ed9e430caad928",
+      "learner1/qk_scores_h3.txt": "ab3f17bf67c623ddf1f1d51e48a15985e345537512dd023ef85c3aefee33c1f2",
+      "learner1/softmax_qk_h0.txt": "90ee5e15f10a70e4a7faa572e2bc9a810f3d8b9c401bd2b7744a0e7d5d9529cd",
+      "learner1/softmax_qk_h1.txt": "1c06314c94cfe49fb1dba906de7d6916d806d664fd5c82ff46fe1d2ab77e5435",
+      "learner1/softmax_qk_h2.txt": "84be13d71eefc4c2f5edd6e73dbeb8860ed0eade28802ab25af922d3fc4c7d93",
+      "learner1/softmax_qk_h3.txt": "a733259dda3498d48161334f33163b08f6e1bd9716d77a89700a674fe0dbb94c",
+      "learner1/softmax_v_pre_post_h0.txt": "4a02fdb47007f8f83aa772318aeb8ede195497009148da21dfafdaacb6ecd56a",
+      "learner1/softmax_v_pre_post_h1.txt": "b6eb891edfdd6219f92a14258f53316ebdab49a214d0f7e636e0892ced8f6048",
+      "learner1/softmax_v_pre_post_h2.txt": "715bf5686f7dc9e128ad59b6ca3ca7de389939627c0e2df3732d37903d108a79",
+      "learner1/softmax_v_pre_post_h3.txt": "cf03008b43c37a488fa0138a83715f4350a9c85e0f440c805639bac02493ccdb",
+      "learner1/v_by_col_h0.txt": "bea66d50d0f98fc32ab326e61af13db41fb183f0891e5e5c8de2c24ae7bb90a6",
+      "learner1/v_by_col_h1.txt": "be84a410851527084a4260290058aab90b1383aec99e92b75624c78573be670b",
+      "learner1/v_by_col_h2.txt": "ba08b64a2bdf5c91fa1ff9d8852747cdf5c6b145b4ef932e5993b6e405dc3844",
+      "learner1/v_by_col_h3.txt": "7dd7a3f0c91c6f5c467cec175692a2ad66444dd834948b608178bf1fb8cd4d9b",
+      "learner1/v_h0.txt": "fc4f874ef7400635157a3596a2b621d5402b0049d7127369a0490745ca18f995",
+      "learner1/v_h1.txt": "2a7380c6d7544c68cf3fef2937e7a4678b732e6b41c228f86e5af0a3e13c2a1a",
+      "learner1/v_h2.txt": "f660fc53e7900020a747afb7cd44319418a661873436f100fa73d5d12244b165",
+      "learner1/v_h3.txt": "cf03008b43c37a488fa0138a83715f4350a9c85e0f440c805639bac02493ccdb"
+    },
+    "input_generation": {
+      "headers": {
+        "codebooks_def.h": "37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd",
+        "gemm_header_0.h": "172404bcff3ff1a2fe6c8f4c25cf35acf1f06e7827412935d59ed77d9e36de34",
+        "gemm_header_1.h": "37a5b42be99962f2f768730d4e3f98c530b75b9a92e25d72c60bd28c2346a665",
+        "gemm_header_10.h": "e8203d5480c887dd5c062c4c102769fbd03dde2c4fbb8101cffc5fb7bd41564c",
+        "gemm_header_11.h": "fe32d97e484c71b824eee7010967836ae2df7d84d297db4fa768caf8afc85b22",
+        "gemm_header_12.h": "5e6c80e931f13561ccb96a8559c56d8f2c69c0624e2b8085e52da95040add4d4",
+        "gemm_header_13.h": "fd2dadf5c22dd2b4eccfdf0d570aa8d3466428a8b30c2f194b752ac65987d307",
+        "gemm_header_14.h": "70142fabda8ccb58c546b1b710dfb82d3955cf9ec794cdcccb79fb4cd5d6dbbe",
+        "gemm_header_2.h": "db27d0ca5f26b758caac982f55c755859448d100cc94d2cda483b724ce975b7e",
+        "gemm_header_3.h": "50f12cf370a28540da51d7ea0127327c158eea364e1d4b1c53fa46937eb56d4d",
+        "gemm_header_4.h": "1155dd314aee8697ff4d50bc2bb5a984eb89bca3159354d9ebe5eae5758e6c85",
+        "gemm_header_5.h": "7327ab9950a45a95339c594c50ca1652bf49149668627be0d5a7fe9422267246",
+        "gemm_header_6.h": "f2716c76d497d300dca6604e9b24b483bd7ce3eb2b42aab355514497de5c3ee7",
+        "gemm_header_7.h": "76a1aef6b66c15ceccdd7241f1ae7afd2f8c00be25d8ae429395f1937a373db5",
+        "gemm_header_8.h": "865351a2fcab9cae8db137f7662788adb4e1a62e75d8cb9fa1ab130d18d223e9",
+        "gemm_header_9.h": "1e58405e4f5e580d34bb2f8764b86f22fa9d4f4c5d3e24c43845b9a0a479db72",
+        "generated_codebook_registry.h": "e30296de7223d46a8e567c6ef81281ee25cbc2bc61719333283684c055b4d1e0",
+        "input_matrix.h": "2e8e19161ff0d023de49d6b4767a666a31b1819f9959b05b6cc2e7844f411197"
+      },
+      "weights": {
+        "generated_from_notebook/H-1_L-1.bin": "965d55b18e5408ea39601dd9898e8fbc4a3f53752fc612a64fa6e7147605cdb9",
+        "generated_from_notebook/learner0/H-1_L0.bin": "e20c8e00e2f54fd5e0f6d198e271f1c71e60a5da6bae9f70d2fbc99ed9301e71",
+        "generated_from_notebook/learner0/H-1_L1.bin": "579e84c666c67eddc19a15867df13e74cc966b520e6f9e91f8a72fa63d1ac04a",
+        "generated_from_notebook/learner0/H-1_L2.bin": "c3dfe329606d4cf6c65ce60d39e240f85a029563c082c0513da21c1c3ed98018",
+        "generated_from_notebook/learner0/H0_L0.bin": "ac3b2d17a60f360208e78bac4aa6564662a23d61efdec0f1f8ef2b1fbac31fbc",
+        "generated_from_notebook/learner0/H0_L1.bin": "9157fef8e1ef72ed6642f79c63295d076d935b804367665c74e23de032dfe145",
+        "generated_from_notebook/learner0/H0_L2.bin": "5d46ff8c0564ba86f58827f4a86156ae75a70cc797fce95902c639404aa6b8e3",
+        "generated_from_notebook/learner0/H1_L0.bin": "89a29cbf9ee3fe09dd2ed17f4b408f06abc3757ca4065eaf5ed15514608f70e3",
+        "generated_from_notebook/learner0/H1_L1.bin": "98adb890bd7a3ab4a3eb20da83ff6a4037219f7faf7aa987f5585126e8a2b154",
+        "generated_from_notebook/learner0/H1_L2.bin": "f67835772eba0b10161f8b094bdcdadf8b70c919e564605d8e9d50b7b1147ebe",
+        "generated_from_notebook/learner0/H2_L0.bin": "e505bb4bfd87f1e198172f4c29556cc31aa02311cec0764e414398d5ec3990c6",
+        "generated_from_notebook/learner0/H2_L1.bin": "ba9f898dfcc03041bd98f93f093ecb485bb6e2cae5fe0d2070fe3bbcb8ebc641",
+        "generated_from_notebook/learner0/H2_L2.bin": "be6d14dcb15b2d1ca967a5e17224ce4c8459f2c69eb5df4d3e0b55b3c8da9f72",
+        "generated_from_notebook/learner0/H3_L0.bin": "f830f82f4013bb191df2e0592144cf223772133b02e286e061c422a5f4880d0a",
+        "generated_from_notebook/learner0/H3_L1.bin": "3d7abad662f9071ca9923c0d4f861beb8075a63f192ec555e74191f9c79b8625",
+        "generated_from_notebook/learner0/H3_L2.bin": "4ff6b637f2eb8cbc6ca3a2ec9dd2c837e9bf732a212eedc5e48588b0c2edbbe8",
+        "generated_from_notebook/learner1/H-1_L0.bin": "203d536ef68148d014a6046db3266133f9cac5df35de1aa5ca1d3face89c819f",
+        "generated_from_notebook/learner1/H-1_L1.bin": "30becc498b87622e641d4274ed3aed54a820faf2ef52dffc4e92bfefbc99c0ae",
+        "generated_from_notebook/learner1/H-1_L2.bin": "5cff0eb25fa0c44b045e7ed5318c33161dd3da0616c55638e742de1b7611c8c0",
+        "generated_from_notebook/learner1/H0_L0.bin": "8304d172513b339fcdd3f8941a125e1ef4d7fce2f785ae08931aaa0cebe9cb72",
+        "generated_from_notebook/learner1/H0_L1.bin": "5b37c6f769a7fb70611c957341e2f605ae98f9b49d6275dd00c573cbad76ab4e",
+        "generated_from_notebook/learner1/H0_L2.bin": "e2bbf5da93db027a0585749da4d1ee6d443a6fd82352a3985990f5fd0260699c",
+        "generated_from_notebook/learner1/H1_L0.bin": "62f482797b1af7164c4b5596caf485495554075420a7bc43b6223864dbbcef17",
+        "generated_from_notebook/learner1/H1_L1.bin": "e02de8f6ad76283999343773aba4836ea86a104f5bf3c722c0d5023d3d378cd2",
+        "generated_from_notebook/learner1/H1_L2.bin": "9cc6a8efab5a62204008d1a65c45ae8b4be9a507456cb42aeffd6662194e2809",
+        "generated_from_notebook/learner1/H2_L0.bin": "d65c8c35eb321323161f0024071cabe624d1feb51dd8b1841aa315fa68c6a9c9",
+        "generated_from_notebook/learner1/H2_L1.bin": "7f9a19510247b55ab630763517b91e191ea04fd786d532b3313e3b737fa495e8",
+        "generated_from_notebook/learner1/H2_L2.bin": "4fd9dd3e55cb0327e782a2821e626a017dd2136f86572886ed8e350da1186b51",
+        "generated_from_notebook/learner1/H3_L0.bin": "e393a6ca8a57caf3a7e3bb894f6fb5790c836142a95a5cb1568ad287aea39ae2",
+        "generated_from_notebook/learner1/H3_L1.bin": "e6506c2534db51284523978b8749ec3bee3bee42892f6746083d16bb6539a62b",
+        "generated_from_notebook/learner1/H3_L2.bin": "0d711a0f928e19927c415afa719f1a3380b71445d06fa753a32fc61e8a0e73e6"
+      }
+    },
+    "validation_binary_sha256": "d12313c13aa51794b6890f3023eac68b4dfdcfc06de83dee80c716819eeb95be",
+    "validation_only_changes": [
+      "weights path",
+      "profiling disabled"
+    ],
+    "reference": "E03"
+  },
+  "submitted_at": 1791227972.0056124,
+  "run_dir": "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211932",
+  "launch": {
+    "status": "launched",
+    "command": [
+      "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+      "-d",
+      "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211932",
+      "--stats-file=stats.txt",
+      "--dump-config=config.ini",
+      "configs/example/arm/starter_fs.py",
+      "--cpu=minor",
+      "--kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+      "--disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+      "--restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500",
+      "--script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc/run.rcS",
+      "--vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc",
+      "--cpu-freq=4GHz",
+      "--mem-size=2GiB",
+      "--mem-type=DDR3_1600_8x8",
+      "--mem-channels=1",
+      "--num-cores=1"
+    ],
+    "cwd": "/home/hlin/i2ce/gem5-tianrui",
+    "cap": 30,
+    "live": 3,
+    "memory_slots": 38,
+    "admitted": true,
+    "rss_budget": 8589934592.0,
+    "external_load": 1.2800000000000002,
+    "physical_cpus": 36,
+    "affinity_cpus": 72,
+    "cpu_budget": 36.0,
+    "memory_available": 350770352128,
+    "load1": 4.28,
+    "time": 1791227972.6272953,
+    "out": "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211932",
+    "processes": [
+      {
+        "pid": 128757,
+        "start": "632242295",
+        "comm": "gem5.fast",
+        "argv": [
+          "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+          "-d",
+          "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211924",
+          "--stats-file=stats.txt",
+          "--dump-config=config.ini",
+          "configs/example/arm/starter_fs.py",
+          "--cpu=minor",
+          "--kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+          "--disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+          "--restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500",
+          "--script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211441_eb4a8e4f/run.rcS",
+          "--vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211441_eb4a8e4f",
+          "--cpu-freq=4GHz",
+          "--mem-size=2GiB",
+          "--mem-type=DDR3_1600_8x8",
+          "--mem-channels=1",
+          "--num-cores=1"
+        ],
+        "rss": 2644549632,
+        "hwm": 2644549632
+      },
+      {
+        "pid": 129168,
+        "start": "632242563",
+        "comm": "gem5.fast",
+        "argv": [
+          "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+          "-d",
+          "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211926",
+          "--stats-file=stats.txt",
+          "--dump-config=config.ini",
+          "configs/example/arm/starter_fs.py",
+          "--cpu=minor",
+          "--kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+          "--disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+          "--restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500",
+          "--script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6/run.rcS",
+          "--vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6",
+          "--cpu-freq=4GHz",
+          "--mem-size=2GiB",
+          "--mem-type=DDR3_1600_8x8",
+          "--mem-channels=1",
+          "--num-cores=1"
+        ],
+        "rss": 1617035264,
+        "hwm": 1617035264
+      },
+      {
+        "pid": 129330,
+        "start": "632242829",
+        "comm": "gem5.fast",
+        "argv": [
+          "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+          "-d",
+          "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211929",
+          "--stats-file=stats.txt",
+          "--dump-config=config.ini",
+          "configs/example/arm/starter_fs.py",
+          "--cpu=minor",
+          "--kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+          "--disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+          "--restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500",
+          "--script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211335_33d76aa2/run.rcS",
+          "--vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211335_33d76aa2",
+          "--cpu-freq=4GHz",
+          "--mem-size=2GiB",
+          "--mem-type=DDR3_1600_8x8",
+          "--mem-channels=1",
+          "--num-cores=1"
+        ],
+        "rss": 494882816,
+        "hwm": 494882816
+      }
+    ],
+    "process": {
+      "pid": 129731,
+      "start": "632243092",
+      "comm": "gem5.fast",
+      "argv": [
+        "/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast",
+        "-d",
+        "/home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211932",
+        "--stats-file=stats.txt",
+        "--dump-config=config.ini",
+        "configs/example/arm/starter_fs.py",
+        "--cpu=minor",
+        "--kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui",
+        "--disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img",
+        "--restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500",
+        "--script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc/run.rcS",
+        "--vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211715_e62309bc",
+        "--cpu-freq=4GHz",
+        "--mem-size=2GiB",
+        "--mem-type=DDR3_1600_8x8",
+        "--mem-channels=1",
+        "--num-cores=1"
+      ],
+      "rss": 237568,
+      "hwm": 237568
+    }
+  },
+  "result_file": "/home/hlin/i2ce/I2CE_cb4_cache_controller/transformer_profiling/hsylin/cb4-baseline-optimization/e04_cb4_baseline_optimization_n2_cb4_sve128_e62309bc_run_20261005_211932.tsv",
+  "result_sha256": "6350990e871b9048187e9b6a2e999c4f66f8a16fc0a46b170b016413c46a53e1",
+  "machine_config": {
+    "root": {
+      "type": "Root"
+    },
+    "system": {
+      "type": "ArmSystem",
+      "cache_line_size": "64",
+      "external_memory_ranges": "",
+      "mem_ranges": "2147483648:4294967296",
+      "shadow_rom_ranges": "",
+      "sve_vl": "1"
+    },
+    "system.clk_domain": {
+      "type": "SrcClockDomain",
+      "clock": "1000"
+    },
+    "system.cpu_cluster": {
+      "type": "CpuCluster"
+    },
+    "system.cpu_cluster.clk_domain": {
+      "type": "SrcClockDomain",
+      "clock": "250"
+    },
+    "system.cpu_cluster.cpus": {
+      "type": "BaseMinorCPU",
+      "decodeinputbuffersize": "3",
+      "decodeinputwidth": "2",
+      "executecommitlimit": "2",
+      "executeinputbuffersize": "7",
+      "executeinputwidth": "2",
+      "executeissuelimit": "2",
+      "executelsqrequestsqueuesize": "1",
+      "executelsqstorebuffersize": "5",
+      "executelsqtransfersqueuesize": "2",
+      "executememorycommitlimit": "1",
+      "executememoryissuelimit": "1",
+      "executememorywidth": "0",
+      "fetch1fetchlimit": "1",
+      "fetch1linesnapwidth": "0",
+      "fetch1linewidth": "0",
+      "fetch2inputbuffersize": "2",
+      "pwr_gating_latency": "300",
+      "syscallretrylatency": "10000"
+    },
+    "system.cpu_cluster.cpus.branchPred": {
+      "type": "BranchPredictor"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb": {
+      "type": "SimpleBTB",
+      "associativity": "1"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.btbIndexingPolicy": {
+      "type": "BTBSetAssociative",
+      "assoc": "1"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.btbReplPolicy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.branchPred.conditionalBranchPred": {
+      "type": "TournamentBP",
+      "choicepredictorsize": "8192",
+      "globalpredictorsize": "8192",
+      "localhistorytablesize": "2048",
+      "localpredictorsize": "2048"
+    },
+    "system.cpu_cluster.cpus.branchPred.indirectBranchPred": {
+      "type": "SimpleIndirectPredictor",
+      "indirecttagsize": "16"
+    },
+    "system.cpu_cluster.cpus.branchPred.ras": {
+      "type": "ReturnAddrStack"
+    },
+    "system.cpu_cluster.cpus.dcache": {
+      "type": "Cache",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "2",
+      "data_latency": "2",
+      "mshrs": "16",
+      "response_latency": "1",
+      "size": "32768",
+      "tag_latency": "2"
+    },
+    "system.cpu_cluster.cpus.dcache.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.dcache.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.dcache.tags": {
+      "type": "BaseSetAssoc",
+      "assoc": "2",
+      "block_size": "64",
+      "entry_size": "64",
+      "size": "32768",
+      "tag_latency": "2"
+    },
+    "system.cpu_cluster.cpus.dcache.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "2",
+      "entry_size": "64",
+      "size": "32768"
+    },
+    "system.cpu_cluster.cpus.dcache.tags.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.decoder": {
+      "type": "ArmDecoder"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits": {
+      "type": "MinorFUPool"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses.opClasses": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses.opClasses": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses.opClasses": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses.opClasses": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses00": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses01": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses02": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses03": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses04": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses05": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses06": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses07": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses08": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses09": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses10": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses11": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses12": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses13": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses14": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses15": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses16": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses17": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses18": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses19": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses20": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses21": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses22": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses23": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses24": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses25": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses26": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses27": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses28": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses29": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses30": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses31": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses32": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses33": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses34": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses35": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses36": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses37": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses38": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses39": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses40": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses41": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses42": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses43": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses44": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses45": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses46": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses47": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses48": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses49": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses50": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses51": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses52": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses53": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses54": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses55": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses56": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses57": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses58": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses59": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses60": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses61": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses62": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses.opClasses": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses00": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses01": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses02": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses03": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses04": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses05": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses06": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses07": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses08": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses09": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses10": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses11": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses12": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses13": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses14": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings": {
+      "type": "MinorFUTiming"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7": {
+      "type": "MinorFU"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses": {
+      "type": "MinorOpClassSet"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses0": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses1": {
+      "type": "MinorOpClass"
+    },
+    "system.cpu_cluster.cpus.icache": {
+      "type": "Cache",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "3",
+      "data_latency": "1",
+      "mshrs": "4",
+      "response_latency": "1",
+      "size": "49152",
+      "tag_latency": "1"
+    },
+    "system.cpu_cluster.cpus.icache.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.icache.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.icache.tags": {
+      "type": "BaseSetAssoc",
+      "assoc": "3",
+      "block_size": "64",
+      "entry_size": "64",
+      "size": "49152",
+      "tag_latency": "1"
+    },
+    "system.cpu_cluster.cpus.icache.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "3",
+      "entry_size": "64",
+      "size": "49152"
+    },
+    "system.cpu_cluster.cpus.icache.tags.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.interrupts": {
+      "type": "ArmInterrupts"
+    },
+    "system.cpu_cluster.cpus.isa": {
+      "type": "ArmISA",
+      "sve_vl_se": "1"
+    },
+    "system.cpu_cluster.cpus.isa.release_se": {
+      "type": "ArmRelease"
+    },
+    "system.cpu_cluster.cpus.mmu": {
+      "type": "ArmMMU"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb": {
+      "type": "ArmTLB",
+      "assoc": "64",
+      "entry_type": "data",
+      "size": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.mmu.itb": {
+      "type": "ArmTLB",
+      "assoc": "64",
+      "entry_type": "instruction",
+      "size": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.itb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.itb.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared": {
+      "type": "ArmTLB",
+      "assoc": "5",
+      "entry_type": "unified",
+      "size": "1280"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "5"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb": {
+      "type": "ArmTLB",
+      "assoc": "32",
+      "entry_type": "data",
+      "size": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb": {
+      "type": "ArmTLB",
+      "assoc": "32",
+      "entry_type": "instruction",
+      "size": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.cpus.mmu.walker": {
+      "type": "ArmTableWalker"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units0": {
+      "type": "ArmWalkUnit",
+      "walk_type": "instruction"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units0.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units1": {
+      "type": "ArmWalkUnit",
+      "walk_type": "data"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units1.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units2": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units2.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units3": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units3.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units4": {
+      "type": "ArmWalkUnit",
+      "walk_type": "instruction"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units4.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units5": {
+      "type": "ArmWalkUnit",
+      "walk_type": "data"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units5.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units6": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units6.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units7": {
+      "type": "ArmWalkUnit",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units7.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.cpus.tracer": {
+      "type": "ExeTracer"
+    },
+    "system.cpu_cluster.cpus.tracer.disassembler": {
+      "type": "InstDisassembler"
+    },
+    "system.cpu_cluster.l2": {
+      "type": "Cache",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "16",
+      "data_latency": "12",
+      "mshrs": "32",
+      "response_latency": "5",
+      "size": "1048576",
+      "tag_latency": "12"
+    },
+    "system.cpu_cluster.l2.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.l2.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.cpu_cluster.l2.tags": {
+      "type": "BaseSetAssoc",
+      "assoc": "16",
+      "block_size": "64",
+      "entry_size": "64",
+      "size": "1048576",
+      "tag_latency": "12"
+    },
+    "system.cpu_cluster.l2.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "16",
+      "entry_size": "64",
+      "size": "1048576"
+    },
+    "system.cpu_cluster.l2.tags.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.toL2Bus": {
+      "type": "CoherentXBar",
+      "forward_latency": "0",
+      "frontend_latency": "1",
+      "header_latency": "1",
+      "max_routing_table_size": "512",
+      "response_latency": "1",
+      "snoop_response_latency": "1",
+      "width": "64"
+    },
+    "system.cpu_cluster.toL2Bus.power_state": {
+      "type": "PowerState"
+    },
+    "system.cpu_cluster.toL2Bus.snoop_filter": {
+      "type": "SnoopFilter",
+      "lookup_latency": "0"
+    },
+    "system.cpu_cluster.voltage_domain": {
+      "type": "VoltageDomain"
+    },
+    "system.dvfs_handler": {
+      "type": "DVFSHandler",
+      "transition_latency": "100000000"
+    },
+    "system.iobridge": {
+      "type": "Bridge",
+      "ranges": "201326592:536870912 788529152:2147483648",
+      "req_size": "16",
+      "resp_size": "16"
+    },
+    "system.iobridge.power_state": {
+      "type": "PowerState"
+    },
+    "system.iobus": {
+      "type": "NoncoherentXBar",
+      "forward_latency": "1",
+      "frontend_latency": "2",
+      "header_latency": "1",
+      "response_latency": "2",
+      "width": "16"
+    },
+    "system.iobus.power_state": {
+      "type": "PowerState"
+    },
+    "system.iocache": {
+      "type": "Cache",
+      "addr_ranges": "2147483648:4294967296",
+      "assoc": "8",
+      "data_latency": "50",
+      "mshrs": "20",
+      "response_latency": "50",
+      "size": "1024",
+      "tag_latency": "50"
+    },
+    "system.iocache.power_state": {
+      "type": "PowerState"
+    },
+    "system.iocache.replacement_policy": {
+      "type": "LRURP"
+    },
+    "system.iocache.tags": {
+      "type": "BaseSetAssoc",
+      "assoc": "8",
+      "block_size": "64",
+      "entry_size": "64",
+      "size": "1024",
+      "tag_latency": "50"
+    },
+    "system.iocache.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "8",
+      "entry_size": "64",
+      "size": "1024"
+    },
+    "system.iocache.tags.power_state": {
+      "type": "PowerState"
+    },
+    "system.mem_ctrls": {
+      "type": "MemCtrl",
+      "static_backend_latency": "10000",
+      "static_frontend_latency": "10000"
+    },
+    "system.mem_ctrls.dram": {
+      "type": "DRAMInterface",
+      "activation_limit": "4",
+      "beats_per_clock": "2",
+      "data_clock_sync": "false",
+      "device_bus_width": "8",
+      "device_rowbuffer_size": "1024",
+      "device_size": "536870912",
+      "ranks_per_channel": "2",
+      "read_buffer_size": "32",
+      "write_buffer_size": "64"
+    },
+    "system.mem_ctrls.dram.power_state": {
+      "type": "PowerState"
+    },
+    "system.mem_ctrls.power_state": {
+      "type": "PowerState"
+    },
+    "system.membus": {
+      "type": "CoherentXBar",
+      "forward_latency": "4",
+      "frontend_latency": "3",
+      "header_latency": "1",
+      "max_routing_table_size": "512",
+      "response_latency": "2",
+      "snoop_response_latency": "4",
+      "width": "16"
+    },
+    "system.membus.badaddr_responder": {
+      "type": "IsaFake",
+      "pio_latency": "100000",
+      "pio_size": "8"
+    },
+    "system.membus.badaddr_responder.power_state": {
+      "type": "PowerState"
+    },
+    "system.membus.power_state": {
+      "type": "PowerState"
+    },
+    "system.membus.snoop_filter": {
+      "type": "SnoopFilter",
+      "lookup_latency": "1"
+    },
+    "system.pci_devices0": {
+      "type": "PciVirtIO",
+      "cachelinesize": "0",
+      "headertype": "0",
+      "latencytimer": "0",
+      "maximumlatency": "0",
+      "config_latency": "20000",
+      "pio_latency": "30000"
+    },
+    "system.pci_devices0.BAR0": {
+      "type": "PciIoBar",
+      "size": "4"
+    },
+    "system.pci_devices0.BAR1": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices0.BAR2": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices0.BAR3": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices0.BAR4": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices0.BAR5": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices0.power_state": {
+      "type": "PowerState"
+    },
+    "system.pci_devices0.vio": {
+      "type": "VirtIOBlock",
+      "queuesize": "128"
+    },
+    "system.pci_devices0.vio.image": {
+      "type": "CowDiskImage",
+      "table_size": "65536"
+    },
+    "system.pci_devices0.vio.image.child": {
+      "type": "RawDiskImage"
+    },
+    "system.pci_devices1": {
+      "type": "PciVirtIO",
+      "cachelinesize": "0",
+      "headertype": "0",
+      "latencytimer": "0",
+      "maximumlatency": "0",
+      "config_latency": "20000",
+      "pio_latency": "30000"
+    },
+    "system.pci_devices1.BAR0": {
+      "type": "PciIoBar",
+      "size": "4"
+    },
+    "system.pci_devices1.BAR1": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices1.BAR2": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices1.BAR3": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices1.BAR4": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices1.BAR5": {
+      "type": "PciBarNone"
+    },
+    "system.pci_devices1.power_state": {
+      "type": "PowerState"
+    },
+    "system.pci_devices1.vio": {
+      "type": "VirtIO9PDiod",
+      "queuesize": "128"
+    },
+    "system.realview": {
+      "type": "RealView"
+    },
+    "system.realview.bootmem": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.bootmem.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.clock24MHz": {
+      "type": "SrcClockDomain",
+      "clock": "41667"
+    },
+    "system.realview.clock32KHz": {
+      "type": "SrcClockDomain",
+      "clock": "31250000"
+    },
+    "system.realview.dcc": {
+      "type": "SubSystem"
+    },
+    "system.realview.dcc.osc_cpu": {
+      "type": "RealViewOsc",
+      "freq": "16667",
+      "max_freq": "16667",
+      "min_freq": "50000"
+    },
+    "system.realview.dcc.osc_ddr": {
+      "type": "RealViewOsc",
+      "freq": "25000",
+      "max_freq": "0",
+      "min_freq": "0"
+    },
+    "system.realview.dcc.osc_hsbm": {
+      "type": "RealViewOsc",
+      "freq": "25000",
+      "max_freq": "25000",
+      "min_freq": "50000"
+    },
+    "system.realview.dcc.osc_pxl": {
+      "type": "RealViewOsc",
+      "freq": "42105",
+      "max_freq": "6061",
+      "min_freq": "42088"
+    },
+    "system.realview.dcc.osc_smb": {
+      "type": "RealViewOsc",
+      "freq": "20000",
+      "max_freq": "20000",
+      "min_freq": "50000"
+    },
+    "system.realview.dcc.osc_sys": {
+      "type": "RealViewOsc",
+      "freq": "16667",
+      "max_freq": "16667",
+      "min_freq": "50000"
+    },
+    "system.realview.el2_watchdog": {
+      "type": "GenericWatchdog",
+      "pio_latency": "10000"
+    },
+    "system.realview.el2_watchdog.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.el2_watchdog.ws0": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.el2_watchdog.ws1": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.energy_ctrl": {
+      "type": "EnergyCtrl",
+      "pio_latency": "100000"
+    },
+    "system.realview.energy_ctrl.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.flash0": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.flash0.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.flash1": {
+      "type": "CfiMemory",
+      "bandwidth": "73.000000",
+      "bank_width": "4",
+      "blk_size": "65536",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.flash1.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.generic_timer": {
+      "type": "GenericTimer"
+    },
+    "system.realview.generic_timer.int_el1_phys": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el1_virt": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el2_ns_phys": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el2_ns_virt": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el2_s_phys": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el2_s_virt": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer.int_el3_phys": {
+      "type": "ArmPPI",
+      "int_type": "IRQ_TYPE_LEVEL_LOW"
+    },
+    "system.realview.generic_timer_mem": {
+      "type": "GenericTimerMem"
+    },
+    "system.realview.generic_timer_mem.frames0": {
+      "type": "GenericTimerFrame"
+    },
+    "system.realview.generic_timer_mem.frames0.int_phys": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.generic_timer_mem.frames0.int_virt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.generic_timer_mem.frames0.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.generic_timer_mem.frames1": {
+      "type": "GenericTimerFrame"
+    },
+    "system.realview.generic_timer_mem.frames1.int_phys": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.generic_timer_mem.frames1.int_virt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.generic_timer_mem.frames1.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.generic_timer_mem.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.gic": {
+      "type": "GicV2",
+      "cpu_size": "8192",
+      "int_latency": "10000"
+    },
+    "system.realview.gic.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.gicv2m": {
+      "type": "Gicv2m"
+    },
+    "system.realview.gicv2m.frames": {
+      "type": "Gicv2mFrame"
+    },
+    "system.realview.gicv2m.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.io_voltage": {
+      "type": "VoltageDomain"
+    },
+    "system.realview.kmi0": {
+      "type": "Pl050",
+      "pio_latency": "100000"
+    },
+    "system.realview.kmi0.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.kmi0.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.kmi0.ps2": {
+      "type": "PS2Keyboard"
+    },
+    "system.realview.kmi1": {
+      "type": "Pl050",
+      "pio_latency": "100000"
+    },
+    "system.realview.kmi1.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.kmi1.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.kmi1.ps2": {
+      "type": "PS2TouchKit"
+    },
+    "system.realview.mcc": {
+      "type": "SubSystem"
+    },
+    "system.realview.mcc.osc_clcd": {
+      "type": "RealViewOsc",
+      "freq": "42105",
+      "max_freq": "15748",
+      "min_freq": "42105"
+    },
+    "system.realview.mcc.osc_mcc": {
+      "type": "RealViewOsc",
+      "freq": "20000",
+      "max_freq": "16667",
+      "min_freq": "40000"
+    },
+    "system.realview.mcc.osc_peripheral": {
+      "type": "RealViewOsc",
+      "freq": "41667",
+      "max_freq": "0",
+      "min_freq": "0"
+    },
+    "system.realview.mcc.osc_system_bus": {
+      "type": "RealViewOsc",
+      "freq": "41667",
+      "max_freq": "4348",
+      "min_freq": "500000"
+    },
+    "system.realview.mcc.temp_crtl": {
+      "type": "RealViewTemperatureSensor"
+    },
+    "system.realview.non_trusted_sram": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.non_trusted_sram.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pci_bus": {
+      "type": "PciBus",
+      "forward_latency": "1",
+      "frontend_latency": "2",
+      "header_latency": "1",
+      "response_latency": "2",
+      "width": "16"
+    },
+    "system.realview.pci_bus.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pci_host": {
+      "type": "GenericArmPciHost",
+      "conf_size": "268435456"
+    },
+    "system.realview.pci_host.config_error": {
+      "type": "PciConfigError",
+      "pio_latency": "100000",
+      "pio_size": "0"
+    },
+    "system.realview.pci_host.config_error.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pci_host.down_to_up": {
+      "type": "Bridge",
+      "ranges": "0:18446744073709551615",
+      "req_size": "16",
+      "resp_size": "16"
+    },
+    "system.realview.pci_host.down_to_up.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pci_host.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pci_host.up_to_down": {
+      "type": "PciUpDownBridge",
+      "req_size": "16",
+      "resp_size": "16"
+    },
+    "system.realview.pci_host.up_to_down.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.pwr_ctrl": {
+      "type": "FVPBasePwrCtrl",
+      "pio_latency": "100000"
+    },
+    "system.realview.pwr_ctrl.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.realview_io": {
+      "type": "RealViewCtrl",
+      "pio_latency": "100000"
+    },
+    "system.realview.realview_io.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.rtc": {
+      "type": "PL031",
+      "pio_latency": "100000"
+    },
+    "system.realview.rtc.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.rtc.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.sys_counter": {
+      "type": "SystemCounter",
+      "freqs": "25165824"
+    },
+    "system.realview.system_watchdog": {
+      "type": "Sp805",
+      "pio_latency": "100000"
+    },
+    "system.realview.system_watchdog.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.system_watchdog.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.trusted_dram": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.trusted_dram.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.trusted_sram": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.trusted_sram.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.trusted_watchdog": {
+      "type": "Sp805",
+      "pio_latency": "100000"
+    },
+    "system.realview.trusted_watchdog.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.trusted_watchdog.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.uart0": {
+      "type": "Pl011",
+      "pio_latency": "100000"
+    },
+    "system.realview.uart0.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.uart0.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.uart1": {
+      "type": "Pl011",
+      "pio_latency": "100000"
+    },
+    "system.realview.uart1.device": {
+      "type": "Terminal"
+    },
+    "system.realview.uart1.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.uart1.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.uart2": {
+      "type": "Pl011",
+      "pio_latency": "100000"
+    },
+    "system.realview.uart2.device": {
+      "type": "Terminal"
+    },
+    "system.realview.uart2.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.uart2.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.uart3": {
+      "type": "Pl011",
+      "pio_latency": "100000"
+    },
+    "system.realview.uart3.device": {
+      "type": "Terminal"
+    },
+    "system.realview.uart3.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.uart3.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.vgic": {
+      "type": "VGic"
+    },
+    "system.realview.vgic.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.vio0": {
+      "type": "MmioVirtIO",
+      "pio_latency": "100000",
+      "pio_size": "4096"
+    },
+    "system.realview.vio0.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.vio0.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.vio0.vio": {
+      "type": "VirtIODummyDevice"
+    },
+    "system.realview.vio1": {
+      "type": "MmioVirtIO",
+      "pio_latency": "100000",
+      "pio_size": "4096"
+    },
+    "system.realview.vio1.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.vio1.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.vio1.vio": {
+      "type": "VirtIODummyDevice"
+    },
+    "system.realview.vram": {
+      "type": "SimpleMemory",
+      "bandwidth": "73.000000",
+      "latency": "30000",
+      "latency_var": "0"
+    },
+    "system.realview.vram.power_state": {
+      "type": "PowerState"
+    },
+    "system.realview.watchdog": {
+      "type": "Sp805",
+      "pio_latency": "100000"
+    },
+    "system.realview.watchdog.interrupt": {
+      "type": "ArmSPI",
+      "int_type": "IRQ_TYPE_LEVEL_HIGH"
+    },
+    "system.realview.watchdog.power_state": {
+      "type": "PowerState"
+    },
+    "system.release": {
+      "type": "ArmRelease"
+    },
+    "system.terminal": {
+      "type": "Terminal"
+    },
+    "system.vncserver": {
+      "type": "VncServer"
+    },
+    "system.voltage_domain": {
+      "type": "VoltageDomain"
+    },
+    "system.workload": {
+      "type": "ArmFsLinux",
+      "machine_type": "DTOnly"
+    }
+  },
+  "host_elapsed_seconds_approx": 3903.016716480255
+}

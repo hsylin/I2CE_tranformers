@@ -1,0 +1,522 @@
+From 8079d88c91798291b3282dcc3128491618f8b617 Mon Sep 17 00:00:00 2001
+From: hsylin <hylin.cs@gmail.com>
+Date: Tue, 6 Oct 2026 02:23:04 +0200
+Subject: [PATCH 07/11] perf(gemm): add single-output L1 compressed CB4 cache
+ blocks
+
+---
+ Full_NN/inc/gemm_SVE.h              |  10 ++
+ Full_NN/src/gemm_SVE.c              |   2 +
+ Full_NN/src/gemm_cb4_cache.h        | 175 ++++++++++++++++++++++++++++
+ docs/CB4_CACHE_STUDY.md             |  52 +++++++++
+ tests/gemm_cb4_cache_test.cc        | 136 +++++++++++++++++++++
+ tests/run_cb4_cache_test.sh         |  35 ++++++
+ transformer_layers/codebookDense.cc |  18 +++
+ 7 files changed, 428 insertions(+)
+ create mode 100644 Full_NN/src/gemm_cb4_cache.h
+ create mode 100644 docs/CB4_CACHE_STUDY.md
+ create mode 100644 tests/gemm_cb4_cache_test.cc
+ create mode 100644 tests/run_cb4_cache_test.sh
+
+diff --git a/Full_NN/inc/gemm_SVE.h b/Full_NN/inc/gemm_SVE.h
+index ea68b88f..9037de58 100644
+--- a/Full_NN/inc/gemm_SVE.h
++++ b/Full_NN/inc/gemm_SVE.h
+@@ -2,6 +2,7 @@
+ #define _GEMM_SVE_H_
+ 
+ #include <stdint.h>
++#include <stddef.h>
+ 
+ #include <gemm_exec.h>
+ 
+@@ -9,6 +10,15 @@
+ extern "C" {
+ #endif
+ 
++/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
++ * writes for unsupported geometry/configuration, aliasing, or allocation failure.
++ * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
++ * Callers must supply buffers of X[M*K*2], I[N*nw], CB[8], bias[N*2], Y[M*N*2]. */
++int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
++                        size_t M, size_t N, size_t K, const int8_t *input,
++                        const int32_t *cb, const int32_t *bias, int8_t *output,
++                        uint8_t bits);
++
+ /**
+  * @brief SVE row kernel for one int8 compact weight row and an input tile.
+  *
+diff --git a/Full_NN/src/gemm_SVE.c b/Full_NN/src/gemm_SVE.c
+index a6014f54..0f1c3bf5 100644
+--- a/Full_NN/src/gemm_SVE.c
++++ b/Full_NN/src/gemm_SVE.c
+@@ -364,6 +364,8 @@ static inline int gemm_cb4_2l_full(
+     return 1;
+ }
+ 
++#include "gemm_cb4_cache.h"
++
+ int sve_gemm_cb4_2l_full_i32(
+     const uint32_t *indices, uint32_t n_words_row,
+     uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+diff --git a/Full_NN/src/gemm_cb4_cache.h b/Full_NN/src/gemm_cb4_cache.h
+new file mode 100644
+index 00000000..d9c323e9
+--- /dev/null
++++ b/Full_NN/src/gemm_cb4_cache.h
+@@ -0,0 +1,175 @@
++/* Private implementation, included once by gemm_SVE.c.
++ * Fixed CB4/shared-I2/SVE128 cache experiment. External X/Y remain interleaved;
++ * only the arena's X uses learner planes. No multi-output register blocking.
++ */
++#include <stdlib.h>
++#include <string.h>
++
++#ifdef I2CE_TEST_CB4_CACHE
++uint64_t i2ce_cb4_cache_calls = 0, i2ce_cb4_cache_outputs = 0;
++uint64_t i2ce_cb4_cache_chunks = 0, i2ce_cb4_cache_decoded = 0;
++int i2ce_cb4_cache_fail_alloc = 0;
++extern int i2ce_cb4_cache_test_allocate(void **, size_t, size_t);
++#define CACHE_COUNT(name, amount) (i2ce_cb4_cache_##name += (amount))
++#else
++#define CACHE_COUNT(name, amount) ((void)0)
++#endif
++
++#if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
++enum { CACHE_S1 = 16, CACHE_O1 = 32, CACHE_K1 = 128,
++       CACHE_X1_STRIDE = 144, CACHE_I1_WORDS = 12 };
++
++/* Every field has a size divisible by 64; one aligned allocation, no malloc
++ * inside the tile loops. The four padding words in I1 are not source reads. */
++typedef struct {
++    int8_t x1[2][CACHE_S1][CACHE_X1_STRIDE];
++    uint32_t c1[2][CACHE_S1][CACHE_O1];
++    uint32_t i1[CACHE_O1][CACHE_I1_WORDS];
++} cb4_cache_arena;
++
++static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
++
++/* Address-range validation precedes both dereference and output writes.
++ * The caller owns buffers with the documented extents; this cannot discover
++ * an incorrectly sized allocation behind an otherwise valid pointer. */
++static int cache_range(const void *p, size_t bytes) {
++    return !bytes || (p && (uintptr_t)p <= UINTPTR_MAX - (bytes - 1u));
++}
++static int cache_overlap(const void *a, size_t an, const void *b, size_t bn) {
++    if (!an || !bn) return 0;
++    const uintptr_t x = (uintptr_t)a, y = (uintptr_t)b;
++    return x <= y ? y - x < an : x - y < bn;
++}
++
++static void cache_pack_x(int8_t *dst, size_t rows, size_t stride,
++                         size_t plane, const int8_t *input, size_t K,
++                         size_t sb, size_t kb, size_t ks) {
++    for (size_t s = 0; s < rows; ++s) {
++        const int8_t *src = input + ((sb + s) * K + kb) * 2u;
++        for (size_t k = 0; k < ks; ++k) {
++            dst[s * stride + k] = src[2u * k];
++            dst[plane + s * stride + k] = src[2u * k + 1u];
++        }
++        /* SDOT has no predicate. Zero the remaining activation bytes of the
++         * final vector; extra row padding is initialized for bounds tests. */
++        memset(dst + s * stride + ks, 0, stride - ks);
++        memset(dst + plane + s * stride + ks, 0, stride - ks);
++    }
++}
++
++static void cache_pack_i(uint32_t *dst, size_t stride, const uint32_t *indices,
++                         size_t nw, size_t ob, size_t os, size_t kb, size_t ks) {
++    const size_t words = (ks + 15u) / 16u;
++    for (size_t o = 0; o < os; ++o) {
++        memcpy(dst + o * stride, indices + (ob + o) * nw + kb / 16u,
++               words * sizeof(uint32_t));
++        memset(dst + o * stride + words, 0, (stride - words) * sizeof(uint32_t));
++    }
++}
++
++static void cache_init_c(uint32_t *c, size_t plane, size_t stride,
++                         size_t rows, size_t cols, const int32_t *bias, size_t ob) {
++    for (size_t s = 0; s < rows; ++s)
++        for (size_t o = 0; o < cols; ++o) {
++            c[s * stride + o] = bias ? (uint32_t)bias[2u * (ob + o)] : 0u;
++            c[plane + s * stride + o] = bias ? (uint32_t)bias[2u * (ob + o) + 1u] : 0u;
++        }
++}
++
++static void cache_write_y(const uint32_t *c, size_t plane, size_t stride,
++                          size_t rows, size_t cols, int8_t *output,
++                          size_t N, size_t sb, size_t ob) {
++    for (size_t s = 0; s < rows; ++s)
++        for (size_t o = 0; o < cols; ++o) {
++            output[((sb + s) * N + ob + o) * 2u] = (int8_t)(uint8_t)c[s * stride + o];
++            output[((sb + s) * N + ob + o) * 2u + 1u] = (int8_t)(uint8_t)c[plane + s * stride + o];
++        }
++}
++
++/* One (s,o), two independent learners. At most 128 signed-byte products
++ * per learner: |partial| <= 128*128*128 = 2,097,152, safely int32.
++ * Only the cross-K-tile accumulation uses modulo-2^32 arithmetic. */
++static void cache_compute_inner(cb4_cache_arena *a, size_t ss, size_t os, size_t ks,
++                               svint8_t cb0, svint8_t cb1,
++                               svuint8_t byte_sel, svuint8_t shifts) {
++    const svbool_t pg = svptrue_b8();
++    for (size_t s = 0; s < ss; ++s)
++        for (size_t o = 0; o < os; ++o) {
++            svint32_t v0 = svdup_s32(0), v1 = svdup_s32(0);
++            for (size_t k = 0; k < ks; k += 16u) {
++                const svuint8_t packed = svreinterpret_u8_u32(svdup_n_u32(a->i1[o][k / 16u]));
++                const svuint8_t ix = svand_n_u8_x(pg,
++                    svlsr_u8_x(pg, svtbl_u8(packed, byte_sel), shifts), 3u);
++                v0 = svdot_s32(v0, svld1_s8(pg, a->x1[0][s] + k), svtbl_s8(cb0, ix));
++                v1 = svdot_s32(v1, svld1_s8(pg, a->x1[1][s] + k), svtbl_s8(cb1, ix));
++                CACHE_COUNT(chunks, 1); CACHE_COUNT(decoded, cache_min(16u, ks - k));
++            }
++            a->c1[0][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v0);
++            a->c1[1][s][o] += (uint32_t)svaddv_s32(svptrue_b32(), v1);
++            CACHE_COUNT(outputs, 1);
++        }
++}
++#endif
++
++int sve_gemm_cb4_cache_i8(const uint32_t *indices, size_t nw,
++                        size_t M, size_t N, size_t K, const int8_t *input,
++                        const int32_t *cb, const int32_t *bias, int8_t *output,
++                        uint8_t bits) {
++#if CB_SIZE == 4 && N_LEARNERS == 2 && TILE_L1_SIZE == 1 && TILE_L2_SIZE == 1
++    if (bits != 2u || svcntb() != 16u) return 0;
++    /* Retain the supported descriptor domain without narrowing first. These
++     * bounds also make all products below fit size_t on AArch64. */
++    if (M > UINT16_MAX || N > UINT16_MAX || K > UINT16_MAX || nw > UINT16_MAX) return 0;
++    if (!M || !N) return 1;
++    const size_t xb = M * K * 2u, yb = M * N * 2u, ib = N * nw * 4u, bb = N * 8u;
++    if (xb > UINT32_MAX || yb > UINT32_MAX || N * nw > UINT32_MAX ||
++        nw < (K + 15u) / 16u || !cache_range(output, yb) ||
++        !cache_range(input, xb) || !cache_range(indices, K ? ib : 0u) ||
++        !cache_range(cb, K ? 32u : 0u) || !cache_range(bias, bias ? bb : 0u)) return 0;
++    if (cache_overlap(output,yb,input,xb) || cache_overlap(output,yb,indices,K ? ib : 0u) ||
++        cache_overlap(output,yb,cb,K ? 32u : 0u) || cache_overlap(output,yb,bias,bias ? bb : 0u)) return 0;
++    if (K && (((uintptr_t)indices & 3u) || ((uintptr_t)cb & 3u))) return 0;
++    if (bias && ((uintptr_t)bias & 3u)) return 0;
++    if (K && !gemm_sdot_decode_usable(cb, 4u, 2u, 2u)) return 0;
++    if (!K) {
++        for (size_t s = 0; s < M; ++s)
++            for (size_t o = 0; o < N * 2u; ++o)
++                output[s * N * 2u + o] = bias ? (int8_t)(uint8_t)bias[o] : 0;
++        return 1;
++    }
++    void *storage = NULL;
++#ifdef I2CE_TEST_CB4_CACHE
++    const int alloc_status = i2ce_cb4_cache_test_allocate(&storage, 64u, sizeof(cb4_cache_arena));
++#else
++    const int alloc_status = posix_memalign(&storage, 64u, sizeof(cb4_cache_arena));
++#endif
++    if (alloc_status != 0) return 0;
++    cb4_cache_arena *a = (cb4_cache_arena *)storage;
++    int8_t scratch0[256] = {0}, scratch1[256] = {0};
++    const svint8_t cb0 = gemm_sdot_cb_table(cb,4u,2u,0u,scratch0);
++    const svint8_t cb1 = gemm_sdot_cb_table(cb,4u,2u,1u,scratch1);
++    svuint8_t byte_sel, shifts; gemm_sdot_lane_patterns(2u,&byte_sel,&shifts);
++    CACHE_COUNT(calls, 1);
++    for (size_t sb = 0; sb < M; sb += CACHE_S1) {
++        const size_t ss = cache_min(CACHE_S1, M - sb);
++        for (size_t ob = 0; ob < N; ob += CACHE_O1) {
++            const size_t os = cache_min(CACHE_O1, N - ob);
++            cache_init_c(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, bias, ob);
++            for (size_t kb = 0; kb < K; kb += CACHE_K1) {
++                const size_t ks = cache_min(CACHE_K1, K - kb);
++                cache_pack_x(&a->x1[0][0][0],ss,CACHE_X1_STRIDE,CACHE_S1 * CACHE_X1_STRIDE,input,K,sb,kb,ks);
++                cache_pack_i(&a->i1[0][0],CACHE_I1_WORDS,indices,nw,ob,os,kb,ks);
++                cache_compute_inner(a,ss,os,ks,cb0,cb1,byte_sel,shifts);
++            }
++            cache_write_y(&a->c1[0][0][0], CACHE_S1 * CACHE_O1, CACHE_O1, ss, os, output, N, sb, ob);
++        }
++    }
++    free(storage);
++    return 1;
++#else
++    (void)indices; (void)nw; (void)M; (void)N; (void)K; (void)input;
++    (void)cb; (void)bias; (void)output; (void)bits;
++    return 0;
++#endif
++}
++#undef CACHE_COUNT
+diff --git a/docs/CB4_CACHE_STUDY.md b/docs/CB4_CACHE_STUDY.md
+new file mode 100644
+index 00000000..690c63af
+--- /dev/null
++++ b/docs/CB4_CACHE_STUDY.md
+@@ -0,0 +1,52 @@
++# Fixed single-output CB4 cache study
++
++This source is E06: L1 compressed-index blocking, derived from the measured
++E05 non-tiling baseline. It targets two learners, CB4, shared 2-bit indices and
++SVE128. Other configurations decline the new entry and retain the E05 caller's
++fallback. The production caller already checks the two-learner shared-index
++contract. This is not a general tiled GEMM interface.
++
++External layout is X[S][K][2], I[O][ceil(K/16)] uint32, CB[4][2], bias[O][2],
++Y[S][O][2]. Each index selects both learner weights; learner outputs stay
++separate. The cache entry accepts size_t dimensions, validates before narrowing,
++and rejects output overlap with inputs, indices, codebook or bias without writes.
++The caller rejects dimensions outside its inherited uint16/uint32 offset domain
++before constructing its descriptor. This does not repair other legacy APIs.
++
++Fixed S1/O1/K1 = 16/32/128. Loop order is s1, o1, k1, s, o, vector-K.
++One arena per GEMM holds X1[2][16][144] (4,608 B), C1[2][16][32] uint32
++(4,096 B), I1[32][12] uint32 (1,536 B): 10,240 B actually allocated,
++with a 64-byte aligned base and fields at 64-byte aligned offsets.
++No multi-output register block: each (s,o) has two SDOT vector accumulators.
++X1 is deinterleaved once per tile; I1 is copied once, but each sequence row
++decodes it again. Zero activation padding makes the final SDOT vector safe.
++Bias initializes C1 once, modulo-2^32 partial sums accumulate across all K1,
++and only the final result is narrowed to its low byte. Signed partial sums
++are bounded by 2,097,152; the two learners are never summed together.
++
++The conservative L1 budget remains 15,808 B: arena 10,240 + bias 256 + setup
++1,024 + alignment/separation reserve 192 + source streaming reserve 4,096.
++Setup includes two 256-byte codebook scratch arrays. The 192-byte alignment
++reserve is headroom, not an additional arena allocation. This is below the
++24 KiB target budget in a 32 KiB, 2-way L1D, but it does not guarantee residency
++or eliminate set conflicts. There is no outer L2 tile in E06.
++
++Allocation failure returns before any output write; the caller then executes
++E05. Test-only allocator injection follows the same status-check branch, and
++test counters prove the cache path and single-output partials are exercised.
++They are absent from production binaries. `tests/run_cb4_cache_test.sh` uses
++QEMU for scalar-oracle tails, wrap/bias, guard pages, invalid dimensions,
++alias rejection, allocation failure and SVE/compile-time dispatch checks.
++The deliberate guard-page probe child must receive SIGSEGV; it is not a
++kernel crash. Full-pipeline validation separately compares 84 tensors to E03.
++
++There is no tuning interface or environment-selected tile size. Keep measured
++source commits and result provenance immutable; report actual simulated ROI
++and phase-level counters after the single formal run.
++
++Design references are the approved plan's layered packing/cache model, adapted
++to shared compressed indices and per-learner weights. Capacity is only one
++constraint; associativity, TLB reach, packing traffic and instruction overhead
++must be assessed from measured results. See Goto & van de Geijn (2008), Low
++et al. (2016), Smith et al. (2014), and BLIS `docs/Multithreading.md`; this
++experiment uses one simulated core and does not introduce GEMM threading.
+diff --git a/tests/gemm_cb4_cache_test.cc b/tests/gemm_cb4_cache_test.cc
+new file mode 100644
+index 00000000..b29de8cf
+--- /dev/null
++++ b/tests/gemm_cb4_cache_test.cc
+@@ -0,0 +1,136 @@
++// Correctness only: independent scalar oracle, fixed seeds, no timing output.
++#include <gemm_SVE.h>
++#include <arm_sve.h>
++#include <cerrno>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <vector>
++#include <array>
++#include <limits>
++#include <codebooks_def.h>
++#include <sys/mman.h>
++#include <sys/wait.h>
++#include <unistd.h>
++#include <csignal>
++
++extern uint64_t i2ce_cb4_cache_calls, i2ce_cb4_cache_outputs;
++extern uint64_t i2ce_cb4_cache_chunks, i2ce_cb4_cache_decoded;
++extern int i2ce_cb4_cache_fail_alloc;
++static unsigned failed_allocations;
++int i2ce_cb4_cache_test_allocate(void **p, size_t alignment, size_t bytes) {
++    if (i2ce_cb4_cache_fail_alloc) { *p=nullptr; ++failed_allocations; return ENOMEM; }
++    return posix_memalign(p,alignment,bytes);
++}
++static void require(bool b, const char *message) {
++    if (!b) { std::printf("FAIL %s\n",message); std::exit(1); }
++}
++static bool eligible() { return CB_SIZE==4 && N_LEARNERS==2 && svcntb()==16; }
++
++template<class T> struct Guarded {
++    size_t bytes; void *mapping; T *data;
++    explicit Guarded(size_t count) {
++        const size_t page=size_t(sysconf(_SC_PAGESIZE));
++        bytes=((count*sizeof(T)+page-1)/page+1)*page;
++        mapping=mmap(nullptr,bytes,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
++        require(mapping!=MAP_FAILED,"mmap");
++        char *end=static_cast<char*>(mapping)+bytes-page;
++        require(!mprotect(end,page,PROT_NONE),"mprotect");
++        data=reinterpret_cast<T*>(end-count*sizeof(T));
++    }
++    ~Guarded(){munmap(mapping,bytes);}
++};
++static void bounds_tests() {
++    Guarded<int8_t> probe(0);
++    std::fflush(nullptr);
++    const pid_t child=fork(); require(child>=0,"fork guard probe");
++    if(!child) {volatile int8_t value=*probe.data; (void)value; _exit(0);}
++    int status=0;
++    require(waitpid(child,&status,0)==child && WIFSIGNALED(status) && WTERMSIG(status)==SIGSEGV,
++            "runtime does not enforce guard pages");
++    for(size_t K:{0u,1u,15u,16u,17u,127u,128u,129u,511u,512u,513u}) {
++        const size_t M=17,N=33,nw=(K+15)/16;
++        Guarded<int8_t> x(M*K*2),y(M*N*2);
++        Guarded<uint32_t> indices(N*nw);
++        Guarded<int32_t> cb(8),bias(N*2);
++        for(size_t i=0;i<M*K*2;++i)x.data[i]=int8_t(i*67u);
++        for(size_t i=0;i<N*nw;++i)indices.data[i]=0xe4b13927u;
++        for(size_t i=0;i<8;++i)cb.data[i]=i%2?127:-128;
++        for(size_t i=0;i<N*2;++i)bias.data[i]=i%2?INT32_MAX:INT32_MIN;
++        require(sve_gemm_cb4_cache_i8(indices.data,nw,M,N,K,x.data,cb.data,bias.data,y.data,2),
++                "guarded call rejected");
++        for(size_t s=0;s<M;++s)for(size_t o=0;o<N;++o)for(size_t l=0;l<2;++l) {
++            int64_t sum=bias.data[2*o+l];
++            for(size_t k=0;k<K;++k)
++                sum+=int64_t(x.data[(s*K+k)*2+l])*cb.data[2*((indices.data[o*nw+k/16]>>(2*(k%16)))&3)+l];
++            require(y.data[(s*N+o)*2+l]==int8_t(uint8_t(uint64_t(sum))),"guarded oracle");
++        }
++    }
++}
++
++int main() {
++    unsigned cases=0;
++    std::vector<std::array<size_t,3>> shapes={
++        {0,3,17},{3,0,17},{1,1,0},{17,33,0},{1,1,1},{15,31,15},
++        {16,32,16},{17,33,17},{1,1,31},{1,1,32},{1,1,33},
++        {15,31,127},{16,32,128},{17,33,129},{127,1,17},{128,1,17},
++        {129,1,17},{1,127,17},{1,128,17},{1,129,17},
++        {1,1,511},{1,1,512},{1,1,513},{17,33,513},{129,129,129},
++        {17,129,513},{129,33,513},{2,4,65535}};
++    for (const auto shape:shapes) for (bool biased:{false,true}) for (size_t offset:{0u,1u}) {
++        const size_t M=shape[0],N=shape[1],K=shape[2],nw=(K+15)/16;
++        std::vector<int8_t> x(M*K*2+2),y(M*N*2+32,91),want=y;
++        int8_t *input=x.data()+offset;
++        std::vector<uint32_t> idx(N*nw+1,0);
++        int32_t cb[8]={-128,127,0,-1,1,0,126,-127};
++        std::vector<int32_t> b(N*2);
++        for(size_t i=0;i<M*K*2;++i) input[i]=int8_t(i*53u+19u);
++        for(size_t o=0;o<N;++o) {
++            for(size_t k=0;k<nw*16;++k) idx[o*nw+k/16]|=((k+o*3)&3)<<(2*(k%16));
++            b[2*o]=INT32_MAX-int(o); b[2*o+1]=INT32_MIN+int(o);
++        }
++        for(size_t s=0;s<M;++s) for(size_t o=0;o<N;++o) for(size_t l=0;l<2;++l) {
++            int64_t sum=biased?b[2*o+l]:0;
++            for(size_t k=0;k<K;++k)
++                sum+=int64_t(input[(s*K+k)*2+l])*cb[2*((idx[o*nw+k/16]>>(2*(k%16)))&3)+l];
++            want[(s*N+o)*2+l]=int8_t(uint8_t(uint64_t(sum)));
++        }
++        const int ok=sve_gemm_cb4_cache_i8(idx.data(),nw,M,N,K,input,cb,biased?b.data():nullptr,y.data(),2);
++        if(eligible()) require(ok && y==want,"cache scalar oracle or output guard");
++        else require(!ok && y==std::vector<int8_t>(y.size(),91),"unsupported dispatch wrote output");
++        ++cases;
++    }
++    // Each rejected invocation must preserve the entire output before fallback.
++    uint32_t idx[8]={}; int8_t x[256]={},y[256]; int32_t cb[8]={},b[64]={};
++    auto unchanged=[&](size_t M,size_t N,size_t K,size_t nw,uint8_t bits) {
++        memset(y,91,sizeof(y));
++        require(!sve_gemm_cb4_cache_i8(idx,nw,M,N,K,x,cb,b,y,bits),"invalid call accepted");
++        for(auto c:y) require(c==91,"invalid call wrote output");
++    };
++    unchanged(65536,1,1,1,2); unchanged(1,65536,1,1,2);
++    unchanged(1,1,65536,4096,2); unchanged(SIZE_MAX,1,1,1,2);
++    unchanged(65535,65535,1,1,2); unchanged(1,1,17,1,2);
++    unchanged(1,1,16,1,4);
++    require(!sve_gemm_cb4_cache_i8(idx,1,1,1,16,x,cb,b,x,2),"X alias accepted");
++    require(!sve_gemm_cb4_cache_i8(idx,1,1,1,16,x,cb,b,reinterpret_cast<int8_t*>(idx),2),"I alias accepted");
++    require(!sve_gemm_cb4_cache_i8(idx,1,1,1,16,x,cb,b,reinterpret_cast<int8_t*>(cb),2),"CB alias accepted");
++    require(!sve_gemm_cb4_cache_i8(idx,1,1,1,16,x,cb,b,reinterpret_cast<int8_t*>(b),2),"bias alias accepted");
++    require(!sve_gemm_cb4_cache_i8(idx,1,1,1,16,x,cb,b,reinterpret_cast<int8_t*>(UINTPTR_MAX),2),"address overflow accepted");
++    cb[3]=128; unchanged(1,1,16,1,2); cb[3]=0;
++    if(eligible()) {
++        bounds_tests();
++        i2ce_cb4_cache_fail_alloc=1; unchanged(1,1,16,1,2);
++        require(failed_allocations==1,"allocator failure branch not exercised");
++        i2ce_cb4_cache_fail_alloc=0;
++        // The caller can retain the existing E05 computation after rejection.
++        require(sve_gemm_cb4_2l_full_i8(idx,1,1,1,16,x,cb,b,y),"E05 fallback failed");
++        require(y[0]==0 && y[1]==0,"fallback result");
++        i2ce_cb4_cache_calls=i2ce_cb4_cache_outputs=i2ce_cb4_cache_chunks=i2ce_cb4_cache_decoded=0;
++        require(sve_gemm_cb4_cache_i8(idx,2,2,4,32,x,cb,b,y,2),"counter example rejected");
++        require(i2ce_cb4_cache_calls==1 && i2ce_cb4_cache_outputs==8 && i2ce_cb4_cache_chunks==16,
++                "single-output path not exercised");
++        require(i2ce_cb4_cache_decoded==256,"compressed decode accounting");
++    } else require(i2ce_cb4_cache_calls==0,"unsupported config entered cache path");
++    std::printf("PASS cache oracle %u cases; SVE%zu CB%d L%d; tails/wrap/aliases/range/fault injection\n",
++                cases,size_t(svcntb()*8),CB_SIZE,N_LEARNERS);
++}
+diff --git a/tests/run_cb4_cache_test.sh b/tests/run_cb4_cache_test.sh
+new file mode 100644
+index 00000000..5111fa99
+--- /dev/null
++++ b/tests/run_cb4_cache_test.sh
+@@ -0,0 +1,35 @@
++#!/usr/bin/env bash
++set -euo pipefail
++ROOT=$(cd "$(dirname "$0")/.." && pwd)
++OUT=${I2CE_TEST_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/i2ce-cache-correctness.XXXXXX")}
++mkdir -p "$OUT"
++CXX=${A64CXX:-$HOME/i2ce/miniforge3/envs/gem5_env/bin/aarch64-conda-linux-gnu-g++}
++QEMU=${I2CE_QEMU:-/home/thu/opt/qemu-sve/bin/qemu-aarch64}
++"$CXX" -std=c++17 -O2 -Wall -Wextra -march=armv8-a+sve -static \
++  -ffunction-sections -fdata-sections -Wl,--gc-sections -DI2CE_TEST_CB4_CACHE \
++  -I"$ROOT/Full_NN/inc" -I"$ROOT/tests/gemm_definitions_cb4" \
++  "$ROOT/tests/gemm_cb4_cache_test.cc" "$ROOT/Full_NN/src/gemm_SVE.c" -o "$OUT/oracle"
++for BYTES in 16 32 64; do
++  "$QEMU" -cpu "max,sve=on,sve-default-vector-length=$BYTES" "$OUT/oracle" < "$OUT/oracle"
++done
++# Compile-time dispatch controls. These binaries only check rejection; they
++# are not performance measurements or claims about arbitrary fallback configs.
++for MODE in cb16 four_learners; do
++  mkdir -p "$OUT/$MODE"
++  if [[ "$MODE" == cb16 ]]; then
++    sed -e 's/CB_SIZE         4/CB_SIZE         16/' \
++        -e 's/BITS_PER_CB     2/BITS_PER_CB     4/' \
++        -e 's/IDX_MASK        0b11/IDX_MASK        0b1111/' \
++        -e 's/N_SVE_REG_CB_1  1/N_SVE_REG_CB_4  1/' \
++        "$ROOT/tests/gemm_definitions_cb4/codebooks_def.h" > "$OUT/$MODE/codebooks_def.h"
++  else
++    sed 's/N_LEARNERS      2/N_LEARNERS      4/' \
++        "$ROOT/tests/gemm_definitions_cb4/codebooks_def.h" > "$OUT/$MODE/codebooks_def.h"
++  fi
++  "$CXX" -std=c++17 -O2 -Wall -Wextra -march=armv8-a+sve -static \
++    -ffunction-sections -fdata-sections -Wl,--gc-sections -DI2CE_TEST_CB4_CACHE \
++    -I"$ROOT/Full_NN/inc" -I"$OUT/$MODE" \
++    "$ROOT/tests/gemm_cb4_cache_test.cc" "$ROOT/Full_NN/src/gemm_SVE.c" -o "$OUT/$MODE/oracle"
++  "$QEMU" -cpu max,sve=on,sve-default-vector-length=16 "$OUT/$MODE/oracle" < "$OUT/$MODE/oracle"
++done
++echo "Correctness-only artifacts: $OUT"
+diff --git a/transformer_layers/codebookDense.cc b/transformer_layers/codebookDense.cc
+index 71faf72d..3d8e0a87 100644
+--- a/transformer_layers/codebookDense.cc
++++ b/transformer_layers/codebookDense.cc
+@@ -3,6 +3,7 @@
+ #include "../Full_NN/inc/gemm_exec.h"
+ #ifdef SIMD
+ #include "../Full_NN/inc/gemm_exec_internal.h"
++#include "../Full_NN/inc/gemm_SVE.h"
+ #endif
+ 
+ #include <cmath>
+@@ -349,6 +350,23 @@ void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, u
+ 
+     std::vector<int32_t> output_acc(seq_len * output_size_, 0);
+ 
++    // Validate before the inherited uint16 descriptor or uint32 offset math.
++    // Reject unsupported large shapes instead of silently truncating them.
++    if (seq_len > UINT16_MAX || input_size_ > UINT16_MAX ||
++        output_size_ > UINT16_MAX || n_words_row_ > UINT16_MAX ||
++        seq_len * input_size_ > UINT32_MAX / 2u ||
++        seq_len * output_size_ > UINT32_MAX / 2u) {
++        throw std::length_error("CodebookDense 2D dimensions exceed the supported descriptor domain");
++    }
++#ifdef SIMD
++    if (sve_gemm_cb4_cache_i8(weight_idx_, n_words_row_, seq_len, output_size_, input_size_,
++            input_interleaved,
++            codebook_widened_i32_interleaved_cache_.empty() ? nullptr
++                : codebook_widened_i32_interleaved_cache_.data(),
++            bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
++            output_interleaved, bits_per_cb_)) return;
++#endif
++
+     gemm_t layer;
+     layer.seq_len = static_cast<uint16_t>(seq_len);
+     layer.input_size = static_cast<uint16_t>(input_size_);
+-- 
+2.51.0
+

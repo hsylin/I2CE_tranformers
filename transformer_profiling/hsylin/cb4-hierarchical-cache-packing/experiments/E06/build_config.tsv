@@ -1,0 +1,22 @@
+exp_id	38
+built_at	2026-10-06T05:52:36Z
+impl	codebook_int8
+codebook_size	4
+n_learners	2
+sve_bits	128
+sve_lanes	4
+cores	1
+overrides	-
+model_dims	d_q=64 seq_len=512 d_model=256 num_heads=4 d_ff=1024
+default_artifacts	0
+idx_bits_byte_aligned	1
+repo_commit	6b05de1c6b48
+repo_commit_full	6b05de1c6b48305a2a3fd93c8fdac23ee3cdcb73
+commit_subject	perf(gemm): vectorize CB4 cache packing and avoid unused padding writes
+compile_flags	USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 DENSE_NO_SIMD_BASELINE_FLAG=0 I2CE_USE_LIBM5_FLAG=1
+binary_sha256	0ee7e63c6bbda915c879fe102225739e0310e250335529e348b01584e2d3746d
+libm5_sha256	f201959e636d139fe544e3346685e728a225712384add5f04c3f29c45d4709b5
+codebooks_def_sha256	37fb819020c56e334607da0ad2bf4ca282ed0caf0c08a569c77b528076b6bdbd
+gem5_bin	/home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast
+gem5_cfg	/home/hlin/i2ce/gem5-tianrui/configs/example/arm/starter_fs.py
+build_dir	/home/hlin/i2ce/exp-cb4-cache-packing-revision/38/builds/20261006_075208_6b05de1c

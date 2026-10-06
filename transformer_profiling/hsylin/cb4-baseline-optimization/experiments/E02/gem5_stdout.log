@@ -1,0 +1,36 @@
+Global frequency set at 1000000000000 ticks per second
+warn: No dot file generated. Please install pydot to generate the dot file and pdf.
+src/mem/dram_interface.cc:690: warn: DRAM device capacity (8192 Mbytes) does not match the address range assigned (2048 Mbytes)
+src/sim/kernel_workload.cc:46: info: kernel located at: /home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui
+src/base/loader/symtab.cc:95: warn: Cannot insert a new symbol table due to name collisions. Adding prefix to each symbol's name can resolve this issue.
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+src/base/statistics.hh:279: warn: One of the stats is a legacy stat. Legacy stat is a stat that does not belong to any statistics::Group. Legacy stat is deprecated.
+src/cpu/minor/execute.cc:164: warn: No functional unit for OpClass SimdUnitStrideSegmentedLoad
+src/cpu/minor/execute.cc:164: warn: No functional unit for OpClass SimdUnitStrideSegmentedStore
+src/cpu/minor/execute.cc:164: warn: No functional unit for OpClass SimdUnitStrideSegmentedFaultOnlyFirstLoad
+src/cpu/minor/execute.cc:164: warn: No functional unit for OpClass SimdStrideSegmentedLoad
+src/cpu/minor/execute.cc:164: warn: No functional unit for OpClass SimdStrideSegmentedStore
+src/base/vnc/vncserver.cc:163: warn: Sockets disabled, not accepting vnc client connections
+src/dev/serial/terminal.cc:174: warn: Sockets disabled, not accepting terminal connections
+src/base/remote_gdb.cc:418: warn: Sockets disabled, not accepting gdb connections
+src/sim/serialize.hh:363: warn: optional parameter system.cpu_cluster.cpus:lastStopped not present
+src/dev/virtio/fs9p.cc:412: info: Started diod with PID 129950, you might need to manually kill diod if gem5 crashes
+src/dev/arm/energy_ctrl.cc:252: warn: Existing EnergyCtrl, but no enabled DVFSHandler found.
+gem5 Simulator System.  https://www.gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 version 25.1.0.0
+gem5 compiled Sep 12 2026 00:03:53
+gem5 started Oct  5 2026 21:19:27
+gem5 executing on eslsrv12, pid 129168
+command line: /home/hlin/i2ce/gem5-tianrui/build/ARM/gem5.fast -d /home/hlin/i2ce/exp-cb4-cache-study/38/out_20261005_211926 --stats-file=stats.txt --dump-config=config.ini configs/example/arm/starter_fs.py --cpu=minor --kernel=/home/hlin/i2ce/gem5_resources/binaries/vmlinux.tianrui --disk-image=/home/hlin/i2ce/gem5_resources/disks/arm64-ubuntu-20220727.img --restore=/home/hlin/i2ce/exp-cb4-cache-study/_cpt/sve128/cpt.198408961500 --script=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6/run.rcS --vio-9p=/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6 --cpu-freq=4GHz --mem-size=2GiB --mem-type=DDR3_1600_8x8 --mem-channels=1 --num-cores=1
+
+info: Standard input is not a terminal, disabling listeners.
+src/arch/arm/insts/pseudo.cc:174: warn: 	instruction 'bti' unimplemented
+src/arch/arm/insts/pseudo.cc:174: warn: 	instruction 'bti' unimplemented
+src/arch/arm/insts/pseudo.cc:174: warn: 	instruction 'csdb' unimplemented
+diod: diod_xattrwalk hlin@stdin:/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6/transformer.o/security.capabil: Operation not supported
+diod: diod_xattrwalk hlin@stdin:/home/hlin/i2ce/exp-cb4-cache-study/38/builds/20261005_211556_f126e2b6/gem5_profile_regions.tsv/secur: Operation not supported
+diod: caught SIGTERM: shutting down
+src/dev/virtio/fs9p.cc:469: info: Trying to kill diod with SIGKILL as SIGTERM failed 
+m5_exit instruction encountered (0) @ 2819800834500
