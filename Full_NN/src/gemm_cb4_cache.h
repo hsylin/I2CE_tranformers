@@ -89,7 +89,7 @@ typedef struct {
                     [CACHE_X1_STRIDE];
 } cb4_cache_arena;
 typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 278528u) ? 1 : -1];
-/* A is repacked for each outer sequence/output tile and K chunk. */
+/* All K panels belong to the current sequence block across output tiles. */
 typedef int8_t cb4_x_panel[2][CACHE_S2][CACHE_X2_STRIDE];
 
 static size_t cache_min(size_t a, size_t b) {
