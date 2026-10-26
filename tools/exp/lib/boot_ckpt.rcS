@@ -1,0 +1,18 @@
+#!/bin/sh
+# Boot-time script: take a checkpoint right after boot, then chain to whatever
+# script the RESTORE command line supplies (standard m5-readfile pattern, as
+# used by gem5's own configs/boot/hack_back_ckpt.rcS).
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+if [ ! -e /tmp/.ckpt_done ]; then
+  touch /tmp/.ckpt_done
+  echo "[guest] boot complete — taking checkpoint"
+  /sbin/m5 checkpoint
+fi
+echo "[guest] restored — fetching run script via m5 readfile"
+/sbin/m5 readfile > /tmp/runscript.sh
+if [ -s /tmp/runscript.sh ]; then
+  chmod +x /tmp/runscript.sh
+  exec /bin/sh /tmp/runscript.sh
+fi
+echo "[guest] no run script supplied — exiting"
+/sbin/m5 exit
