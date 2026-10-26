@@ -2,6 +2,7 @@
 #define _GEMM_SVE_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <gemm_exec.h>
 
@@ -9,23 +10,21 @@
 extern "C" {
 #endif
 
+/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
+ * writes for unsupported geometry/configuration, aliasing, or allocation failure.
+ * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
+ * Callers must supply buffers of X[M*K*2], CI[index_bytes] in frozen I2CECI01 format, CB[8], bias[N*2], Y[M*N*2]. */
+int sve_gemm_ci_cb4_cache_i8(const uint8_t *indices, size_t index_bytes, size_t nw,
+                        size_t M, size_t N, size_t K, const int8_t *input,
+                        const int32_t *cb, const int32_t *bias, int8_t *output,
+                        uint8_t bits);
+
 /* Per-invocation runtime scratch accounting; metadata retains no backing storage. */
 typedef struct {
-    uint64_t offline_allocations;
-    uint64_t runtime_allocations;
-    uint64_t frees;
-    uint64_t max_request_bytes;
-    uint64_t requested_bytes;
-    uint64_t allocation_failures;
-    uint64_t retained_bytes;
-    uint64_t peak_W_bytes;
-    uint64_t W_pack_calls;
-    uint64_t W_outer_pack_calls;
-    uint64_t W_assigned_bytes;
-    uint64_t W_useful_bytes;
-    uint64_t A_pack_calls;
-    uint64_t A_assigned_bytes;
-    uint64_t A_useful_bytes;
+    uint64_t offline_allocations, runtime_allocations, frees;
+    uint64_t max_request_bytes, requested_bytes, allocation_failures;
+    uint64_t retained_bytes, peak_W_bytes, W_pack_calls, W_outer_pack_calls;
+    uint64_t W_assigned_bytes, W_useful_bytes, A_pack_calls, A_assigned_bytes, A_useful_bytes;
 } i2ce_cb4_scratch_stats;
 void sve_cb4_scratch_reset(void);
 i2ce_cb4_scratch_stats sve_cb4_scratch_get(void);
@@ -288,7 +287,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -330,11 +329,33 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
+/* Full-K C8 sink for CB4/I2. Setup stays per output column, as in the
+ * original C32 path. Returns 0 without stores if the codebook is ineligible. */
+int sve_gemm_cb4_2l_row_i8(
+    const uint32_t *indices, uint32_t n_words_row, uint32_t K,
+    const int8_t *input, uint32_t M, uint32_t ld_in,
+    const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint32_t n, uint32_t ld_out);
+
+/* Full CB4/I2 GEMM with one setup per call, M -> N -> K, no cache tiles.
+ * Returns 0 without writing output if the specialization is not applicable.
+ * Inputs are tightly interleaved [M][K][2], indices [N][n_words_row],
+ * codebook [4][2] int32 values in int8 range, output [M][N][2]. */
+int sve_gemm_cb4_2l_full_i32(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int32_t *output);
+/* Same preparation and traversal, with a final low-byte C8 sink. */
+int sve_gemm_cb4_2l_full_i8(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int8_t *output);
+
 void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -380,7 +401,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,

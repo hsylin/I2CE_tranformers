@@ -586,6 +586,7 @@ void test() {
 #ifdef SIMD
         sve_cb4_scratch_reset();
 #endif
+        CodebookDense::reportCompressedIndexSetup();
         TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, grouped_inputs, grouped_outputs);
 #ifdef SIMD
         const i2ce_cb4_scratch_stats scratch = sve_cb4_scratch_get();

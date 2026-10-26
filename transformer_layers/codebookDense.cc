@@ -1,8 +1,14 @@
 #include "codebookDense.h"
+#include "compressed_index_file.h"
+#include <chrono>
+#if defined(I2CE_USE_LIBM5)
+#include <gem5/m5ops.h>
+#endif
 
 #include "../Full_NN/inc/gemm_exec.h"
 #ifdef SIMD
 #include "../Full_NN/inc/gemm_exec_internal.h"
+#include "../Full_NN/inc/gemm_SVE.h"
 #endif
 
 #include <cmath>
@@ -10,25 +16,6 @@
 #include <stdexcept>
 #include <vector>
 
-// Function signatures in this file:
-// int8_t clampToInt8(float value);
-// int32_t clampToInt32(double value);
-// CodebookDense::CodebookDense(const CodebookDenseConfig &config);
-// uint32_t CodebookDense::getPackedIndex(const uint32_t *packed_row, std::size_t elem_idx, uint8_t bits_per_cb);
-// int8_t CodebookDense::unpackInt8(const uint32_t *packed, std::size_t elem_idx);
-// void CodebookDense::packInt8(const std::vector<int8_t> &src, uint32_t *dst);
-// int8_t CodebookDense::clampInt32ToInt8(int32_t value);
-
-
-// void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, uint32_t *output) const;
-// void CodebookDense::buildInterleavedCachesIfNeeded();
-// bool CodebookDense::supportsInterleaved2LearnersSameSeq() const;
-// bool CodebookDense::supportsInterleaved4Learners() const;
-// void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len, uint32_t* const inputs[2], uint32_t* const outputs[2]) const;
-// void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
-// void CodebookDense::computeInterleaved4Learners(std::size_t seq_len, uint32_t* const inputs[4], uint32_t* const outputs[4]) const;
-// void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len, const int8_t* input_interleaved, int8_t* output_interleaved) const;
-// void CodebookDense::compute(std::size_t seq_len, uint32_t *input, uint32_t *output);
 
 namespace {
 
@@ -120,7 +107,8 @@ int32_t clampToInt32(double value) {
  * @throws std::invalid_argument if configuration is invalid.
  */
 CodebookDense::CodebookDense(const CodebookDenseConfig &config)
-    : input_size_(config.input_size),
+    : compressed_index_requested_(!config.compressed_index_directory.empty()),
+      input_size_(config.input_size),
       output_size_(config.output_size),
       n_words_row_(config.n_words_row),
       n_learners_(config.n_learners == 0 ? 1 : config.n_learners),
@@ -203,6 +191,7 @@ CodebookDense::CodebookDense(const CodebookDenseConfig &config)
     }
 
     buildInterleavedCachesIfNeeded();
+    if(compressed_index_requested_ && selected_learner_==0)loadCompressedIndices(config.compressed_index_directory);
 }
 
 /**
@@ -417,7 +406,7 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
 
     const std::size_t learner_count = n_learners_;
     const std::size_t packed_idx_count = output_size_ * n_words_row_;
-    if (weight_idx_interleaved_ == nullptr) {
+    if (weight_idx_interleaved_ == nullptr && !(compressed_index_requested_ && same_seq_ && n_learners_==2u && bits_per_cb_==2u)) {
         weight_idx_interleaved_cache_.resize(packed_idx_count * learner_count);
         for (std::size_t idx = 0; idx < packed_idx_count; idx++) {
             for (std::size_t learner = 0; learner < learner_count; learner++) {
@@ -565,11 +554,6 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    static thread_local std::vector<int32_t> activation_workspace;
-    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
-    if (activation_workspace.size() < activation_workspace_needed) {
-        activation_workspace.resize(activation_workspace_needed);
-    }
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
         layer,
         input_interleaved.data(),
@@ -581,8 +565,8 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
         codebook_widened_i32_interleaved_cache_.empty()
             ? nullptr
             : codebook_widened_i32_interleaved_cache_.data(),
-        activation_workspace.data(),
-        static_cast<uint32_t>(activation_workspace.size()));
+        nullptr,
+        0u);
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
         layer,
@@ -634,14 +618,35 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
  *                           2 learners.
  * @throws std::runtime_error if the layer is not configured for the 2D same-seq path.
  */
-void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
-                                               const int8_t* input_interleaved,
-                                               int8_t* output_interleaved) const {
+void CodebookDense::computeInterleaved2LearnersToInt8(
+    std::size_t seq_len, const int8_t *input_interleaved,
+    int8_t *output_interleaved) const {
     if (!supportsInterleaved2LearnersSameSeq()) {
-        throw std::runtime_error("CodebookDense interleaved 2D pipeline path is not available");
+        throw std::runtime_error(
+            "CodebookDense interleaved 2D pipeline path is not available");
     }
 
-    std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 2u, 0);
+    // Validate before the inherited uint16 descriptor or uint32 offset math.
+    // Reject unsupported large shapes instead of silently truncating them.
+    if (seq_len > UINT16_MAX || input_size_ > UINT16_MAX || output_size_ > UINT16_MAX ||
+        n_words_row_ > UINT16_MAX || seq_len * input_size_ > UINT32_MAX / 2u ||
+        seq_len * output_size_ > UINT32_MAX / 2u) {
+        throw std::length_error(
+            "CodebookDense 2D dimensions exceed the supported descriptor domain");
+    }
+#ifdef SIMD
+    if (!compressed_indices_.empty() &&
+        sve_gemm_ci_cb4_cache_i8(
+            compressed_indices_.data(), compressed_indices_.size(), n_words_row_,
+            seq_len, output_size_, input_size_, input_interleaved,
+            codebook_widened_i32_interleaved_cache_.empty()
+                ? nullptr
+                : codebook_widened_i32_interleaved_cache_.data(),
+            bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
+            output_interleaved, bits_per_cb_)) {
+        return;
+    }
+#endif
 
     gemm_t layer;
     layer.seq_len = static_cast<uint16_t>(seq_len);
@@ -650,33 +655,31 @@ void CodebookDense::computeInterleaved2LearnersToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    static thread_local std::vector<int32_t> activation_workspace;
-    const std::size_t activation_workspace_needed = seq_len * input_size_ * 2u;
-    if (activation_workspace.size() < activation_workspace_needed) {
-        activation_workspace.resize(activation_workspace_needed);
+    if (gemm_exec_cb4_2l_i8(layer, input_interleaved, weight_idx_,
+                            codebook_widened_i32_interleaved_cache_.empty()
+                                ? nullptr
+                                : codebook_widened_i32_interleaved_cache_.data(),
+                            bias_interleaved_q_.empty() ? nullptr
+                                                        : bias_interleaved_q_.data(),
+                            output_interleaved, bits_per_cb_)) {
+        return;
     }
+#endif
+    std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 2u, 0);
+#ifdef SIMD
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
-        layer,
-        input_interleaved,
-        weight_idx_,
-        codebook_interleaved_q_.data(),
+        layer, input_interleaved, weight_idx_, codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-        output_acc_interleaved.data(),
-        bits_per_cb_,
+        output_acc_interleaved.data(), bits_per_cb_,
         codebook_widened_i32_interleaved_cache_.empty()
             ? nullptr
             : codebook_widened_i32_interleaved_cache_.data(),
-        activation_workspace.data(),
-        static_cast<uint32_t>(activation_workspace.size()));
+        nullptr, 0u);
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
-        layer,
-        input_interleaved,
-        weight_idx_,
-        codebook_interleaved_q_.data(),
+        layer, input_interleaved, weight_idx_, codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-        output_acc_interleaved.data(),
-        bits_per_cb_);
+        output_acc_interleaved.data(), bits_per_cb_);
 #endif
 
     for (std::size_t idx = 0; idx < output_acc_interleaved.size(); idx++) {
@@ -738,11 +741,6 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    static thread_local std::vector<int32_t> activation_workspace;
-    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
-    if (activation_workspace.size() < activation_workspace_needed) {
-        activation_workspace.resize(activation_workspace_needed);
-    }
     if (same_seq_) {
         // Shared-index path: one packed index stream drives all 4 learners.
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
@@ -756,8 +754,8 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            activation_workspace.data(),
-            static_cast<uint32_t>(activation_workspace.size()));
+            nullptr,
+            0u);
     } else {
         // Per-learner index path: each learner has its own packed index stream.
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
@@ -771,8 +769,8 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            activation_workspace.data(),
-            static_cast<uint32_t>(activation_workspace.size()));
+            nullptr,
+            0u);
     }
 #else
     if (same_seq_) {
@@ -857,11 +855,6 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
     layer.n_words_row = static_cast<uint16_t>(n_words_row_);
 
 #ifdef SIMD
-    static thread_local std::vector<int32_t> activation_workspace;
-    const std::size_t activation_workspace_needed = seq_len * input_size_ * 4u;
-    if (activation_workspace.size() < activation_workspace_needed) {
-        activation_workspace.resize(activation_workspace_needed);
-    }
     if (same_seq_) {
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
             layer,
@@ -874,8 +867,8 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            activation_workspace.data(),
-            static_cast<uint32_t>(activation_workspace.size()));
+            nullptr,
+            0u);
     } else {
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
             layer,
@@ -888,8 +881,8 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            activation_workspace.data(),
-            static_cast<uint32_t>(activation_workspace.size()));
+            nullptr,
+            0u);
     }
 #else
     if (same_seq_) {
@@ -935,4 +928,58 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
  */
 void CodebookDense::compute(std::size_t seq_len, uint32_t *input, uint32_t *output) {
     runCompactGemm(seq_len, input, output);
+}
+
+namespace {
+uint64_t compressed_setup_ns = 0, compressed_objects = 0, compressed_payload = 0;
+uint64_t compressed_clock_ns() {
+#if defined(I2CE_USE_LIBM5)
+    return m5_rpns();
+#else
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+#endif
+}
+} // namespace
+void CodebookDense::loadCompressedIndices(const std::string &directory) {
+    if (bits_per_cb_ != 2u || !supportsInterleaved2LearnersSameSeq()) {
+        throw std::invalid_argument("compressed CB4 shared two learners required");
+    }
+    const uint64_t start = compressed_clock_ns();
+    const size_t bytes = ci_payload_bytes(output_size_, input_size_);
+    if (!bytes) {
+        throw std::invalid_argument("compressed shape");
+    }
+    // Publish ownership only after all format and source-identity checks pass.
+    std::vector<uint8_t> owner(bytes);
+    const uint64_t source_identity = i2ce_ci::identity(
+        weight_idx_, n_words_row_, output_size_, input_size_,
+        codebook_widened_i32_interleaved_cache_.data(),
+        bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data());
+    i2ce_ci::load(directory + "/" + i2ce_ci::filename(source_identity), source_identity,
+                  n_words_row_, output_size_, input_size_, owner.data(), owner.size());
+    const uint64_t end = compressed_clock_ns();
+    if (end <= start) {
+        throw std::runtime_error("compressed setup clock unavailable");
+    }
+    compressed_indices_ = std::move(owner);
+    compressed_setup_ns += end - start;
+    ++compressed_objects;
+    compressed_payload += bytes;
+}
+void CodebookDense::reportCompressedIndexSetup() {
+#if defined(I2CE_USE_LIBM5)
+    const char *clock = "simulator_rpns";
+#else
+    const char *clock = "host_or_qemu_not_formal";
+#endif
+    std::printf("[compressed-indices] format=I2CECI01 clock=%s objects=%llu "
+                "payload_bytes=%llu file_bytes=%llu setup_ns=%llu "
+                "scope=allocation_source_identity_file_load_validation "
+                "offline_W_bytes=0 shared_streams=1 original_registry_retained=1\n",
+                clock, (unsigned long long)compressed_objects,
+                (unsigned long long)compressed_payload,
+                (unsigned long long)(compressed_payload + 96u * compressed_objects),
+                (unsigned long long)compressed_setup_ns);
 }
