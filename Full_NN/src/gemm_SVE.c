@@ -2407,3 +2407,140 @@ void sve_gemm_dense_int8_interleaved_2Learners(
         }
     }
 }
+
+void attention_sdot_mr4nr16(const int8_t *packed_left, const int8_t *packed_right,
+                           uint32_t *accumulators, size_t padded_features,
+                           size_t left_row_stride, size_t right_group_stride,
+                           size_t accumulator_stride) {
+    i2ce_sdot_intrinsic_mr4nr16(packed_left, packed_right, accumulators,
+                               padded_features, left_row_stride,
+                               right_group_stride, accumulator_stride);
+}
+
+
+#include "attention_sdot_mr8.h"
+/* Signed-byte Attention core; operand and C strides are explicit, independent
+ * of the Codebook arena. C carries full-width modulo partial sums. */
+__attribute__((noinline, target("arch=armv8.2-a+sve+i8mm"))) void
+attention_smmla_mr4nr8(const int8_t *packed_left, const int8_t *packed_right,
+                       uint32_t *accumulators, size_t padded_features,
+                       size_t left_pair_stride, size_t right_pair_stride,
+                       size_t output_pair_stride) {
+    const svbool_t bytes = svptrue_b8(), words = svptrue_b32();
+    svint32_t v00 = svdup_s32(0);
+    svint32_t v01 = svdup_s32(0);
+    svint32_t v02 = svdup_s32(0);
+    svint32_t v03 = svdup_s32(0);
+    svint32_t v10 = svdup_s32(0);
+    svint32_t v11 = svdup_s32(0);
+    svint32_t v12 = svdup_s32(0);
+    svint32_t v13 = svdup_s32(0);
+    for (size_t feature = 0; feature < padded_features; feature += 16) {
+        const svint8_t a00 =
+            svld1_s8(bytes, packed_left + 0 * left_pair_stride + feature * 2 + 0);
+        const svint8_t a10 =
+            svld1_s8(bytes, packed_left + 1 * left_pair_stride + feature * 2 + 0);
+        {
+            const svint8_t b00 =
+                svld1_s8(bytes, packed_right + 0 * right_pair_stride + feature * 2 + 0);
+            v00 = svmmla_s32(v00, a00, b00);
+            v10 = svmmla_s32(v10, a10, b00);
+        }
+        {
+            const svint8_t b10 =
+                svld1_s8(bytes, packed_right + 1 * right_pair_stride + feature * 2 + 0);
+            v01 = svmmla_s32(v01, a00, b10);
+            v11 = svmmla_s32(v11, a10, b10);
+        }
+        {
+            const svint8_t b20 =
+                svld1_s8(bytes, packed_right + 2 * right_pair_stride + feature * 2 + 0);
+            v02 = svmmla_s32(v02, a00, b20);
+            v12 = svmmla_s32(v12, a10, b20);
+        }
+        {
+            const svint8_t b30 =
+                svld1_s8(bytes, packed_right + 3 * right_pair_stride + feature * 2 + 0);
+            v03 = svmmla_s32(v03, a00, b30);
+            v13 = svmmla_s32(v13, a10, b30);
+        }
+        const svint8_t a01 =
+            svld1_s8(bytes, packed_left + 0 * left_pair_stride + feature * 2 + 16);
+        const svint8_t a11 =
+            svld1_s8(bytes, packed_left + 1 * left_pair_stride + feature * 2 + 16);
+        {
+            const svint8_t b01 = svld1_s8(bytes, packed_right + 0 * right_pair_stride +
+                                                     feature * 2 + 16);
+            v00 = svmmla_s32(v00, a01, b01);
+            v10 = svmmla_s32(v10, a11, b01);
+        }
+        {
+            const svint8_t b11 = svld1_s8(bytes, packed_right + 1 * right_pair_stride +
+                                                     feature * 2 + 16);
+            v01 = svmmla_s32(v01, a01, b11);
+            v11 = svmmla_s32(v11, a11, b11);
+        }
+        {
+            const svint8_t b21 = svld1_s8(bytes, packed_right + 2 * right_pair_stride +
+                                                     feature * 2 + 16);
+            v02 = svmmla_s32(v02, a01, b21);
+            v12 = svmmla_s32(v12, a11, b21);
+        }
+        {
+            const svint8_t b31 = svld1_s8(bytes, packed_right + 3 * right_pair_stride +
+                                                     feature * 2 + 16);
+            v03 = svmmla_s32(v03, a01, b31);
+            v13 = svmmla_s32(v13, a11, b31);
+        }
+    }
+    {
+        uint32_t *p = accumulators + 0 * output_pair_stride + 0;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v00)));
+    }
+    {
+        uint32_t *p = accumulators + 0 * output_pair_stride + 4;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v01)));
+    }
+    {
+        uint32_t *p = accumulators + 0 * output_pair_stride + 8;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v02)));
+    }
+    {
+        uint32_t *p = accumulators + 0 * output_pair_stride + 12;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v03)));
+    }
+    {
+        uint32_t *p = accumulators + 1 * output_pair_stride + 0;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v10)));
+    }
+    {
+        uint32_t *p = accumulators + 1 * output_pair_stride + 4;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v11)));
+    }
+    {
+        uint32_t *p = accumulators + 1 * output_pair_stride + 8;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v12)));
+    }
+    {
+        uint32_t *p = accumulators + 1 * output_pair_stride + 12;
+        svst1_u32(words, p,
+                  svadd_u32_x(words, svld1_u32(words, p), svreinterpret_u32_s32(v13)));
+    }
+}
+
+/* Fixed one-learner indexed SDOT backend; no activation or owning storage. */
+__attribute__((noinline, target("arch=armv8.2-a+sve"))) void
+attention_sdot_mr8nr8(const int8_t *packed_left, const int8_t *packed_right,
+                      uint32_t *accumulators, size_t padded_features,
+                      size_t left_row_stride, size_t right_group_stride,
+                      size_t output_row_stride) {
+    attention_sdot_kernel_8x8(packed_left, packed_right, accumulators, padded_features,
+                              left_row_stride, right_group_stride, output_row_stride);
+}

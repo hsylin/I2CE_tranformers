@@ -462,6 +462,22 @@ void sve_gemm_dense_int8_interleaved_2Learners(
     uint32_t k_elems,
     int32_t *out_interleaved);
 
+// Accumulate one MR4xNR16 Attention tile from signed-byte packed operands.
+void attention_sdot_mr4nr16(const int8_t *packed_left, const int8_t *packed_right,
+                           uint32_t *accumulators, size_t padded_features,
+                           size_t left_row_stride, size_t right_group_stride,
+                           size_t accumulator_stride);
+
+// Retained S25 low-level interfaces; callers provide complete packed tiles.
+void attention_sdot_mr8nr8(const int8_t *packed_left, const int8_t *packed_right,
+                           uint32_t *accumulators, size_t padded_features,
+                           size_t left_row_stride, size_t right_group_stride,
+                           size_t output_row_stride);
+void attention_smmla_mr4nr8(const int8_t *packed_left, const int8_t *packed_right,
+                            uint32_t *accumulators, size_t padded_features,
+                            size_t left_pair_stride, size_t right_pair_stride,
+                            size_t output_pair_stride);
+
 #ifdef __cplusplus
 }
 #endif

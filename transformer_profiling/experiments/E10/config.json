@@ -1,0 +1,46 @@
+{
+  "stage": "E10",
+  "previous": "E09",
+  "change": "Workload MR4xNR16 SDOT with an independent original-S25 generic MR8xNR8 API",
+  "working_hypothesis": "Replacing widened dot products and complete int32 Attention outputs with byte operands and a fixed SDOT consumer removes conversion and staging costs",
+  "costs_removed": [
+    "Complete widened A/B representations",
+    "Complete int32 Attention output temporary"
+  ],
+  "costs_introduced": [
+    "Packed A/B microtiles and local accumulators",
+    "Alias copy and checked fallback for unsupported core shapes"
+  ],
+  "dependencies": [
+    "SVE128",
+    "Signed-byte modulo arithmetic",
+    "Required paired-learner operand packing"
+  ],
+  "predictions": [
+    "Every generic tile uses two 8x8 learner planes and original packing/reuse counts",
+    "Low bytes agree with independent uint32 modulo oracle, including tails and alias handling",
+    "Ownership is released after each invocation and failed allocation leaves output unchanged"
+  ],
+  "contradictions": [
+    "Packing reads past a logical tail or uninitialized padding reaches a consumer",
+    "Accumulator overflow or low-byte narrowing differs from scalar semantics",
+    "Codebook source bodies change"
+  ],
+  "unavoidable_changes": [
+    "Shared translation-unit code placement",
+    "Attention allocation sizes and later allocator state",
+    "Phase counters can include changed surrounding setup and memory-system effects"
+  ],
+  "excluded": [
+    "Attention outer blocking",
+    "Streaming or activation lifetime changes",
+    "Vector softmax"
+  ],
+  "retained_alternatives": "Original MR8 generic and low-level SMMLA interfaces restored; MR4 remains available for the separate blocked path",
+  "formal_measurements": 0,
+  "interpretation": "The result tests a core with its required byte interfaces and packing, not an isolated instruction substitution; no new performance claim",
+  "study": "e01-e13",
+  "scope_separation": "QK/SV explicitly select the temporary MR4 producer, so E11 changes blocking without changing its core. The public generic API uses original MR8 selection conditions throughout.",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0
+}
