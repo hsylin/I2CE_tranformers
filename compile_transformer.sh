@@ -1,190 +1,85 @@
-# aarch64-linux-gnu-g++ transformer.cpp transformer_layers/*.cc accelerator/smm_gem.cpp accelerator/systolic_m2m.cc   -o transformer.o -DSA_SIZE=16 -DDEVELOP -DCORE_NUM=1 -fopenmp -O2
-# aarch64-linux-gnu-g++ -static transformer.cpp transformer_layers/*.cc accelerator/smm_gem.cpp accelerator/systolic_m2m.cc -o transformer.o -DSA_SIZE=16 -DDEVELOP -DCORE_NUM=1 -fopenmp -O2
+#!/usr/bin/env bash
+# Build in an isolated source directory: the output is ./transformer.o.
+# Flag variables select the existing run modes; A64CXX selects the compiler.
 
-
-# Change below and use the compiler on your laptop
 unset CC CXX CPATH LIBRARY_PATH LD_LIBRARY_PATH PKG_CONFIG_PATH CPPFLAGS LDFLAGS
 
-
-DEFAULT_A64CXX="$CONDA_PREFIX/bin/aarch64-conda-linux-gnu-g++"
+DEFAULT_A64CXX="${CONDA_PREFIX:-}/bin/aarch64-conda-linux-gnu-g++"
 if [ -z "${A64CXX:-}" ]; then
-  if [ -x "$DEFAULT_A64CXX" ]; then
-    A64CXX="$DEFAULT_A64CXX"
-  elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
-    A64CXX="$(command -v aarch64-linux-gnu-g++)"
-  elif command -v aarch64-conda-linux-gnu-g++ >/dev/null 2>&1; then
-    A64CXX="$(command -v aarch64-conda-linux-gnu-g++)"
-  else
-    echo "No aarch64 C++ compiler found. Set A64CXX to your cross compiler path." >&2
-    exit 1
-  fi
+    if [ -x "$DEFAULT_A64CXX" ]; then
+        A64CXX="$DEFAULT_A64CXX"
+    elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
+        A64CXX="$(command -v aarch64-linux-gnu-g++)"
+    elif command -v aarch64-conda-linux-gnu-g++ >/dev/null 2>&1; then
+        A64CXX="$(command -v aarch64-conda-linux-gnu-g++)"
+    else
+        echo "No AArch64 C++ compiler found. Set A64CXX to its path." >&2
+        exit 1
+    fi
 fi
 export A64CXX
-export A64SYSROOT="$($A64CXX -print-sysroot 2>/dev/null || true)"
+A64SYSROOT="$("$A64CXX" -print-sysroot 2>/dev/null || true)"
+export A64SYSROOT
 
-
-# Control MACRO (Not required to change)
-EXTRA_DEFS=""
-EXTRA_CXXFLAGS=""
-GEMM_SVE_SRC=""
-
-if [ "${RELOAD_WEIGHT_FLAG:-1}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DRELOAD_WEIGHT"
+# Keep arguments separate so include and archive paths may contain spaces.
+BUILD_DEFINES=()
+BUILD_CXXFLAGS=()
+BUILD_SVE_SOURCES=()
+BUILD_LIBRARIES=()
+for flag in RELOAD_WEIGHT USE_NOTEBOOK_GENERATED_WEIGHTS USE_CODEBOOK_GEMM \
+    ENABLE_CODEBOOK_REFERENCE ENABLE_DEBUG_PRINT PROFILE_GEMM_ONLY \
+    GEM5_PROFILE_REGIONS FULL_INTERLEAVED_PIPELINE USE_FP32_TRANSFORMER \
+    DENSE_NO_SIMD_BASELINE SIMD; do
+    default_value=0
+    case "$flag" in
+        RELOAD_WEIGHT|USE_NOTEBOOK_GENERATED_WEIGHTS) default_value=1 ;;
+    esac
+    variable_name="${flag}_FLAG"
+    flag_value="${!variable_name:-$default_value}"
+    printf '  %s=%s\n' "$variable_name" "$flag_value"
+    if [ "$flag_value" = 1 ]; then
+        BUILD_DEFINES+=("-D$flag")
+    fi
+done
+if [ "${SIMD_FLAG:-0}" = 1 ]; then
+    BUILD_CXXFLAGS+=(-march=armv8-a+sve)
+    BUILD_SVE_SOURCES+=(Full_NN/src/gemm_SVE.c)
 fi
+CORE_NUM_VALUE="${CORE_NUM_FLAG:-1}"
+printf '  CORE_NUM (build)=%s\n' "$CORE_NUM_VALUE"
 
-if [ "${USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG:-1}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DUSE_NOTEBOOK_GENERATED_WEIGHTS"
+if [ "${I2CE_USE_LIBM5_FLAG:-0}" = 1 ]; then
+    if [ -z "${LIBM5_A:-}" ] || [ -z "${M5_INC:-}" ]; then
+        if [ -z "${GEM5_ROOT:-}" ]; then
+            echo "Direct profiling needs LIBM5_A and M5_INC, or GEM5_ROOT." >&2
+            exit 1
+        fi
+        LIBM5_A="${LIBM5_A:-$GEM5_ROOT/util/m5/build/arm64/out/libm5.a}"
+        M5_INC="${M5_INC:-$GEM5_ROOT/include}"
+    fi
+    if [ ! -f "$LIBM5_A" ]; then
+        echo "libm5 archive not found: $LIBM5_A" >&2
+        echo "Build it with tools/exp/exp.sh build-libm5." >&2
+        exit 1
+    fi
+    if [ ! -f "$M5_INC/gem5/m5ops.h" ]; then
+        echo "gem5/m5ops.h not found under: $M5_INC" >&2
+        exit 1
+    fi
+    BUILD_DEFINES+=(-DI2CE_USE_LIBM5)
+    BUILD_CXXFLAGS+=("-I$M5_INC")
+    # Static libraries follow the objects that reference their symbols.
+    BUILD_LIBRARIES+=("$LIBM5_A")
 fi
-
-if [ "${USE_CODEBOOK_GEMM_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DUSE_CODEBOOK_GEMM"
-fi
-
-if [ "${ENABLE_CODEBOOK_REFERENCE_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DENABLE_CODEBOOK_REFERENCE"
-fi
-
-if [ "${ENABLE_DEBUG_PRINT_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DENABLE_DEBUG_PRINT"
-fi
-
-if [ "${PROFILE_GEMM_ONLY_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DPROFILE_GEMM_ONLY"
-fi
-
-if [ "${GEM5_PROFILE_REGIONS_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DGEM5_PROFILE_REGIONS"
-fi
-
-if [ "${FULL_INTERLEAVED_PIPELINE_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DFULL_INTERLEAVED_PIPELINE"
-fi
-
-if [ "${USE_FP32_TRANSFORMER_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DUSE_FP32_TRANSFORMER"
-fi
-
-if [ "${DENSE_NO_SIMD_BASELINE_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DDENSE_NO_SIMD_BASELINE"
-fi
-
-if [ "${SIMD_FLAG:-0}" = "1" ]; then
-  EXTRA_DEFS="$EXTRA_DEFS -DSIMD"
-  EXTRA_CXXFLAGS="$EXTRA_CXXFLAGS -march=armv8-a+sve"
-  GEMM_SVE_SRC="Full_NN/src/gemm_SVE.c"
-fi
-
-echo "Compile options:"
-echo "  RELOAD_WEIGHT_FLAG=${RELOAD_WEIGHT_FLAG:-1}"
-echo "  USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=${USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG:-1}"
-echo "  USE_CODEBOOK_GEMM_FLAG=${USE_CODEBOOK_GEMM_FLAG:-0}"
-echo "  ENABLE_CODEBOOK_REFERENCE_FLAG=${ENABLE_CODEBOOK_REFERENCE_FLAG:-0}"
-echo "  ENABLE_DEBUG_PRINT_FLAG=${ENABLE_DEBUG_PRINT_FLAG:-0}"
-echo "  PROFILE_GEMM_ONLY_FLAG=${PROFILE_GEMM_ONLY_FLAG:-0}"
-echo "  GEM5_PROFILE_REGIONS_FLAG=${GEM5_PROFILE_REGIONS_FLAG:-0}"
-echo "  FULL_INTERLEAVED_PIPELINE_FLAG=${FULL_INTERLEAVED_PIPELINE_FLAG:-0}"
-echo "  USE_FP32_TRANSFORMER_FLAG=${USE_FP32_TRANSFORMER_FLAG:-0}"
-echo "  DENSE_NO_SIMD_BASELINE_FLAG=${DENSE_NO_SIMD_BASELINE_FLAG:-0}"
-echo "  SIMD_FLAG=${SIMD_FLAG:-0}"
-
-
+printf '  I2CE_USE_LIBM5_FLAG=%s\n' "${I2CE_USE_LIBM5_FLAG:-0}"
 
 "$A64CXX" -std=c++17 -O2 -Wall \
-  $EXTRA_CXXFLAGS \
-  transformer.cpp \
-  transformer_layers/*.cc \
-  Full_NN/src/gemm_exec.c \
-  $GEMM_SVE_SRC \
-  accelerator/smm_gem.cpp \
-  accelerator/systolic_m2m.cc \
-  $EXTRA_DEFS \
-  -I. \
-  -IFull_NN/inc \
-  -IFull_NN/gemm_definitions \
-  -DSA_SIZE=4 \
-  -DDEVELOP \
-  -DCORE_NUM=1 \
-  -fopenmp \
-  -static \
-  -o transformer.o \
-  -Wl,--start-group \
-  -lgomp \
-  -ldl \
-  -Wl,--end-group \
-  -pthread
-
-
-# Legacy command from TiC-SAT
-#   -DDEBUG_SMALL_MODEL \
-
-
-
-# No-SIMD dense sequential learner baseline
-# Set N_LEARNERS in Full_NN/gemm_definitions/codebooks_def.h to 1, 2, or 4 first.
-# Debug mode
-# DENSE_NO_SIMD_BASELINE_FLAG=1 SIMD_FLAG=0 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=0 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 GEM5_PROFILE_REGIONS_FLAG=0 source compile_transformer.sh
-# Profiling mode
-# DENSE_NO_SIMD_BASELINE_FLAG=1 SIMD_FLAG=0 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=0 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 GEM5_PROFILE_REGIONS_FLAG=1 source compile_transformer.sh
-
-
-
-# Run config v4.0 with SIMD
-# New weights, default dense, SIMD enabled
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=0 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=0 USE_CODEBOOK_GEMM_FLAG=0 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-# Old weights, original, default dense, SIMD enabled
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=0 USE_CODEBOOK_GEMM_FLAG=0 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-# Old weights, notebook generated, default dense, SIMD enabled
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=0 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-# Old weights, codebooked GEMM, reference mode, SIMD enabled (Used for debugging)
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=1 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-# FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=1 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-# FULL_INTERLEAVED_PIPELINE_FLAG=0 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=1 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-
-# Old weights, codebooked GEMM (no reference), SIMD enabled (Used for FP32 implementation)
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=0 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-# USE_FP32_TRANSFORMER_FLAG=1 FULL_INTERLEAVED_PIPELINE_FLAG=1 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-# USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=0 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=1 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-# Only codebook GEMM, clean mode, SIMD enabled
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=0 source compile_transformer.sh
-
-# Profiling mode, CodebookDense registry only, SIMD enabled
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=0 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 source compile_transformer.sh
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 source compile_transformer.sh
-# SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=0 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 source compile_transformer.sh
-# USE_FP32_TRANSFORMER_FLAG=0 FULL_INTERLEAVED_PIPELINE_FLAG=0 SIMD_FLAG=1 RELOAD_WEIGHT_FLAG=1 USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG=1 USE_CODEBOOK_GEMM_FLAG=1 ENABLE_CODEBOOK_REFERENCE_FLAG=0 ENABLE_DEBUG_PRINT_FLAG=0 PROFILE_GEMM_ONLY_FLAG=1 source compile_transformer.sh
-
-# Under profiling mode: USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG only affects the input tensor
-# Under other modes: USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG affects the input tensor + other weights
-
-# RELOAD_WEIGHT_FLAG: generate new .bin weigths by the transformer c code
-# USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG: use .bin weights generated by the notebook or not
-# USE_CODEBOOK_GEMM_FLAG: use default dense or codebook dense (enable USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG first to use codebook computation)
-# ENABLE_CODEBOOK_REFERENCE_FLAG: parallel load .bin and compute default dense as reference (only effective when USE_CODEBOOK_GEMM_FLAG = 1)
-
-
-# QEMU SVE Commands (use QEMU path on your laptop)
-# The commands below are specific for my server environment, so plz do not use them directly
-# SYSROOT=$(/home/thu/miniforge3/envs/gem5_env/bin/aarch64-conda-linux-gnu-g++ -print-sysroot)
-
-# HOME/thu/opt/qemu-sve/bin/qemu-aarch64 \
-#   -cpu max,sve=on,sve-default-vector-length=16 \
-#   -L "$SYSROOT" \
-#   ./transformer.o \
-#   < ./transformer.o
-
-# /home/thu/opt/qemu-sve/bin/qemu-aarch64 -cpu max,sve=on,sve-default-vector-length=16 -L "$SYSROOT" ./transformer.o < ./transformer.o
-
-
-# # 128-bit
-# -cpu max,sve=on,sve-default-vector-length=16
-
-# # 256-bit
-# -cpu max,sve=on,sve-default-vector-length=32
-
-# # 512-bit
-# -cpu max,sve=on,sve-default-vector-length=64
+    "${BUILD_CXXFLAGS[@]}" \
+    transformer.cpp transformer_layers/*.cc \
+    Full_NN/src/gemm_exec.c "${BUILD_SVE_SOURCES[@]}" \
+    accelerator/smm_gem.cpp accelerator/systolic_m2m.cc \
+    "${BUILD_DEFINES[@]}" \
+    -I. -IFull_NN/inc -IFull_NN/gemm_definitions \
+    -DSA_SIZE=4 -DDEVELOP -DCORE_NUM="$CORE_NUM_VALUE" \
+    -fopenmp -static -o transformer.o "${BUILD_LIBRARIES[@]}" \
+    -Wl,--start-group -lgomp -ldl -Wl,--end-group -pthread
