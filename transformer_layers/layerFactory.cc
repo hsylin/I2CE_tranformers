@@ -37,19 +37,22 @@ namespace {
  * @throws std::runtime_error if the layer or selected learner is missing from
  *         the generated registry.
  */
-CodebookDenseConfig makeCheckedCodebookConfig(
-    const char* layer_name,
-    std::size_t expected_input_size,
-    std::size_t expected_output_size,
-    std::size_t learner) {
+CodebookDenseConfig makeCheckedCodebookConfig(const char *layer_name,
+                                              std::size_t expected_input_size,
+                                              std::size_t expected_output_size,
+                                              std::size_t learner) {
 
     CodebookDenseConfig cfg = makeCodebookDenseConfigFromRegistry(layer_name, learner);
 
-    if (cfg.input_size != expected_input_size || cfg.output_size != expected_output_size) {
-        throw std::invalid_argument(
-            "Codebook registry shape mismatch for layer: " + std::string(layer_name));
+    if (cfg.input_size != expected_input_size ||
+        cfg.output_size != expected_output_size) {
+        throw std::invalid_argument("Codebook registry shape mismatch for layer: " +
+                                    std::string(layer_name));
     }
 
+    if (cfg.bits_per_cb == 2u && cfg.n_learners == 2u && cfg.same_seq) {
+        cfg.compressed_index_directory = "/home/thu/TiC-SAT/weights/compressed_indices";
+    }
     return cfg;
 }
 #endif

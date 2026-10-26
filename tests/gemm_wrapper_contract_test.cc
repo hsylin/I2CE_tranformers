@@ -22,7 +22,9 @@ template <typename Input, typename Output>
 void checkCase(const char *name, Wrapper<Input, Output> wrapper, uint32_t learners,
                bool separate_indices, gemm_t shape, uint8_t bits, bool use_bias,
                bool empty_index_rows) {
-    const uint32_t entries = 1u << bits;
+    // Index width is a serialized representation, not the configured table size.
+    // Padded 3/4/9-bit streams in a CB4 build must still address entries 0..3.
+    const uint32_t entries = std::min(1u << bits, uint32_t(CB_SIZE));
     const uint32_t indices_per_word = bits == 0 ? 32 : 32 / bits;
     shape.n_words_row =
         empty_index_rows ? 0
@@ -99,8 +101,8 @@ void checkWrapper(const char *name, Wrapper<Input, Output> wrapper, uint32_t lea
                   bool separate_indices) {
     const gemm_t shapes[] = {{0, 5, 3, 0}, {3, 5, 0, 0}, {3, 0, 3, 0},
                              {1, 1, 1, 0}, {3, 5, 3, 0}, {5, 17, 7, 0}};
-    // 0 exercises bias-only; 4 exceeds this fixture's SVE table capacity;
-    // 9 also exercises the explicit unsupported-index-width fallback.
+    // Zero exercises bias-only. Wider encodings retain the configured table;
+    // width 9 exercises the explicit unsupported-SVE-width scalar fallback.
     for (uint8_t bits : {0, 2, 3, 4, 9}) {
         for (bool bias : {false, true}) {
             for (const gemm_t shape : shapes) {
@@ -119,7 +121,8 @@ template <uint32_t Learners, bool SeparateIndices, bool UseCache, int WorkspaceM
 void cachedWrapper(gemm_t shape, const int8_t *input, const uint32_t *indices,
                    const int8_t *codebook, const int32_t *bias, int32_t *output,
                    uint8_t bits) {
-    const size_t entries = std::max(1u << bits, 256u) * Learners;
+    const size_t entries =
+        std::max(std::min(1u << bits, uint32_t(CB_SIZE)), 256u) * Learners;
     std::vector<int32_t> widened(codebook, codebook + entries);
     const auto original = widened;
     const int32_t *cached = UseCache ? widened.data() : nullptr;
@@ -148,14 +151,10 @@ void cachedWrapper(gemm_t shape, const int8_t *input, const uint32_t *indices,
             shape, input, indices, codebook, bias, output, bits, cached, borrowed,
             capacity);
     }
-    const bool uses_workspace = WorkspaceMode >= 2 && shape.seq_len &&
-                                shape.output_size && shape.input_size &&
-                                shape.n_words_row && bits && (1u << bits) <= CB_SIZE;
+    // The int8 implementation retains these arguments for ABI compatibility
+    // but no longer materializes widened activations into borrowed storage.
     for (size_t i = 0; i < workspace.size(); ++i) {
-        const int32_t expected = uses_workspace && i > 0 && i <= input_count
-                                     ? static_cast<int32_t>(input[i - 1])
-                                     : sentinel;
-        if (workspace[i] != expected) {
+        if (workspace[i] != sentinel) {
             std::fprintf(stderr,
                          "FAIL: borrowed activation workspace changed incorrectly\n");
             std::exit(1);

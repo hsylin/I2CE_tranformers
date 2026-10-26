@@ -216,14 +216,10 @@ void TestGemmCase(const Variant &variant, gemm_t shape, bool use_bias,
     }
     Check(output.front() == kCanary && output.back() == kCanary, "output canary");
     Check(input == original_input, "GEMM changed input");
-    const bool uses_workspace = workspace_mode >= 2 && workspace_mode <= 3 &&
-                                shape.seq_len != 0 && shape.output_size != 0 &&
-                                shape.input_size != 0;
-    for (size_t i = 0; i < workspace.size(); ++i) {
-        const int32_t value = uses_workspace && i > 0 && i <= input_count
-                                  ? static_cast<int32_t>(input[i - 1])
-                                  : kCanary;
-        Check(workspace[i] == value, "workspace content or canary");
+    // Byte-input wrappers retain the workspace parameters for ABI compatibility.
+    // They must leave borrowed widening storage, including canaries, untouched.
+    for (const int32_t value : workspace) {
+        Check(value == kCanary, "unused workspace was modified");
     }
     ++checks;
 }

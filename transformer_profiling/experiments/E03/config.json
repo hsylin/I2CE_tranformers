@@ -1,0 +1,54 @@
+{
+  "stage": "E03",
+  "previous": "E02",
+  "change": "Int8 operands, shared CI01 indices and bounded paired runtime weight packing",
+  "working_hypothesis": "Keeping activations in bytes and decoding each shared CI01 word for both learners removes widening and duplicate index work while retaining the fixed MR4xNR16 consumer",
+  "costs_removed": [
+    "Whole-input int32 widening workspace",
+    "Repeated per-learner index extraction",
+    "Per-core table setup"
+  ],
+  "costs_introduced": [
+    "Validated CI01 loading and identity checks",
+    "Two physical K128 runtime W panels",
+    "Complete C32 output temporary and conversion pass"
+  ],
+  "dependencies": [
+    "E02 selected MR4xNR16 K256 core",
+    "SVE128",
+    "CB4 shared two-learner indices",
+    "Canonical CI01 inputs"
+  ],
+  "predictions": [
+    "Table setup occurs once per GEMM call",
+    "W storage is bounded independently of total matrix size",
+    "The generic decoder assigns physical padding",
+    "Borrowed widening workspace remains untouched"
+  ],
+  "contradictions": [
+    "Any output disagrees with an independent modulo-32-bit logical oracle",
+    "CI01 logical indices disagree with original packed rows",
+    "W scratch grows with total sequence rows",
+    "Unused widening workspace is modified"
+  ],
+  "unavoidable_changes": [
+    "Input representation and public byte-output adapters change together",
+    "Allocation and stack layouts",
+    "Wrapper fallback dispatch for configured codebook size",
+    "Compiler output and source-work counter instructions"
+  ],
+  "excluded": [
+    "L1 or outer blocking",
+    "W reuse across sequence tiles",
+    "All-K A retention",
+    "Full-panel decoder specialization",
+    "Final-K output fusion",
+    "Attention changes"
+  ],
+  "validation_domain": "CB4 shared two-learner compressed path; legacy compact wrappers use configured codebook domain and preserve unused workspace ABI",
+  "formal_measurements": 0,
+  "interpretation": "The representation, loader, paired decoder and necessary interfaces form one dependent design; no isolated component speedup claim",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
