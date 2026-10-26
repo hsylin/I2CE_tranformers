@@ -227,6 +227,47 @@ class ResultsTests(unittest.TestCase):
         self.assertIsNone(out[2]["versus_previous"])
         self.assertEqual(out[2]["versus_E01"]["delta_ticks"], -20)
 
+    def test_export_matches_migrated_report_schemas(self):
+        sys.path.insert(
+            0, str(Path(__file__).resolve().parents[1] / "transformer_profiling")
+        )
+        import report
+
+        report.load_dependencies()
+        names = sorted(report.SCHEMA_V2)
+        values = dict(
+            sim_ticks=1000,
+            instructions=100,
+            cpu_cycles=250,
+            dcache_demand_accesses=20,
+            dcache_demand_misses=2,
+            l2_demand_accesses=2,
+            l2_demand_misses=1,
+        )
+        metrics = {n: dict(values) for n in names}
+        metrics["BLOCK"] = {k: v * 10 for k, v in values.items()}
+        for n, multiplier in [
+            ("CODEBOOK", 4),
+            ("ATTENTION", 4),
+            ("NORMALIZATION_PHASES", 2),
+        ]:
+            metrics[n] = {k: v * multiplier for k, v in values.items()}
+        counter = dict(metrics=metrics, intervals=[{"label": n} for n in names])
+        row = dict(id="E13", source_commit="fixture", binary_sha256="fixture")
+        table, phases = results.report_tables([row], {"E13": counter})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results.write_table(root / "results.tsv", table, "\t")
+            results.write_table(root / "phases.csv", phases)
+            frame, total, stage = report.load_data(root / "results.tsv")
+            self.assertEqual(len(total), 1)
+            self.assertEqual(len(stage), 10)
+            charts = report.implementation_phase_charts(root / "phases.csv")
+            self.assertEqual(
+                charts[0]["layout"]["yaxis"]["title"]["text"],
+                "Share of ROI (%)",
+            )
+
     def test_keep_negative_zero_and_undefined_counter_differences(self):
         old, new = sample(100), sample(80)
         new["intervals"][0]["values"]["x"] = 1

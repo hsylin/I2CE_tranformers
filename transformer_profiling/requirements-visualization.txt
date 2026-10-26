@@ -1,0 +1,4 @@
+# Minimal addition to an existing gem5_env (Python 3.9+).
+# python -m pip install -r transformer_profiling/requirements-visualization.txt
+pandas==2.2.3
+plotly==6.3.0
