@@ -1,0 +1,44 @@
+{
+  "stage": "E11",
+  "previous": "E10",
+  "change": "Bounded QK and SV packing with two-level operand reuse",
+  "working_hypothesis": "Reuse each packed operand across several MR4xNR16 consumers while holding the dot-product core fixed",
+  "costs_removed": [
+    "Repeated packing for each output microtile"
+  ],
+  "costs_introduced": [
+    "Larger live A/B panels and persistent output-tile accumulators"
+  ],
+  "dependencies": [
+    "E10 checked signed-byte operand contract",
+    "Full-K accumulation before byte narrowing"
+  ],
+  "predictions": [
+    "Intermediate C after each K panel equals the scalar prefix sum modulo 2^32",
+    "Partial rows, columns and K read only assigned padding",
+    "QK/SV use M1=16 N1=32 K1=128 and M2=128 N2=128 K2=512"
+  ],
+  "contradictions": [
+    "Partial C differs before final narrowing",
+    "Packing counters exceed the specified panel traversal",
+    "Kernel code or Codebook source bodies change"
+  ],
+  "unavoidable_changes": [
+    "Attention scratch size and allocation lifetime",
+    "Shared translation-unit placement and later allocator state"
+  ],
+  "generic_api": "The general two-learner helper retains the E10 MR8xNR8 strategy; only QK/SV select the blocked MR4xNR16 strategy",
+  "excluded": [
+    "Streaming",
+    "Activation lifetime changes",
+    "Vector softmax",
+    "MR8 generic substitution"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "Validation establishes arithmetic and layout behavior; no timing benefit is claimed",
+  "study": "e01-e13",
+  "scope": "MR4xNR16 workload core retained from E10; generic API remains MR8xNR8",
+  "compatibility": "Original SMMLA blocked header and misleadingly named SDOT public alias retained",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0
+}
