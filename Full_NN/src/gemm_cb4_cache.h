@@ -501,9 +501,14 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
                 ++cb4_scratch_stats.W_outer_pack_calls;
                 cb4_scratch_stats.W_pack_calls +=
                     ((tile_columns + 31u) / 32u) * ((tile_features + 127u) / 128u);
-                cb4_scratch_stats.W_assigned_bytes += ((tile_columns + 31u) / 32u) *
-                                                      ((tile_features + 127u) / 128u) *
-                                                      9216u;
+                for (size_t column = 0; column < tile_columns; column += 32u) {
+                    for (size_t feature = 0; feature < tile_features; feature += 128u) {
+                        const bool full_panel = tile_columns - column >= 32u &&
+                                                tile_features - feature >= 128u;
+                        cb4_scratch_stats.W_assigned_bytes +=
+                            full_panel ? 8192u : 9216u;
+                    }
+                }
                 cb4_scratch_stats.W_useful_bytes += 2u * tile_columns * tile_features;
                 /* Reuse each final SDOT W block across sequence tiles. C carries the
                  * partial sums directly between K1 panels; no C1 staging. */

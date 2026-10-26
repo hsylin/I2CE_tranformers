@@ -1,0 +1,41 @@
+{
+  "stage": "E07",
+  "previous": "E06",
+  "change": "Specialize complete W panels and omit unread stride padding stores",
+  "working_hypothesis": "For full 32-column/K128 panels, removing masks and unused padding stores reduces producer work without changing the SDOT consumer",
+  "costs_removed": [
+    "1024 unused padding bytes per physical full panel",
+    "Tail masks on complete panels"
+  ],
+  "costs_introduced": [
+    "A shape guard and specialized decoder implementation"
+  ],
+  "dependencies": [
+    "E03 CI01 pair/K8 layout",
+    "Physical W stride 144 and K128 consumers"
+  ],
+  "predictions": [
+    "For 256x256x1024, W calls remain 128 but assigned bytes fall from 1179648 to 1048576",
+    "Full panels leave stride padding poisoned; general tails still initialize every readable byte",
+    "Valid outputs match for two poison patterns"
+  ],
+  "contradictions": [
+    "Any consumed byte retains poison",
+    "General tails use the full-panel specialization",
+    "A/W call counts or consumer loop order change"
+  ],
+  "unavoidable_changes": [
+    "Decoder branches and code placement",
+    "Fewer producer stores and modified source counters"
+  ],
+  "excluded": [
+    "Learner-first consumption order",
+    "Final-output fusion",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "Assigned bytes describe source writes, not measured memory traffic; no performance claim follows from this validation",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
