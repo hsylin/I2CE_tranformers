@@ -325,9 +325,11 @@ static void cache_compute_step(cb4_c_view c, size_t row_base, size_t feature_bas
                                size_t tile_features, const int8_t *weights,
                                const int8_t *input_panel) {
     if (tile_features == 256u && tile_rows == 16u && tile_columns == 32u) {
-        for (size_t column = 0; column < 32u; column += 16u) {
+        // Finish one learner plane before advancing to the other. Within
+        // that plane, each four-row A group feeds both sixteen-column W groups.
+        for (size_t learner = 0; learner < 2u; ++learner) {
             for (size_t row = 0; row < 16u; row += 4u) {
-                for (size_t learner = 0; learner < 2u; ++learner) {
+                for (size_t column = 0; column < 32u; column += 16u) {
                     i2ce_sdot_cb_mr4nr16_k256(
                         input_panel + learner * CACHE_S2 * CACHE_X2_STRIDE +
                             (row_base + row) * CACHE_X2_STRIDE + feature_base,
