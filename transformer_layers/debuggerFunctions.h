@@ -76,4 +76,15 @@ void comparePackedBuffers(const char *label,
                           const uint32_t *candidate,
                           std::size_t packed_size);
 
+/*
+ * Expose comparison totals so callers can reject mismatches and empty
+ * validation coverage without changing each comparison call signature.
+ *
+ * Counts are process-wide and are not thread-safe; reference comparison is a
+ * single-threaded debug/validation mode.
+ */
+std::size_t packedBufferMismatchCount();
+std::size_t packedBufferComparisonCount();
+void resetPackedBufferMismatchCount();
+
 #endif //FVLLMONTITRANSFORMER_DEBUGGERFUNCTIONS_H

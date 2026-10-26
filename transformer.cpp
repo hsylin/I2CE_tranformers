@@ -692,5 +692,24 @@ void test() {
 
 int main() {
     test();
+
+#if CFG_USE_CODEBOOK_REFERENCE
+    // A reference build must execute comparisons and reject mismatches.
+    const std::size_t comparisons = packedBufferComparisonCount();
+    const std::size_t mismatches = packedBufferMismatchCount();
+    std::cout << "[reference] " << comparisons << " buffer comparison(s), "
+              << mismatches << " with mismatches" << std::endl;
+    if (mismatches != 0) {
+        std::cerr << "ERROR: " << mismatches << " of " << comparisons
+                  << " reference comparisons differed; failing the run."
+                  << std::endl;
+        return 1;
+    }
+    if (comparisons == 0) {
+        std::cerr << "ERROR: reference validation was enabled but no comparison"
+                  << " ran; the check is not covering anything." << std::endl;
+        return 1;
+    }
+#endif
     return 0;
 }
