@@ -16,8 +16,8 @@ class Softmax
         explicit Softmax();
         ~Softmax();
         void compute(uint32_t *input, std::size_t seq_len);
-        void computeInterleaved2D(int8_t *input, std::size_t seq_len);
-        void computeInterleaved4D(int8_t *input, std::size_t seq_len);
+        void computeInterleaved2Learners(int8_t *input, std::size_t seq_len);
+        void computeInterleaved4Learners(int8_t *input, std::size_t seq_len);
         // void computeFloat(uint32_t *input, std::size_t seq_len);
         void computeRearranged(uint32_t *input, std::size_t seq_len, std::size_t kernelDim);
         void post_softmax(uint32_t *input, size_t seq_len, size_t);

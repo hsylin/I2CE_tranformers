@@ -279,14 +279,14 @@ void FloatSingleHeadSelfAttn::computeInterleavedImpl(std::size_t seq_len,
                                  LearnerCount);
 }
 
-void FloatSingleHeadSelfAttn::computeInterleaved2D(std::size_t seq_len,
+void FloatSingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
                                                    FloatSingleHeadSelfAttn* heads[2],
                                                    const float* input_interleaved,
                                                    Matrix& output_interleaved) {
     computeInterleavedImpl<2u>(seq_len, heads, input_interleaved, output_interleaved);
 }
 
-void FloatSingleHeadSelfAttn::computeInterleaved4D(std::size_t seq_len,
+void FloatSingleHeadSelfAttn::computeInterleaved4Learners(std::size_t seq_len,
                                                    FloatSingleHeadSelfAttn* heads[4],
                                                    const float* input_interleaved,
                                                    Matrix& output_interleaved) {

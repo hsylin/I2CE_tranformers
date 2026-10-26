@@ -125,7 +125,7 @@ void sve_gemm_row_compact_fp32(const uint32_t *packed_row,
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(
+void sve_gemm_row_compact_fp32_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -170,7 +170,7 @@ void sve_gemm_row_compact_fp32_interleaved_4D_diff_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_fp32_interleaved_2D_same_seq(
+void sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -215,7 +215,7 @@ void sve_gemm_row_compact_fp32_interleaved_2D_same_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
+void sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -263,7 +263,7 @@ void sve_gemm_row_compact_fp32_interleaved_4D_same_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_int8_interleaved_4D_diff_seq(
+void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -309,7 +309,7 @@ void sve_gemm_row_compact_int8_interleaved_4D_diff_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_int8_interleaved_2D_same_seq(
+void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -355,7 +355,7 @@ void sve_gemm_row_compact_int8_interleaved_2D_same_seq(
  *                   overwrite them.
  * @param bits_per_cb Number of bits used for each packed codebook index.
  */
-void sve_gemm_row_compact_int8_interleaved_4D_same_seq(
+void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
@@ -389,7 +389,7 @@ void sve_gemm_row_compact_int8_interleaved_4D_same_seq(
  * @param out_interleaved Output matrix stored as
  *                        [lhs_rows][rhs_cols][4 learners].
  */
-void sve_gemm_dense_int8_interleaved_4D(
+void sve_gemm_dense_int8_interleaved_4Learners(
     const int32_t *lhs_interleaved,
     const int32_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
@@ -400,7 +400,7 @@ void sve_gemm_dense_int8_interleaved_4D(
 /**
  * @brief SVE dense int8/int32 GEMM for two interleaved learners.
  *
- * This is the two-learner version of sve_gemm_dense_int8_interleaved_4D().
+ * This is the two-learner version of sve_gemm_dense_int8_interleaved_4Learners().
  *
  * @param lhs_interleaved Left-hand/input matrix stored as
  *                        [lhs_rows][k_elems][2 learners].
@@ -412,7 +412,7 @@ void sve_gemm_dense_int8_interleaved_4D(
  * @param out_interleaved Output matrix stored as
  *                        [lhs_rows][rhs_cols][2 learners].
  */
-void sve_gemm_dense_int8_interleaved_2D(
+void sve_gemm_dense_int8_interleaved_2Learners(
     const int32_t *lhs_interleaved,
     const int32_t *rhs_by_col_interleaved,
     uint32_t lhs_rows,
