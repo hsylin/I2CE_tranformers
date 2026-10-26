@@ -7,6 +7,13 @@
       "binary_sha256": "bb6a2ce2eae79f9c8ee58278f439e716aebd0b3a48fccfd1fd81f40e8216c7b3",
       "configuration": "../experiments/E01/config.json",
       "source_binding": "../experiments/E01/source.json"
+    },
+    {
+      "stage": "E02",
+      "tag": "E02",
+      "binary_sha256": "04922bf9ffdd0c538aaf4eb9966160cee645d7e93c46bf73f091b1c997ffb84f",
+      "configuration": "../experiments/E02/config.json",
+      "source_binding": "../experiments/E02/source.json"
     }
   ],
   "canonical_inputs": "../inputs/manifest.json",

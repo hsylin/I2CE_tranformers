@@ -40,6 +40,42 @@
 #include <codebooks_def.h>
 #include <gemm_SVE.h>
 #include <gemm_exec_internal.h>
+#include "gemm_cb4_adapter.h"
+
+/* Allocation-accounting metadata only, reset before the single inference.
+ * No backing storage is retained. These scalar updates are charged to ROI. */
+static i2ce_cb4_scratch_stats cb4_scratch_stats;
+static uint64_t cb_last_direct_calls = 0;
+static uint64_t cb_last_source_cores = 0;
+static uint64_t cb_sdot_calls = 0;
+static uint64_t cb_sdot_full_calls = 0;
+static uint64_t cb_sdot_source = 0;
+static uint64_t cb_sdot_edges = 0;
+static __attribute__((destructor)) void report_cb_sdot(void) {
+    fprintf(stderr,
+            "[codebook-last-output] version=1 direct_calls=%llu "
+            "final_core_source_calls=%llu "
+            "source_scope=registered_full_shape_not_dynamic_traffic\n",
+            (unsigned long long)cb_last_direct_calls,
+            (unsigned long long)cb_last_source_cores);
+    fprintf(stderr,
+            "[codebook-sdot] version=3 MR=4 NR=16 Kpanel_max=256 calls=%llu "
+            "full_core_source_calls=%llu full_core_sdot_source_count=%llu "
+            "edge_outputs=%llu "
+            "prediction_scope=registered_full_panel_shape_not_dynamic_opcode_counter\n",
+            (unsigned long long)cb_sdot_calls, (unsigned long long)cb_sdot_full_calls,
+            (unsigned long long)cb_sdot_source, (unsigned long long)cb_sdot_edges);
+}
+
+void sve_cb4_scratch_reset(void) {
+    memset(&cb4_scratch_stats, 0, sizeof(cb4_scratch_stats));
+    cb_sdot_calls = cb_sdot_full_calls = cb_sdot_source = cb_sdot_edges = 0;
+    cb_last_direct_calls = cb_last_source_cores = 0;
+}
+i2ce_cb4_scratch_stats sve_cb4_scratch_get(void) {
+    return cb4_scratch_stats;
+}
+
 #endif
 
 /**
@@ -1556,6 +1592,28 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
 
     /* Step 9: copy/sign-extend each interleaved input element to int32. */
     gemm_widen_input_sve(in_interleaved, input_i32_interleaved, input_count);
+
+    // The adapter consumes the already-widened buffers exposed by this API.
+    // Other codebook widths or vector lengths use the general kernel below.
+    if (CB_SIZE == 4u && N_LEARNERS == 2u && bits_per_cb == 2u && svcntb() == 16u &&
+        gemm_layer.n_words_row >= (gemm_layer.input_size + 15u) / 16u) {
+        ++cb_sdot_calls;
+        const uint64_t rows = gemm_layer.seq_len, columns = gemm_layer.output_size;
+        const uint64_t features = gemm_layer.input_size;
+        if (rows % 16u == 0u && columns % 32u == 0u && features % 256u == 0u) {
+            cb_sdot_full_calls +=
+                (rows / 4u) * (columns / 16u) * 2u * (features / 256u);
+            cb_sdot_source += (rows / 4u) * (columns / 16u) * 2u * features * 4u;
+        }
+        cb_sdot_edges += rows * columns - (rows / 4u * 4u) * (columns / 16u * 16u);
+        gemm_cb4_sdot_from_widened(gemm_layer, input_i32_interleaved, weight_idx,
+                                   codebook_i32_interleaved, bias_interleaved,
+                                   out_interleaved, &cb4_scratch_stats);
+        if (!using_workspace) {
+            free(input_i32_interleaved);
+        }
+        return;
+    }
 
     /* Step 10: choose sequence and packed-word tile sizes for cache locality. */
     const uint32_t tile_seq = gemm_sve_l1_tile_or_full(gemm_layer.seq_len);

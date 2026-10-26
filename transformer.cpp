@@ -1,3 +1,6 @@
+#ifdef SIMD
+#include "Full_NN/inc/gemm_SVE.h"
+#endif
 #include"transformer_layers/transformerBlock.h"
 //#include"gtest/gtest.h"
 #include "transformer.h"
@@ -12,6 +15,9 @@
 #include <codebooks_def.h>
 #if CFG_USE_CODEBOOK_GEMM
 #include "transformer_layers/registry_adapter.h"
+#ifdef SIMD
+#include "Full_NN/inc/gemm_exec_internal.h"
+#endif
 #endif
 
 // #ifndef RELOAD_WEIGHT
@@ -577,7 +583,28 @@ void test() {
                 paths.dump_dir);
         }
 
+#ifdef SIMD
+        sve_cb4_scratch_reset();
+#endif
         TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, grouped_inputs, grouped_outputs);
+#ifdef SIMD
+        const i2ce_cb4_scratch_stats scratch = sve_cb4_scratch_get();
+        std::cout << "[bounded-runtime-W] version=2 runtime_allocations="
+                  << scratch.runtime_allocations << " frees=" << scratch.frees
+                  << " max_request_bytes=" << scratch.max_request_bytes
+                  << " requested_bytes=" << scratch.requested_bytes
+                  << " allocation_failures=" << scratch.allocation_failures
+                  << " retained_bytes=" << scratch.retained_bytes
+                  << " W_max_bytes=" << scratch.peak_W_bytes
+                  << " W_outer_pack_calls=" << scratch.W_outer_pack_calls
+                  << " W_pack_calls=" << scratch.W_pack_calls
+                  << " W_assigned_bytes=" << scratch.W_assigned_bytes
+                  << " W_useful_bytes=" << scratch.W_useful_bytes
+                  << " A_pack_calls=" << scratch.A_pack_calls
+                  << " A_assigned_bytes=" << scratch.A_assigned_bytes
+                  << " A_useful_bytes=" << scratch.A_useful_bytes
+                  << " offline_owners=0 decode_scope=per_GEMM_ROI" << std::endl;
+#endif
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             delete[] grouped_outputs[learner_idx];

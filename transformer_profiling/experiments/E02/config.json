@@ -1,0 +1,47 @@
+{
+  "stage": "E02",
+  "previous": "E01",
+  "change": "MR4xNR16 SDOT with per-call adapters from widened operands",
+  "working_hypothesis": "Vector dot products replace scalar per-output accumulation when the fixed SVE128 core receives its required byte layout",
+  "costs_removed": [
+    "Scalar inner accumulation for eligible CB4 two-learner calls"
+  ],
+  "costs_introduced": [
+    "Per-call A packing and W decoding",
+    "Stack panels and accounting updates",
+    "Narrowing from retained int32 operands"
+  ],
+  "dependencies": [
+    "E01 widened input and Codebook APIs",
+    "SVE128",
+    "Two-bit shared index rows"
+  ],
+  "predictions": [
+    "Full K256 calls execute the selected MR4xNR16 core",
+    "Two physical W panels are produced per A pack",
+    "Dummy rows and K tails contribute zero while unread A/C padding stays untouched"
+  ],
+  "contradictions": [
+    "Different modulo-bias output from the logical oracle",
+    "Reads from poisoned padding alter valid outputs",
+    "An eligible full call fails to reach the selected core"
+  ],
+  "unavoidable_changes": [
+    "Stack addresses and layout",
+    "Compiler inlining and register allocation",
+    "Added source-work accounting instructions"
+  ],
+  "excluded": [
+    "Reusable W panels",
+    "Int8 persistent representation",
+    "CI01",
+    "Cache blocking",
+    "All-K A retention",
+    "Final-output fusion"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "The complete core-plus-adapter design; no isolated SDOT speedup claim",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
