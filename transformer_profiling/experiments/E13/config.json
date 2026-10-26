@@ -1,0 +1,53 @@
+{
+  "stage": "E13",
+  "previous": "E12",
+  "change": "Equivalent vector integer softmax",
+  "working_hypothesis": "Vectorize unsigned-byte lookup, independent learner sums and integer division without moving any quantization boundary",
+  "costs_removed": [
+    "Scalar per-byte lookup and normalization iteration"
+  ],
+  "costs_introduced": [
+    "SVE gather/scatter and vector reductions",
+    "Shape/VL check with scalar fallback"
+  ],
+  "dependencies": [
+    "E12 row-range softmax interface",
+    "SVE128",
+    "Unsigned score-byte interpretation and sum/256 denominator"
+  ],
+  "predictions": [
+    "All supported rows are bit-exact to independent scalar LUT arithmetic",
+    "Each vector learner sum is bounded by 65535*170 and cannot overflow uint32",
+    "Codebook, Attention packing, ownership and profiling remain unchanged"
+  ],
+  "contradictions": [
+    "Zero or short rows, unaligned views or guard pages differ from scalar semantics",
+    "Vector path is not executed in its registered oracle",
+    "Any non-softmax production file changes"
+  ],
+  "unavoidable_changes": [
+    "Softmax instruction selection and shared binary placement"
+  ],
+  "endpoint_tiles": {
+    "inner": [
+      16,
+      32,
+      256
+    ],
+    "physical_w_k": 128,
+    "outer": [
+      128,
+      128,
+      512
+    ]
+  },
+  "formal_measurements": 0,
+  "acceptance": "Readable S25 behavioral successor; original exact S25 and its timings remain preserved historical references",
+  "production_binary_numerical_capture": "Not executed with real libm5; full-model captures use separately built functional copies",
+  "scope_check": "Removing vector helper/includes/dispatch exactly recovers E12 softmax source; all other production files unchanged",
+  "study": "e01-e13",
+  "compatibility": "Original generic MR8xNR8, legacy blocked alias and SMMLA interfaces restored before E13; original error messages retained",
+  "production_delta": "Only vector-softmax helper, includes and guarded dispatch",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0
+}

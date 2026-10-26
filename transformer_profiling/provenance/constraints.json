@@ -1,0 +1,59 @@
+{
+  "items": [
+    {
+      "path": "transformer_layers/compressed_index_file.h",
+      "line": 10,
+      "reason": "Unnamed on-disk offsets and FNV helpers retained; naming-only improvement deferred to preserve E01-E09 source bindings."
+    },
+    {
+      "path": "Full_NN/src/gemm_exec.c",
+      "line": 1366,
+      "reason": "Three inherited commit/follow-up comments remain in unchanged stages; public optional workspace ABI retained."
+    },
+    {
+      "path": "transformer_layers/attentionStream.h",
+      "line": 115,
+      "reason": "Original SM03 diagnostic strings intentionally restored for error compatibility."
+    },
+    {
+      "path": "transformer_layers/interleavedPipeline.cc",
+      "line": 324,
+      "reason": "Legacy public SMMLA-named forwarder intentionally retained; selected dispatch is SDOT."
+    },
+    {
+      "path": "transformer_layers/layerFactory.cc",
+      "line": 54,
+      "reason": "Guest scientific-input path remains part of the frozen runtime contract."
+    },
+    {
+      "path": "Full_NN/src/gemm_cb4_cache.h",
+      "line": 1,
+      "reason": "Diagnostic counters and historical policy names remain for source accounting; no multicore safety claim."
+    },
+    {
+      "path": "transformer_layers/attentionSdot.h",
+      "line": 1,
+      "reason": "Process-global counters remain unsynchronized, as in original S25."
+    },
+    {
+      "path": "transformer_layers/softmax.cc",
+      "line": 1,
+      "reason": "Inherited scalar overload signedness warnings remain; selected vector helper validated separately."
+    },
+    {
+      "path": "transformer_layers/transformerBlock.cc",
+      "line": 1,
+      "reason": "Head/Add Norm console activity inside ROI retained; some final diagnostics occur after ROI."
+    },
+    {
+      "path": "transformer_layers/attentionSmmla.h",
+      "reason": "The public SMMLA headers are used by the API comparison test, not by production translation units. No [attention-smmla] diagnostic is emitted by the registered production build."
+    }
+  ],
+  "stage_scope": "Items apply when the corresponding API is introduced.",
+  "production_refactor_requires_new_validation": true,
+  "limits": [
+    "No universal input equivalence or timing significance claim.",
+    "Console, first-use and shared-folder activity remain within the registered ROI."
+  ]
+}

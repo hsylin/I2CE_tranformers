@@ -1,3 +1,8 @@
+#include "run_mode_config.h"
+#include <limits>
+#if CFG_SIMD
+#include <arm_sve.h>
+#endif
 #ifdef I2CE_TEST_VECTOR_PHASE
 #include <cstdint>
 uint64_t i2ce_vector_phase_calls = 0;
@@ -11,6 +16,75 @@ static const  uint8_t  lookup[32] = {
         4, 5, 7, 8, 11, 14, 18, 23, 30, 38, 49, 63, 80, 103, 132, 170, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 3,
 };
 
+// Each u32 lane handles one key. Byte-addressed accesses preserve the int8_t
+// owner's alignment and lifetime requirements, including unaligned row views.
+// Scores are raw unsigned bytes for table lookup; they are not exponentials
+// of signed real-valued logits. The two learners normalize independently.
+static bool normalizeTwoLearnerRowsSVE(int8_t *input, std::size_t rows,
+                                       std::size_t keys) {
+#if CFG_SIMD
+    if (svcntb() != 16u || rows == 0 || keys == 0 || rows > 65535u || keys > 65535u ||
+        rows > std::numeric_limits<std::size_t>::max() / keys / 2u) {
+        return false;
+    }
+#ifdef I2CE_TEST_VECTOR_PHASE
+    ++i2ce_vector_phase_calls;
+#endif
+    const svuint32_t offsets = svindex_u32(0, 2);
+    for (std::size_t query = 0; query < rows; ++query) {
+        auto *row = reinterpret_cast<uint8_t *>(input) + query * keys * 2u;
+        svuint32_t learner0_sum = svdup_u32(0), learner1_sum = svdup_u32(0);
+        for (std::size_t key = 0; key < keys; key += svcntw()) {
+            const svbool_t active_keys = svwhilelt_b32(key, keys);
+            auto *slot = row + key * 2u;
+            const svuint32_t score0 =
+                svld1ub_gather_u32offset_u32(active_keys, slot, offsets);
+            const svuint32_t score1 =
+                svld1ub_gather_u32offset_u32(active_keys, slot + 1, offsets);
+            const svuint32_t value0 = svld1ub_gather_u32offset_u32(
+                active_keys, lookup, svlsr_n_u32_x(active_keys, score0, 3));
+            const svuint32_t value1 = svld1ub_gather_u32offset_u32(
+                active_keys, lookup, svlsr_n_u32_x(active_keys, score1, 3));
+            learner0_sum = svadd_u32_m(active_keys, learner0_sum, value0);
+            learner1_sum = svadd_u32_m(active_keys, learner1_sum, value1);
+            svst1b_scatter_u32offset_u32(active_keys, slot, offsets, value0);
+            svst1b_scatter_u32offset_u32(active_keys, slot + 1, offsets, value1);
+        }
+        // Each learner sum is at most 65535*170=11140950, so the reduction
+        // and the original uint32_t scalar sum agree without overflow.
+        uint32_t learner0_denominator =
+            static_cast<uint32_t>(svaddv_u32(svptrue_b32(), learner0_sum)) >> 8;
+        uint32_t learner1_denominator =
+            static_cast<uint32_t>(svaddv_u32(svptrue_b32(), learner1_sum)) >> 8;
+        if (learner0_denominator == 0) {
+            learner0_denominator = 1;
+        }
+        if (learner1_denominator == 0) {
+            learner1_denominator = 1;
+        }
+        for (std::size_t key = 0; key < keys; key += svcntw()) {
+            const svbool_t active_keys = svwhilelt_b32(key, keys);
+            auto *slot = row + key * 2u;
+            const svuint32_t value0 =
+                svld1ub_gather_u32offset_u32(active_keys, slot, offsets);
+            const svuint32_t value1 =
+                svld1ub_gather_u32offset_u32(active_keys, slot + 1, offsets);
+            svst1b_scatter_u32offset_u32(
+                active_keys, slot, offsets,
+                svdiv_n_u32_x(active_keys, value0, learner0_denominator));
+            svst1b_scatter_u32offset_u32(
+                active_keys, slot + 1, offsets,
+                svdiv_n_u32_x(active_keys, value1, learner1_denominator));
+        }
+    }
+    return true;
+#else
+    (void)input;
+    (void)rows;
+    (void)keys;
+    return false;
+#endif
+}
 Softmax::Softmax()= default;
 
 Softmax::~Softmax()= default;
@@ -63,6 +137,10 @@ void Softmax::computeInterleaved2Learners(int8_t *input, std::size_t seq_len) {
 }
 void Softmax::computeInterleaved2LearnersRows(int8_t *input, std::size_t rows,
                                               std::size_t keys) {
+    if (normalizeTwoLearnerRowsSVE(input, rows, keys)) {
+        return;
+    }
+
     // The signed int8_t buffer is treated as raw bytes for the LUT-based
     // softmax approximation, matching the scalar compute() path.
     auto *input_u8 = reinterpret_cast<uint8_t *>(input);
