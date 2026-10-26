@@ -1,0 +1,51 @@
+{
+  "stage": "E04",
+  "previous": "E03",
+  "change": "L1 16x32 accumulator tiles with paired K128 weight panels and K256 accumulation",
+  "working_hypothesis": "Reusing packed operands inside a 16x32 tile reduces repeated producer work while keeping the selected full-tile SDOT core unchanged",
+  "costs_removed": [
+    "Packing A separately for each MR4xNR16 invocation",
+    "Producing W separately for each MR4 row group"
+  ],
+  "costs_introduced": [
+    "Aligned arena with 4096 C bytes and 18432 W bytes",
+    "One 16896-byte A panel",
+    "Variable-K MR4xNR16 consumer and scalar logical-edge handling",
+    "Complete C32 output temporary retained"
+  ],
+  "dependencies": [
+    "E03 int8 and CI01 interfaces",
+    "SVE128",
+    "Fixed MR4xNR16 K256 full-tile core"
+  ],
+  "predictions": [
+    "A is packed once per 16x32x256 tile",
+    "Physical W panel is shared by four MR4 row groups",
+    "For 32x64x512, A pack calls=8 and physical W panel calls=16",
+    "Initialization writes only valid C slots and required A tails"
+  ],
+  "contradictions": [
+    "Source counters exceed the independently enumerated tile traversal",
+    "Poison in unread padding changes valid outputs",
+    "Any modulo output or canary differs from the logical oracle",
+    "Allocation rejection changes output"
+  ],
+  "unavoidable_changes": [
+    "Stack panels become one explicitly owned aligned allocation",
+    "Accumulator layout and valid-tile initialization change together",
+    "Loop, address and compiler alignment changes"
+  ],
+  "excluded": [
+    "Outer 128x128x512 reuse",
+    "All-K A retention",
+    "Full-panel decoder specialization",
+    "Learner-first full-tile order",
+    "Final-output fusion",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "L1 layout, producer reuse and necessary tail handling are evaluated together; cache residency is not established by layout alone",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}

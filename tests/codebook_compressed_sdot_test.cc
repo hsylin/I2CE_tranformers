@@ -10,7 +10,13 @@ extern uint32_t *i2ce_cb4_cache_observed;
 #include <cstring>
 #include <vector>
 
+static bool reject_allocation = false;
+
 int i2ce_cb4_cache_test_allocate(void **pointer, size_t alignment, size_t bytes) {
+    if (reject_allocation) {
+        *pointer = nullptr;
+        return 12;
+    }
     const int status = posix_memalign(pointer, alignment, bytes);
     if (status == 0) {
         std::memset(*pointer, 0xa5, bytes);
@@ -117,6 +123,21 @@ static void rejected_descriptors_leave_output_unchanged() {
     }
 }
 
+static void allocation_failure_leaves_output_unchanged() {
+    const uint8_t indices[1024] = {};
+    const int8_t input[2] = {};
+    const int32_t codebook[8] = {};
+    int8_t output[2] = {12, 34};
+    reject_allocation = true;
+    const int accepted = sve_gemm_ci_cb4_cache_i8(indices, sizeof(indices), 1, 1, 1, 1,
+                                                  input, codebook, nullptr, output, 2);
+    reject_allocation = false;
+    if (accepted || output[0] != 12 || output[1] != 34) {
+        std::fprintf(stderr, "FAIL: allocation failure modified output\n");
+        std::exit(1);
+    }
+}
+
 int main() {
     unsigned cases = 0;
     for (uint16_t rows : {1, 3, 4, 5, 16, 17}) {
@@ -141,7 +162,9 @@ int main() {
         }
     }
     rejected_descriptors_leave_output_unchanged();
-    std::printf("PASS: %u independent CI01 signed-byte/tail/bias cases, %u "
-                "direct-output cases and 9 rejected descriptors\n",
-                cases, cases);
+    allocation_failure_leaves_output_unchanged();
+    std::printf(
+        "PASS: %u independent CI01 signed-byte/tail/bias cases, %u "
+        "direct-output cases and 9 rejected descriptors plus 1 allocation rejection\n",
+        cases, cases);
 }
