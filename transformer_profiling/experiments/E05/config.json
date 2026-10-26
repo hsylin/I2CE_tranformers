@@ -1,0 +1,45 @@
+{
+  "stage": "E05",
+  "previous": "E04",
+  "change": "Outer 128x128x512 blocking and reuse of runtime W across inner sequence tiles",
+  "working_hypothesis": "Sharing an outer W panel among eight inner sequence tiles reduces repeated decoding at the cost of a larger live arena",
+  "costs_removed": [
+    "Regenerating W for each inner sequence tile",
+    "Repacking A for each inner output tile"
+  ],
+  "costs_introduced": [
+    "C arena grows from 4096 to 131072 bytes",
+    "W arena grows from 18432 to 147456 bytes",
+    "One A panel grows from 16896 to 135168 bytes"
+  ],
+  "dependencies": [
+    "E04 16x32 accumulator layout and K256 consumer",
+    "E03 paired CI01 decoder"
+  ],
+  "predictions": [
+    "For 256x256x1024, A pack calls=8 and physical W calls=128",
+    "Each W inner panel is consumed by up to eight sequence tiles before overwrite",
+    "No A panel survives an outer output/K iteration"
+  ],
+  "contradictions": [
+    "W producer count scales with the number of inner sequence tiles",
+    "Valid outputs depend on poisoned uninitialized arena regions",
+    "The single-A-panel owner grows with total K instead of the fixed outer K"
+  ],
+  "unavoidable_changes": [
+    "Aligned arena extent and subsequent allocator addresses",
+    "Compiler loop bounds and code placement"
+  ],
+  "excluded": [
+    "All-K A retention",
+    "Full-panel decoder specialization",
+    "Learner-first full-tile order",
+    "Final-output fusion",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "Outer blocking targets longer-distance reuse, including L2 opportunities; neither residency nor a speedup is proven by this build-only study",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
