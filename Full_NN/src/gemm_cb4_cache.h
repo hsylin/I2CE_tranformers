@@ -46,7 +46,7 @@ i2ce_cb4_scratch_stats sve_cb4_scratch_get(void) {
 /* Fixed layout identifiers exposed only to the independent test oracle. */
 #define I2CE_WEIGHT_BLOCK_POLICY 2
 #define I2CE_MMLA_PAIRED_A 0
-/* One A panel belongs to the active sequence/output tile. */
+/* One A panel belongs to the active outer sequence/output/K tile. */
 #define I2CE_X_REUSE_OUTPUTS 0
 
 #ifdef I2CE_TEST_CB4_CACHE
@@ -75,9 +75,9 @@ enum {
     CACHE_O1 = 32,
     CACHE_K1 = 128,
     CACHE_X1_STRIDE = 144,
-    CACHE_S2 = 16,
-    CACHE_O2 = 32,
-    CACHE_K2 = 256,
+    CACHE_S2 = 128,
+    CACHE_O2 = 128,
+    CACHE_K2 = 512,
     CACHE_X2_STRIDE = 528
 };
 
@@ -88,8 +88,8 @@ typedef struct {
     int8_t w2_blocks[CACHE_O2 / CACHE_O1][CACHE_K2 / CACHE_K1][2][CACHE_O1]
                     [CACHE_X1_STRIDE];
 } cb4_cache_arena;
-typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 22528u) ? 1 : -1];
-/* A is repacked for each sequence/output tile and K chunk. */
+typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 278528u) ? 1 : -1];
+/* A is repacked for each outer sequence/output tile and K chunk. */
 typedef int8_t cb4_x_panel[2][CACHE_S2][CACHE_X2_STRIDE];
 
 static size_t cache_min(size_t a, size_t b) {
@@ -419,7 +419,7 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
         }
         return 1;
     }
-    // One aligned owner contains C, two physical W panels, one A panel,
+    // One aligned owner contains C, the outer W panels, one A panel,
     // and the full C32 output temporary. The owner lasts through the complete output
     // conversion.
     const size_t x_panels = 1u;
