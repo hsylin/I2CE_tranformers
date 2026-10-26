@@ -13,6 +13,9 @@
 #include "../accelerator/smm_gem.h"
 
 
+namespace i2ce { class StaticHeadWorkspace; }
+class TransformerBlock;
+
 class SingleHeadSelfAttn {
 public:
     SingleHeadSelfAttn(std::size_t head_idx,
@@ -46,6 +49,11 @@ public:
                                      int8_t* output_interleaved);
 
 private:
+    friend class TransformerBlock;
+    static void computeStaticInterleaved2Learners(
+        std::size_t seq_len, SingleHeadSelfAttn* heads[2],
+        const int8_t* input_interleaved,
+        const i2ce::StaticHeadWorkspace& workspace);
     template <std::size_t LearnerCount>
     static void computeGroupImpl(std::size_t seq_len,
                                  SingleHeadSelfAttn** heads,

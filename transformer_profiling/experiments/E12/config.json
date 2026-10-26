@@ -1,0 +1,42 @@
+{
+  "stage": "E12",
+  "previous": "E11",
+  "change": "Query16 streaming and explicit private activation ownership",
+  "working_hypothesis": "Shorten score lifetime and omit initialization only where complete producer coverage precedes every consumer",
+  "costs_removed": [
+    "Whole sequence-squared score lifetime",
+    "Zero fill of overwritten activation buffers"
+  ],
+  "costs_introduced": [
+    "Repeated Attention packing and core calls per query panel",
+    "Fixed 3473408-byte activation frame retained through final dump"
+  ],
+  "dependencies": [
+    "E11 blocked MR4 Attention",
+    "Scalar row-range softmax preserving unsigned lookup and post-scaling",
+    "Disjoint per-head workspace views"
+  ],
+  "predictions": [
+    "Poisoned activation and score storage produces the same bytes",
+    "Independent heads and repeated calls cannot observe another head's live bytes",
+    "QK low-byte narrowing, scalar softmax and SV post-scaling occur in the original order"
+  ],
+  "contradictions": [
+    "Any consumed byte depends on allocation poison",
+    "Head-private score partitions overlap",
+    "Failure leaks an allocation or modifies output before its defined write boundary"
+  ],
+  "unavoidable_changes": [
+    "Allocation and initialization work moves between profiling intervals",
+    "Zero-fill removal affects intervals labelled Codebook despite unchanged Codebook kernels",
+    "Attention packing frequency and live capacity change together"
+  ],
+  "marker_contract": "Preserve reset and 22 dumps; former QK interval now includes streamed QK/softmax/SV and transpose, immediate softmax boundary. Compare aggregate Attention only.",
+  "scalar_softmax_only": true,
+  "formal_measurements": 0,
+  "interpretation": "This is a joint lifetime/streaming change. Historical E12 Attention regressed; no new speed claim or attribution of all Codebook time change to zero-fill removal.",
+  "study": "e01-e13",
+  "compatibility": "Original S25 shape guards, exception messages, allocation and alias behavior retained; generic Attention remains MR8xNR8",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0
+}
