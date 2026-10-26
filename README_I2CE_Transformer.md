@@ -1,3 +1,6 @@
+> E01-E13 implementation demo: see [the reconstruction workflow](transformer_profiling/experiment-runner.md).
+> Existing archives and measurements below retain their historical meaning.
+
 # I2CE Transformer README
 
 This document explains the Transformer experiment implementation in this repository. It describes the required files, the role of each major component,
