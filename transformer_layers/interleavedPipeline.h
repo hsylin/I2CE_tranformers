@@ -86,7 +86,12 @@ void copyHeadToMultiheadInterleaved2Learners(const int8_t* head_interleaved,
                                       std::size_t head_hidden_size,
                                       std::size_t num_heads);
 
-// Workload microtile path; the generic API retains its independent 8x8 strategy.
-void attentionMatmulSdotMicro(const int8_t *left, const int8_t *right,
-                            size_t rows, size_t columns, size_t features,
-                            int8_t *output);
+// Pack bounded panels and narrow after the full logical K span.
+void attentionMatmulSdotBlocked(const int8_t *left, const int8_t *right,
+                                std::size_t rows, std::size_t columns,
+                                std::size_t features, int8_t *output);
+
+// Compatibility entry point; retains the original SDOT selection.
+void attentionMatmulSmmlaBlocked(const int8_t *left, const int8_t *right,
+                                 std::size_t rows, std::size_t columns,
+                                 std::size_t features, int8_t *output);

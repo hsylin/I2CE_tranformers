@@ -1,5 +1,5 @@
 #include "attentionSdotGeneric.h"
-#include "attentionSdotMicro.h"
+#include "attentionSdotBlocked.h"
 #include "interleavedPipeline.h"
 
 #include "debuggerFunctions.h"
@@ -313,10 +313,16 @@ void copyHeadToMultiheadInterleaved2Learners(const int8_t* head_interleaved,
     }
 }
 
-// Complete-K MR4xNR16 producer used by the unblocked workload.
-void attentionMatmulSdotMicro(const int8_t *left, const int8_t *right,
-                             size_t rows, size_t columns, size_t features,
-                             int8_t *output) {
+void attentionMatmulSdotBlocked(const int8_t *left, const int8_t *right,
+                                size_t rows, size_t columns, size_t features,
+                                int8_t *output) {
     attention_sdot::dispatch(left, right, rows, columns, features, output,
-                             attention_sdot::micro_4x16);
+                             attention_sdot::blocked);
+}
+
+// The historical public name selects SDOT despite its SMMLA spelling.
+void attentionMatmulSmmlaBlocked(const int8_t *left, const int8_t *right,
+                                 size_t rows, size_t columns, size_t features,
+                                 int8_t *output) {
+    attentionMatmulSdotBlocked(left, right, rows, columns, features, output);
 }
