@@ -53,7 +53,7 @@ void Softmax::compute(uint32_t *input, std::size_t seq_len){
  * 5. Walk the same row again and divide each LUT output by sum / 256.
  * 6. If sum / 256 rounds down to zero, clamp the denominator to one.
  */
-void Softmax::computeInterleaved2D(int8_t *input, std::size_t seq_len) {
+void Softmax::computeInterleaved2Learners(int8_t *input, std::size_t seq_len) {
     // The signed int8_t buffer is treated as raw bytes for the LUT-based
     // softmax approximation, matching the scalar compute() path.
     auto* input_u8 = reinterpret_cast<uint8_t*>(input);
@@ -110,8 +110,8 @@ void Softmax::computeInterleaved2D(int8_t *input, std::size_t seq_len) {
  * 5. Revisit the row and normalize every learner lane by sum / 256.
  * 6. Clamp sum / 256 to one if the fixed-point shift would produce zero.
  */
-void Softmax::computeInterleaved4D(int8_t *input, std::size_t seq_len) {
-    // The LUT path works on bytes; this mirrors computeInterleaved2D() and the
+void Softmax::computeInterleaved4Learners(int8_t *input, std::size_t seq_len) {
+    // The LUT path works on bytes; this mirrors computeInterleaved2Learners() and the
     // non-interleaved compute() implementation.
     auto* input_u8 = reinterpret_cast<uint8_t*>(input);
     for (std::size_t query = 0; query < seq_len; query++) {

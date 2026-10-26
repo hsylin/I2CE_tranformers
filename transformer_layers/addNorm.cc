@@ -87,7 +87,7 @@ void AddNormalize::compute(uint32_t *input, uint32_t *output) {
  * 6. Normalize every feature independently for each learner and write it back
  *    in the same interleaved output buffer.
  */
-void AddNormalize::computeInterleaved4D(int8_t *input_interleaved, int8_t *output_interleaved) {
+void AddNormalize::computeInterleaved4Learners(int8_t *input_interleaved, int8_t *output_interleaved) {
     for (std::size_t seq = 0; seq < seq_len_; seq++) {
         int32_t sum[4] = {0, 0, 0, 0};
 
@@ -153,10 +153,10 @@ void AddNormalize::computeInterleaved4D(int8_t *input_interleaved, int8_t *outpu
  * 3. Divide by input_dim_ to get each learner's mean.
  * 4. Revisit the row to compute each learner's variance.
  * 5. Convert variance to the fixed-point inverse standard deviation scale.
- * 6. Normalize each feature value in place while preserving the 2D interleaved
+ * 6. Normalize each feature value in place while preserving the 2-learner interleaved
  *    ordering.
  */
-void AddNormalize::computeInterleaved2D(int8_t *input_interleaved, int8_t *output_interleaved) {
+void AddNormalize::computeInterleaved2Learners(int8_t *input_interleaved, int8_t *output_interleaved) {
     for (std::size_t seq = 0; seq < seq_len_; seq++) {
         int32_t sum[2] = {0, 0};
 

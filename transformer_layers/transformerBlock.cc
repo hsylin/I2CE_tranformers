@@ -827,13 +827,13 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
         }
 
         std::fill(head_out_interleaved.begin(), head_out_interleaved.end(), 0);
-        SingleHeadSelfAttn::computeInterleaved2D(
+        SingleHeadSelfAttn::computeInterleaved2Learners(
             seq_len,
             heads,
             input_interleaved.data(),
             head_out_interleaved.data());
 
-        copyHeadToMultiheadInterleaved2D(
+        copyHeadToMultiheadInterleaved2Learners(
             head_out_interleaved.data(),
             multihead_interleaved.data(),
             seq_len,
@@ -859,7 +859,7 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
     std::vector<int8_t> condense_interleaved(seq_len * input_dim * 2u, 0);
     // The interleaved CodebookDense call consumes and produces the same
     // [seq][feature][learner] layout.
-    computeCodebookDenseInterleaved2D(
+    computeCodebookDenseInterleaved2Learners(
         "condense",
         condense_layers,
         seq_len,
@@ -897,7 +897,7 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> condense_before_addnorm_interleaved = condense_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved2D(
+    blocks[0]->addNorm->computeInterleaved2Learners(
         input_interleaved.data(),
         condense_interleaved.data());
 
@@ -930,7 +930,7 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> ff0_interleaved(seq_len * ff_size * 2u, 0);
     // FF0 expands both learners together while preserving the interleaved layout.
-    computeCodebookDenseInterleaved2D(
+    computeCodebookDenseInterleaved2Learners(
         "ff0",
         ff0_layers,
         seq_len,
@@ -985,7 +985,7 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> ff1_interleaved(seq_len * input_dim * 2u, 0);
     // FF1 returns both learners to D_MODEL before the final residual AddNorm.
-    computeCodebookDenseInterleaved2D(
+    computeCodebookDenseInterleaved2Learners(
         "ff1",
         ff1_layers,
         seq_len,
@@ -1036,7 +1036,7 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> ff1_before_addnorm_interleaved = ff1_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved2D(
+    blocks[0]->addNorm->computeInterleaved2Learners(
         condense_interleaved.data(),
         ff1_interleaved.data());
 
@@ -1119,13 +1119,13 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
         }
 
         std::fill(head_out_interleaved.begin(), head_out_interleaved.end(), 0);
-        SingleHeadSelfAttn::computeInterleaved4D(
+        SingleHeadSelfAttn::computeInterleaved4Learners(
             seq_len,
             heads,
             input_interleaved.data(),
             head_out_interleaved.data());
 
-        copyHeadToMultiheadInterleaved4D(
+        copyHeadToMultiheadInterleaved4Learners(
             head_out_interleaved.data(),
             multihead_interleaved.data(),
             seq_len,
@@ -1150,7 +1150,7 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> condense_interleaved(seq_len * input_dim * 4u, 0);
     // The diff-seq/same-seq choice is hidden inside the CodebookDense helper.
-    computeCodebookDenseInterleaved4D(
+    computeCodebookDenseInterleaved4Learners(
         "condense",
         condense_layers,
         seq_len,
@@ -1188,7 +1188,7 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> condense_before_addnorm_interleaved = condense_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved4D(
+    blocks[0]->addNorm->computeInterleaved4Learners(
         input_interleaved.data(),
         condense_interleaved.data());
 
@@ -1221,7 +1221,7 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> ff0_interleaved(seq_len * ff_size * 4u, 0);
     // FF0 expands all four learners together.
-    computeCodebookDenseInterleaved4D(
+    computeCodebookDenseInterleaved4Learners(
         "ff0",
         ff0_layers,
         seq_len,
@@ -1276,7 +1276,7 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> ff1_interleaved(seq_len * input_dim * 4u, 0);
     // FF1 contracts all four learners back to D_MODEL.
-    computeCodebookDenseInterleaved4D(
+    computeCodebookDenseInterleaved4Learners(
         "ff1",
         ff1_layers,
         seq_len,
@@ -1327,7 +1327,7 @@ void TransformerBlock::computeGroup4FullInterleaved(std::size_t seq_len,
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> ff1_before_addnorm_interleaved = ff1_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved4D(
+    blocks[0]->addNorm->computeInterleaved4Learners(
         condense_interleaved.data(),
         ff1_interleaved.data());
 

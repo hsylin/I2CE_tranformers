@@ -198,7 +198,7 @@ void transposeInterleavedRowsToCols2(const int8_t* input_interleaved,
  * 5. Store the int32 accumulators in interleaved output order.
  * 6. Cast the final accumulators down to int8_t in the caller's output buffer.
  */
-void matmulInterleaved4DToInt8(const int8_t* lhs_interleaved,
+void matmulInterleaved4LearnersToInt8(const int8_t* lhs_interleaved,
                                const int8_t* rhs_by_col_interleaved,
                                std::size_t lhs_rows,
                                std::size_t rhs_cols,
@@ -220,7 +220,7 @@ void matmulInterleaved4DToInt8(const int8_t* lhs_interleaved,
         rhs_i32[idx] = static_cast<int32_t>(rhs_by_col_interleaved[idx]);
     }
 
-    sve_gemm_dense_int8_interleaved_4D(
+    sve_gemm_dense_int8_interleaved_4Learners(
         lhs_i32.data(),
         rhs_i32.data(),
         static_cast<uint32_t>(lhs_rows),
@@ -276,7 +276,7 @@ void matmulInterleaved4DToInt8(const int8_t* lhs_interleaved,
  * 5. Store the two accumulators beside each other in output order.
  * 6. Cast the int32 accumulators back to int8_t for downstream int8 layers.
  */
-void matmulInterleaved2DToInt8(const int8_t* lhs_interleaved,
+void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
                                const int8_t* rhs_by_col_interleaved,
                                std::size_t lhs_rows,
                                std::size_t rhs_cols,
@@ -297,7 +297,7 @@ void matmulInterleaved2DToInt8(const int8_t* lhs_interleaved,
         rhs_i32[idx] = static_cast<int32_t>(rhs_by_col_interleaved[idx]);
     }
 
-    sve_gemm_dense_int8_interleaved_2D(
+    sve_gemm_dense_int8_interleaved_2Learners(
         lhs_i32.data(),
         rhs_i32.data(),
         static_cast<uint32_t>(lhs_rows),
@@ -333,7 +333,7 @@ void matmulInterleaved2DToInt8(const int8_t* lhs_interleaved,
     }
 }
 
-void copyHeadToMultiheadInterleaved4D(const int8_t* head_interleaved,
+void copyHeadToMultiheadInterleaved4Learners(const int8_t* head_interleaved,
                                       int8_t* multihead_interleaved,
                                       std::size_t seq_len,
                                       std::size_t head_idx,
@@ -355,7 +355,7 @@ void copyHeadToMultiheadInterleaved4D(const int8_t* head_interleaved,
     }
 }
 
-void copyHeadToMultiheadInterleaved2D(const int8_t* head_interleaved,
+void copyHeadToMultiheadInterleaved2Learners(const int8_t* head_interleaved,
                                       int8_t* multihead_interleaved,
                                       std::size_t seq_len,
                                       std::size_t head_idx,
