@@ -46,8 +46,8 @@ i2ce_cb4_scratch_stats sve_cb4_scratch_get(void) {
 /* Fixed layout identifiers exposed only to the independent test oracle. */
 #define I2CE_WEIGHT_BLOCK_POLICY 2
 #define I2CE_MMLA_PAIRED_A 0
-/* One A panel belongs to the active outer sequence/output/K tile. */
-#define I2CE_X_REUSE_OUTPUTS 0
+/* All K panels of A belong to the active outer sequence block. */
+#define I2CE_X_REUSE_OUTPUTS 1
 
 #ifdef I2CE_TEST_CB4_CACHE
 uint64_t i2ce_cb4_cache_x_pack_bytes = 0, i2ce_cb4_cache_x_pack_calls = 0;
@@ -419,12 +419,12 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
         }
         return 1;
     }
-    // One aligned owner contains C, the outer W panels, one A panel,
-    // and the full C32 output temporary. The owner lasts through the complete output
-    // conversion.
-    const size_t x_panels = 1u;
+    // One aligned owner contains C, W, all K panels of A, and the full
+    // C32 output temporary. A survives every outer output tile for the
+    // current sequence block; W is overwritten after its consumers finish.
+    const size_t x_panels = (features + CACHE_K2 - 1u) / CACHE_K2;
     const size_t prefix_bytes = sizeof(cb4_cache_arena);
-    const size_t temporary_offset = prefix_bytes + sizeof(cb4_x_panel);
+    const size_t temporary_offset = prefix_bytes + x_panels * sizeof(cb4_x_panel);
     const size_t storage_bytes = temporary_offset + output_bytes * sizeof(uint32_t);
     void *storage = NULL;
 #ifdef I2CE_TEST_CB4_CACHE
@@ -473,6 +473,18 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
     cb_sdot_edges += rows * columns - (rows / 4u * 4u) * (columns / 16u * 16u);
     for (size_t row_base = 0; row_base < rows; row_base += CACHE_S2) {
         const size_t tile_rows = cache_min(CACHE_S2, rows - row_base);
+        for (size_t feature_base = 0; feature_base < features;
+             feature_base += CACHE_K2) {
+            const size_t tile_features = cache_min(CACHE_K2, features - feature_base);
+            int8_t *input_panel = &input_panels[feature_base / CACHE_K2][0][0][0];
+            cache_pack_x(input_panel, tile_rows, CACHE_X2_STRIDE,
+                         CACHE_S2 * CACHE_X2_STRIDE, input, features, row_base,
+                         feature_base, tile_features);
+            ++cb4_scratch_stats.A_pack_calls;
+            cb4_scratch_stats.A_assigned_bytes +=
+                2u * tile_rows * ((tile_features + 15u) / 16u * 16u);
+            cb4_scratch_stats.A_useful_bytes += 2u * tile_rows * tile_features;
+        }
         for (size_t column_base = 0; column_base < columns; column_base += CACHE_O2) {
             const size_t tile_columns = cache_min(CACHE_O2, columns - column_base);
             cache_init_c_tiles_data(accumulators, tile_rows, tile_columns, bias,
@@ -481,14 +493,7 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
                  feature_base += CACHE_K2) {
                 const size_t tile_features =
                     cache_min(CACHE_K2, features - feature_base);
-                int8_t *input_panel = &input_panels[0][0][0][0];
-                cache_pack_x(input_panel, tile_rows, CACHE_X2_STRIDE,
-                             CACHE_S2 * CACHE_X2_STRIDE, input, features, row_base,
-                             feature_base, tile_features);
-                ++cb4_scratch_stats.A_pack_calls;
-                cb4_scratch_stats.A_assigned_bytes +=
-                    2u * tile_rows * ((tile_features + 15u) / 16u * 16u);
-                cb4_scratch_stats.A_useful_bytes += 2u * tile_rows * tile_features;
+                int8_t *input_panel = &input_panels[feature_base / CACHE_K2][0][0][0];
                 cache_pack_w_blocks(arena, indices, (features + 127u) / 128u,
                                     column_base, tile_columns, feature_base,
                                     tile_features, learner0_table, learner1_table,
