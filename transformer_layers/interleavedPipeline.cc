@@ -1,3 +1,5 @@
+#include "attentionSdotGeneric.h"
+#include "attentionSdotMicro.h"
 #include "interleavedPipeline.h"
 
 #include "debuggerFunctions.h"
@@ -258,79 +260,13 @@ void matmulInterleaved4LearnersToInt8(const int8_t* lhs_interleaved,
     }
 }
 
-/**
- * @brief Multiply two two-learner interleaved matrices and return int8 output.
- *
- * Matrix layout:
- * - lhs_interleaved is [lhs_row][k][learner] with two learner lanes.
- * - rhs_by_col_interleaved is [rhs_col][k][learner] with two learner lanes.
- * - output_interleaved is [lhs_row][rhs_col][learner].
- *
- * Step-by-step:
- * 1. Allocate int32 accumulators for the complete interleaved output.
- * 2. Use the SVE interleaved 2D GEMM backend when CFG_SIMD is enabled, after
- *    widening the int8 inputs into int32 staging buffers.
- * 3. Otherwise, run the scalar row/column/k dot-product loops.
- * 4. Keep learner 0 and learner 1 independent: each lane multiplies only the
- *    matching lane from lhs and rhs.
- * 5. Store the two accumulators beside each other in output order.
- * 6. Cast the int32 accumulators back to int8_t for downstream int8 layers.
- */
-void matmulInterleaved2LearnersToInt8(const int8_t* lhs_interleaved,
-                               const int8_t* rhs_by_col_interleaved,
-                               std::size_t lhs_rows,
-                               std::size_t rhs_cols,
-                               std::size_t k_elems,
-                               int8_t* output_interleaved) {
-    const std::size_t total_out = lhs_rows * rhs_cols * 2u;
-    std::vector<int32_t> output_acc(total_out, 0);
-
-#if CFG_SIMD
-    std::vector<int32_t> lhs_i32(lhs_rows * k_elems * 2u);
-    std::vector<int32_t> rhs_i32(rhs_cols * k_elems * 2u);
-
-    // Preserve [row/col][k][learner] order while widening for the SVE backend.
-    for (std::size_t idx = 0; idx < lhs_i32.size(); idx++) {
-        lhs_i32[idx] = static_cast<int32_t>(lhs_interleaved[idx]);
-    }
-    for (std::size_t idx = 0; idx < rhs_i32.size(); idx++) {
-        rhs_i32[idx] = static_cast<int32_t>(rhs_by_col_interleaved[idx]);
-    }
-
-    sve_gemm_dense_int8_interleaved_2Learners(
-        lhs_i32.data(),
-        rhs_i32.data(),
-        static_cast<uint32_t>(lhs_rows),
-        static_cast<uint32_t>(rhs_cols),
-        static_cast<uint32_t>(k_elems),
-        output_acc.data());
-#else
-    // Scalar fallback: each output slot contains two independent dot products.
-    for (std::size_t row = 0; row < lhs_rows; row++) {
-        for (std::size_t col = 0; col < rhs_cols; col++) {
-            int32_t acc[2] = {0, 0};
-            for (std::size_t k = 0; k < k_elems; k++) {
-                const int8_t* lhs_slot = lhs_interleaved + ((row * k_elems + k) * 2u);
-                const int8_t* rhs_slot = rhs_by_col_interleaved + ((col * k_elems + k) * 2u);
-                for (std::size_t learner = 0; learner < 2u; learner++) {
-                    acc[learner] += static_cast<int32_t>(lhs_slot[learner]) *
-                                    static_cast<int32_t>(rhs_slot[learner]);
-                }
-            }
-            // Store learner accumulators adjacent to each other:
-            // [row][col][0], [row][col][1].
-            int32_t* out_slot = output_acc.data() + ((row * rhs_cols + col) * 2u);
-            for (std::size_t learner = 0; learner < 2u; learner++) {
-                out_slot[learner] = acc[learner];
-            }
-        }
-    }
-#endif
-
-    // Down-convert to the int8 activation format consumed by the next layer.
-    for (std::size_t idx = 0; idx < total_out; idx++) {
-        output_interleaved[idx] = static_cast<int8_t>(output_acc[idx]);
-    }
+// Checked signed-byte operands remain interleaved at the public boundary.
+// Narrow only after the complete modulo-32-bit dot product.
+void matmulInterleaved2LearnersToInt8(const int8_t *left, const int8_t *right,
+                                     size_t rows, size_t columns, size_t features,
+                                     int8_t *output) {
+    attention_sdot::dispatch(left, right, rows, columns, features, output,
+                             attention_sdot::micro_8x8);
 }
 
 void copyHeadToMultiheadInterleaved4Learners(const int8_t* head_interleaved,
@@ -375,4 +311,12 @@ void copyHeadToMultiheadInterleaved2Learners(const int8_t* head_interleaved,
             }
         }
     }
+}
+
+// Complete-K MR4xNR16 producer used by the unblocked workload.
+void attentionMatmulSdotMicro(const int8_t *left, const int8_t *right,
+                             size_t rows, size_t columns, size_t features,
+                             int8_t *output) {
+    attention_sdot::dispatch(left, right, rows, columns, features, output,
+                             attention_sdot::micro_4x16);
 }

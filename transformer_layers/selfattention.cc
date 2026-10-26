@@ -757,7 +757,7 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
 
     // Attention score matrix for two learners: each learner gets a seq_len x seq_len score matrix.
     std::vector<int8_t> attention_scores(seq_len * seq_len * 2u, 0);
-    matmulInterleaved2LearnersToInt8(
+    attentionMatmulSdotMicro(
         query_out.data(),
         key_out.data(),
         seq_len,
@@ -804,7 +804,7 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
         seq_len);
 
     // Final attention output: softmax(QK^T) * V.
-    matmulInterleaved2LearnersToInt8(
+    attentionMatmulSdotMicro(
         attention_scores.data(),
         value_by_col.data(),
         seq_len,

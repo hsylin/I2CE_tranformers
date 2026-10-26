@@ -63,6 +63,13 @@
       "binary_sha256": "3f216b45a74870464d2f1fd5127437e7d87cc71edf89feeb87ee7b43e32070aa",
       "configuration": "../experiments/E09/config.json",
       "source_binding": "../experiments/E09/source.json"
+    },
+    {
+      "stage": "E10",
+      "tag": "E10",
+      "binary_sha256": "99af493c1dc099f0f851d95ecade9ec74cec42159fd4e06138c89379831234d7",
+      "configuration": "../experiments/E10/config.json",
+      "source_binding": "../experiments/E10/source.json"
     }
   ],
   "canonical_inputs": "../inputs/manifest.json",
