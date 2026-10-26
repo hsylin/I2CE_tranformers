@@ -27,7 +27,11 @@
  *   input_i32_workspace_opt / input_i32_workspace_capacity
  *     - When workspace_opt is non-NULL AND capacity is at least
  *       (gemm_layer.seq_len * gemm_layer.input_size * learner_count),
- *       the wrapper widens in place into this buffer and does NOT malloc.
+ *       the wrapper writes widened activations into this buffer and does NOT
+ *       malloc. Input order remains [sequence][feature][learner].
+ *     - Non-overlapping input/workspace ranges use a predicated SVE copy.
+ *       Overlapping ranges retain the original forward scalar-copy behavior;
+ *       no memmove-like guarantee for in-place expansion is added.
  *     - When workspace_opt is NULL, or capacity is insufficient, the
  *       wrapper falls back to malloc/free (public-wrapper behavior);
  *       its allocation-failure scalar fallback is preserved.
