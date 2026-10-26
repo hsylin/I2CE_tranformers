@@ -56,14 +56,14 @@ void Softmax::compute(uint32_t *input, std::size_t seq_len){
 void Softmax::computeInterleaved2Learners(int8_t *input, std::size_t seq_len) {
     // The signed int8_t buffer is treated as raw bytes for the LUT-based
     // softmax approximation, matching the scalar compute() path.
-    auto* input_u8 = reinterpret_cast<uint8_t*>(input);
+    auto *input_u8 = reinterpret_cast<uint8_t *>(input);
     for (std::size_t query = 0; query < seq_len; query++) {
         uint32_t sum[2] = {0, 0};
 
         // First pass: replace each score with its exponent approximation and
         // accumulate a separate normalization sum for each learner.
         for (std::size_t key = 0; key < seq_len; key++) {
-            uint8_t* slot = input_u8 + ((query * seq_len + key) * 2u);
+            uint8_t *slot = input_u8 + ((query * seq_len + key) * 2u);
             for (std::size_t learner = 0; learner < 2u; learner++) {
                 slot[learner] = lookup[slot[learner] >> 3];
                 sum[learner] += slot[learner];
@@ -82,7 +82,7 @@ void Softmax::computeInterleaved2Learners(int8_t *input, std::size_t seq_len) {
         // Dividing the sum by 256 preserves useful int8-scale outputs instead
         // of truncating every small probability to zero.
         for (std::size_t key = 0; key < seq_len; key++) {
-            uint8_t* slot = input_u8 + ((query * seq_len + key) * 2u);
+            uint8_t *slot = input_u8 + ((query * seq_len + key) * 2u);
             for (std::size_t learner = 0; learner < 2u; learner++) {
                 uint32_t denom = sum[learner] >> 8;
                 if (denom == 0u) {

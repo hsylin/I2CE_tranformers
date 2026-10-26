@@ -784,9 +784,9 @@ void TransformerBlock::computeGroupImpl(std::size_t seq_len,
  * @param outputs Two packed int8 output buffers that receive the final block outputs.
  */
 void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
-                                                    TransformerBlock* blocks[2],
-                                                    uint32_t* const inputs[2],
-                                                    uint32_t* const outputs[2]) {
+                                                    TransformerBlock *blocks[2],
+                                                    uint32_t *const inputs[2],
+                                                    uint32_t *const outputs[2]) {
     // Full-interleaved mode keeps both learners in one [seq][feature][learner]
     // buffer, so attention, AddNorm, and CodebookDense avoid repeated packing.
     resetTransformerStatsWindow("group2_full_interleaved_transformer_block");
@@ -809,37 +809,31 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
 
     std::vector<int8_t> input_interleaved(seq_len * input_dim * 2u, 0);
     // Convert the packed per-learner inputs into lane-adjacent int8 values.
-    interleavePackedLearners2(seq_len, input_dim, inputs, input_interleaved.data()); // Convert input matrix to interleaved format
+    interleavePackedLearners2(
+        seq_len, input_dim, inputs,
+        input_interleaved.data()); // Convert input matrix to interleaved format
 
-     // Optional: dump the interleaved input for debugging.
+    // Optional: dump the interleaved input for debugging.
 
     std::vector<int8_t> multihead_interleaved(
         seq_len * num_heads * head_hidden_size * 2u, 0);
-    std::vector<int8_t> head_out_interleaved(
-        seq_len * head_hidden_size * 2u, 0);
+    std::vector<int8_t> head_out_interleaved(seq_len * head_hidden_size * 2u, 0);
 
     for (std::size_t head_idx = 0; head_idx < num_heads; head_idx++) {
         std::cout << "Head : " << head_idx << std::endl;
 
-        SingleHeadSelfAttn* heads[2];
+        SingleHeadSelfAttn *heads[2];
         for (std::size_t learner = 0; learner < 2u; learner++) {
             heads[learner] = blocks[learner]->selfatten_[head_idx];
         }
 
         std::fill(head_out_interleaved.begin(), head_out_interleaved.end(), 0);
         SingleHeadSelfAttn::computeInterleaved2Learners(
-            seq_len,
-            heads,
-            input_interleaved.data(),
-            head_out_interleaved.data());
+            seq_len, heads, input_interleaved.data(), head_out_interleaved.data());
 
-        copyHeadToMultiheadInterleaved2Learners(
-            head_out_interleaved.data(),
-            multihead_interleaved.data(),
-            seq_len,
-            head_idx,
-            head_hidden_size,
-            num_heads);
+        copyHeadToMultiheadInterleaved2Learners(head_out_interleaved.data(),
+                                                multihead_interleaved.data(), seq_len,
+                                                head_idx, head_hidden_size, num_heads);
 
         // Closes this head's fourth region: the V transpose, the dense
         // softmax(QK^T) * V matmul, the post-softmax rescale and this gather.
@@ -848,18 +842,15 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
         dumpTransformerStatsCheckpointIfProfiling("after_sv_h", "MHA_SV");
     }
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "multihead_out.txt",
-        multihead_interleaved.data(),
-        seq_len,
-        num_heads * head_hidden_size);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "multihead_out.txt",
+                                    multihead_interleaved.data(), seq_len,
+                                    num_heads * head_hidden_size);
     // Includes multihead repacking and any enabled intermediate-output capture.
     // This boundary does not exclude setup or bookkeeping in the interval.
     dumpTransformerStatsCheckpointIfProfiling("after_mha", "MHA_out");
 
     std::cout << "Condense" << std::endl;
-    LinearLayer* condense_layers[2];
+    LinearLayer *condense_layers[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         condense_layers[learner] = blocks[learner]->condense;
     }
@@ -867,126 +858,86 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
     std::vector<int8_t> condense_interleaved(seq_len * input_dim * 2u, 0);
     // The interleaved CodebookDense call consumes and produces the same
     // [seq][feature][learner] layout.
-    computeCodebookDenseInterleaved2Learners(
-        "condense",
-        condense_layers,
-        seq_len,
-        multihead_interleaved.data(),
-        condense_interleaved.data());
+    computeCodebookDenseInterleaved2Learners("condense", condense_layers, seq_len,
+                                             multihead_interleaved.data(),
+                                             condense_interleaved.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
-    LinearLayer* condense_references[2];
-    uint32_t* condense_reference_outputs[2];
+    LinearLayer *condense_references[2];
+    uint32_t *condense_reference_outputs[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         condense_references[learner] = blocks[learner]->condenseReference;
         condense_reference_outputs[learner] = blocks[learner]->referenceCondense;
     }
     compareInterleavedDenseReference2D(
-        "condense_out",
-        condense_references,
-        condense_reference_outputs,
-        learner_ids,
-        seq_len,
-        num_heads * head_hidden_size,
-        input_dim,
-        multihead_interleaved.data(),
+        "condense_out", condense_references, condense_reference_outputs, learner_ids,
+        seq_len, num_heads * head_hidden_size, input_dim, multihead_interleaved.data(),
         condense_interleaved.data());
 #endif
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "condense_out.txt",
-        condense_interleaved.data(),
-        seq_len,
-        input_dim);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "condense_out.txt",
+                                    condense_interleaved.data(), seq_len, input_dim);
     dumpTransformerStatsCheckpointIfProfiling("after_projection", "Projection");
 
     std::cout << "Add Norm" << std::endl;
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> condense_before_addnorm_interleaved = condense_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved2Learners(
-        input_interleaved.data(),
-        condense_interleaved.data());
+    blocks[0]->addNorm->computeInterleaved2Learners(input_interleaved.data(),
+                                                    condense_interleaved.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
     compareInterleavedAddNormReference2D(
-        "condense_out_after_addnorm",
-        blocks[0]->addNorm,
-        learner_ids,
-        seq_len,
-        input_dim,
-        input_interleaved.data(),
-        condense_before_addnorm_interleaved.data(),
+        "condense_out_after_addnorm", blocks[0]->addNorm, learner_ids, seq_len,
+        input_dim, input_interleaved.data(), condense_before_addnorm_interleaved.data(),
         condense_interleaved.data());
 #endif
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "after_attn_addnorm.txt",
-        condense_interleaved.data(),
-        seq_len,
-        input_dim);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "after_attn_addnorm.txt",
+                                    condense_interleaved.data(), seq_len, input_dim);
 
-    dumpTransformerStatsCheckpointIfProfiling("after_attn_addnorm", "non_GEMM_after_projection");
+    dumpTransformerStatsCheckpointIfProfiling("after_attn_addnorm",
+                                              "non_GEMM_after_projection");
 
     std::cout << "Feed Forward 0" << std::endl;
-    LinearLayer* ff0_layers[2];
+    LinearLayer *ff0_layers[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         ff0_layers[learner] = blocks[learner]->feedForward0;
     }
 
     std::vector<int8_t> ff0_interleaved(seq_len * ff_size * 2u, 0);
     // FF0 expands both learners together while preserving the interleaved layout.
-    computeCodebookDenseInterleaved2Learners(
-        "ff0",
-        ff0_layers,
-        seq_len,
-        condense_interleaved.data(),
-        ff0_interleaved.data());
+    computeCodebookDenseInterleaved2Learners("ff0", ff0_layers, seq_len,
+                                             condense_interleaved.data(),
+                                             ff0_interleaved.data());
 
 #if CFG_ENABLE_DEBUG_PRINT
     for (std::size_t learner = 0; learner < 2u; learner++) {
         const std::string ff0_label =
             "ffn0_learner" + std::to_string(blocks[learner]->learner_idx_);
-        printInterleavedPackedPreview2D(
-            ff0_label.c_str(),
-            ff0_interleaved.data(),
-            seq_len,
-            ff_size,
-            learner);
+        printInterleavedPackedPreview2D(ff0_label.c_str(), ff0_interleaved.data(),
+                                        seq_len, ff_size, learner);
     }
 #endif
 
 #if CFG_USE_CODEBOOK_REFERENCE
-    LinearLayer* ff0_references[2];
-    uint32_t* ff0_reference_outputs[2];
+    LinearLayer *ff0_references[2];
+    uint32_t *ff0_reference_outputs[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         ff0_references[learner] = blocks[learner]->feedForward0Reference;
         ff0_reference_outputs[learner] = blocks[learner]->referenceFF0;
     }
     compareInterleavedDenseReference2D(
-        "ffn0",
-        ff0_references,
-        ff0_reference_outputs,
-        learner_ids,
-        seq_len,
-        input_dim,
-        ff_size,
-        condense_interleaved.data(),
-        ff0_interleaved.data());
+        "ffn0", ff0_references, ff0_reference_outputs, learner_ids, seq_len, input_dim,
+        ff_size, condense_interleaved.data(), ff0_interleaved.data());
 #endif
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "ff0_out.txt",
-        ff0_interleaved.data(),
-        seq_len,
-        ff_size);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "ff0_out.txt", ff0_interleaved.data(),
+                                    seq_len, ff_size);
     dumpTransformerStatsCheckpointIfProfiling("after_ff1", "FF1");
 
     std::cout << "Feed Forward 1" << std::endl;
-    LinearLayer* ff1_layers[2];
+    LinearLayer *ff1_layers[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         ff1_layers[learner] = blocks[learner]->feedForward1;
     }
@@ -994,78 +945,49 @@ void TransformerBlock::computeGroup2FullInterleaved(std::size_t seq_len,
     std::vector<int8_t> ff1_interleaved(seq_len * input_dim * 2u, 0);
     // FF1 returns both learners to D_MODEL before the final residual AddNorm.
     computeCodebookDenseInterleaved2Learners(
-        "ff1",
-        ff1_layers,
-        seq_len,
-        ff0_interleaved.data(),
-        ff1_interleaved.data());
+        "ff1", ff1_layers, seq_len, ff0_interleaved.data(), ff1_interleaved.data());
 
 #if CFG_ENABLE_DEBUG_PRINT
     for (std::size_t learner = 0; learner < 2u; learner++) {
         const std::string ff1_label =
             "ffn1_pre_addnorm_learner" + std::to_string(blocks[learner]->learner_idx_);
-        printInterleavedPackedPreview2D(
-            ff1_label.c_str(),
-            ff1_interleaved.data(),
-            seq_len,
-            input_dim,
-            learner);
+        printInterleavedPackedPreview2D(ff1_label.c_str(), ff1_interleaved.data(),
+                                        seq_len, input_dim, learner);
     }
 #endif
 
 #if CFG_USE_CODEBOOK_REFERENCE
-    LinearLayer* ff1_references[2];
-    uint32_t* ff1_reference_outputs[2];
+    LinearLayer *ff1_references[2];
+    uint32_t *ff1_reference_outputs[2];
     for (std::size_t learner = 0; learner < 2u; learner++) {
         ff1_references[learner] = blocks[learner]->feedForward1Reference;
         ff1_reference_outputs[learner] = blocks[learner]->referenceFF1;
     }
     compareInterleavedDenseReference2D(
-        "ffn1_pre_addnorm",
-        ff1_references,
-        ff1_reference_outputs,
-        learner_ids,
-        seq_len,
-        ff_size,
-        input_dim,
-        ff0_interleaved.data(),
-        ff1_interleaved.data());
+        "ffn1_pre_addnorm", ff1_references, ff1_reference_outputs, learner_ids, seq_len,
+        ff_size, input_dim, ff0_interleaved.data(), ff1_interleaved.data());
 #endif
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "ff1_out.txt",
-        ff1_interleaved.data(),
-        seq_len,
-        input_dim);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "ff1_out.txt", ff1_interleaved.data(),
+                                    seq_len, input_dim);
     dumpTransformerStatsCheckpointIfProfiling("after_ff2", "FF2");
 
     std::cout << "Add Norm" << std::endl;
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<int8_t> ff1_before_addnorm_interleaved = ff1_interleaved;
 #endif
-    blocks[0]->addNorm->computeInterleaved2Learners(
-        condense_interleaved.data(),
-        ff1_interleaved.data());
+    blocks[0]->addNorm->computeInterleaved2Learners(condense_interleaved.data(),
+                                                    ff1_interleaved.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
     compareInterleavedAddNormReference2D(
-        "final_output_after_addnorm",
-        blocks[0]->addNorm,
-        learner_ids,
-        seq_len,
-        input_dim,
-        condense_interleaved.data(),
-        ff1_before_addnorm_interleaved.data(),
+        "final_output_after_addnorm", blocks[0]->addNorm, learner_ids, seq_len,
+        input_dim, condense_interleaved.data(), ff1_before_addnorm_interleaved.data(),
         ff1_interleaved.data());
 #endif
 
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "final_out.txt",
-        ff1_interleaved.data(),
-        seq_len,
-        input_dim);
+    dumpInterleavedLearnerMatrices2(dump_dirs, "final_out.txt", ff1_interleaved.data(),
+                                    seq_len, input_dim);
 
     // Pack the final int8 lanes back into the caller's per-learner uint32 buffers.
     packInterleavedLearners2(seq_len, input_dim, ff1_interleaved.data(), outputs);

@@ -652,15 +652,16 @@ void SingleHeadSelfAttn::computeGroup4(std::size_t seq_len,
  * 5. Transpose V into column layout, multiply scores by V, and post-scale the output.
  */
 void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
-                                              SingleHeadSelfAttn* heads[2],
-                                              const int8_t* input_interleaved,
-                                              int8_t* output_interleaved) {
-    LinearLayer* query_layers[2];
-    LinearLayer* key_layers[2];
-    LinearLayer* value_layers[2];
+                                                     SingleHeadSelfAttn *heads[2],
+                                                     const int8_t *input_interleaved,
+                                                     int8_t *output_interleaved) {
+    LinearLayer *query_layers[2];
+    LinearLayer *key_layers[2];
+    LinearLayer *value_layers[2];
     std::string dump_dirs[2];
 
-    // Extract per-learner projection layers and dump directories into arrays used by the interleaved helpers.
+    // Extract per-learner projection layers and dump directories into arrays used by
+    // the interleaved helpers.
     for (std::size_t learner = 0; learner < 2u; learner++) {
         query_layers[learner] = heads[learner]->query_layer_;
         key_layers[learner] = heads[learner]->key_layer_;
@@ -673,171 +674,127 @@ void SingleHeadSelfAttn::computeInterleaved2Learners(std::size_t seq_len,
     std::vector<int8_t> key_out(seq_len * head_hidden_size * 2u, 0);
     std::vector<int8_t> value_out(seq_len * head_hidden_size * 2u, 0);
 
-    // Compute Q/K/V projections with interleaved CodebookDense. Each output keeps both learners interleaved.
-    computeCodebookDenseInterleaved2Learners("q_h", query_layers, seq_len, input_interleaved, query_out.data());
-    computeCodebookDenseInterleaved2Learners("k_h", key_layers, seq_len, input_interleaved, key_out.data());
-    computeCodebookDenseInterleaved2Learners("v_h", value_layers, seq_len, input_interleaved, value_out.data());
+    // Compute Q/K/V projections with interleaved CodebookDense. Each output keeps both
+    // learners interleaved.
+    computeCodebookDenseInterleaved2Learners("q_h", query_layers, seq_len,
+                                             input_interleaved, query_out.data());
+    computeCodebookDenseInterleaved2Learners("k_h", key_layers, seq_len,
+                                             input_interleaved, key_out.data());
+    computeCodebookDenseInterleaved2Learners("v_h", value_layers, seq_len,
+                                             input_interleaved, value_out.data());
 
 #if CFG_USE_CODEBOOK_REFERENCE
     std::vector<uint32_t> packed_input((seq_len * heads[0]->input_dim_) >> 2, 0u);
     std::vector<uint32_t> packed_candidate((seq_len * head_hidden_size) >> 2, 0u);
 
-    // Convert one learner at a time back to packed uint32_t so the dense reference path can compare results.
-    auto compareProjection = [&](const char* prefix,
-                                 LinearLayer* reference_layer,
-                                 uint32_t* reference_output,
-                                 const int8_t* candidate_interleaved,
+    // Convert one learner at a time back to packed uint32_t so the dense reference path
+    // can compare results.
+    auto compareProjection = [&](const char *prefix, LinearLayer *reference_layer,
+                                 uint32_t *reference_output,
+                                 const int8_t *candidate_interleaved,
                                  std::size_t learner) {
         std::fill(reference_output,
-                  reference_output + ((seq_len * head_hidden_size) >> 2),
-                  0u);
+                  reference_output + ((seq_len * head_hidden_size) >> 2), 0u);
         std::fill(packed_input.begin(), packed_input.end(), 0u);
         std::fill(packed_candidate.begin(), packed_candidate.end(), 0u);
 
-        packInterleavedLearner2(
-            seq_len,
-            heads[learner]->input_dim_,
-            input_interleaved,
-            learner,
-            packed_input.data());
-        packInterleavedLearner2(
-            seq_len,
-            head_hidden_size,
-            candidate_interleaved,
-            learner,
-            packed_candidate.data());
+        packInterleavedLearner2(seq_len, heads[learner]->input_dim_, input_interleaved,
+                                learner, packed_input.data());
+        packInterleavedLearner2(seq_len, head_hidden_size, candidate_interleaved,
+                                learner, packed_candidate.data());
 
         reference_layer->compute(seq_len, packed_input.data(), reference_output);
 
-        const std::string label =
-            std::string(prefix) + "_h" + std::to_string(heads[0]->head_idx_) +
-            "_learner" + std::to_string(heads[learner]->learner_idx_);
-        comparePackedBuffers(
-            label.c_str(),
-            reference_output,
-            packed_candidate.data(),
-            (seq_len * head_hidden_size) >> 2);
+        const std::string label = std::string(prefix) + "_h" +
+                                  std::to_string(heads[0]->head_idx_) + "_learner" +
+                                  std::to_string(heads[learner]->learner_idx_);
+        comparePackedBuffers(label.c_str(), reference_output, packed_candidate.data(),
+                             (seq_len * head_hidden_size) >> 2);
     };
 
     for (std::size_t learner = 0; learner < 2u; learner++) {
         compareProjection("q", heads[learner]->query_reference_,
-                          heads[learner]->query_reference_out_,
-                          query_out.data(), learner);
+                          heads[learner]->query_reference_out_, query_out.data(),
+                          learner);
         compareProjection("k", heads[learner]->key_reference_,
-                          heads[learner]->key_reference_out_,
-                          key_out.data(), learner);
+                          heads[learner]->key_reference_out_, key_out.data(), learner);
         compareProjection("v", heads[learner]->value_reference_,
-                          heads[learner]->value_reference_out_,
-                          value_out.data(), learner);
+                          heads[learner]->value_reference_out_, value_out.data(),
+                          learner);
     }
 #endif
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "q_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        query_out.data(),
-        seq_len,
-        head_hidden_size);
+        dump_dirs, "q_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        query_out.data(), seq_len, head_hidden_size);
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "k_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        key_out.data(),
-        seq_len,
-        head_hidden_size);
+        dump_dirs, "k_h" + std::to_string(heads[0]->head_idx_) + ".txt", key_out.data(),
+        seq_len, head_hidden_size);
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "v_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        value_out.data(),
-        seq_len,
-        head_hidden_size);
+        dump_dirs, "v_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        value_out.data(), seq_len, head_hidden_size);
 
     // This interval includes Q/K/V projection and preceding allocation/setup.
     // The following intervals cover dense activation-by-activation products.
     dumpTransformerStatsCheckpointIfProfiling("after_qkv_h", "MHA_QKV");
 
-    // Attention score matrix for two learners: each learner gets a seq_len x seq_len score matrix.
+    // Attention score matrix for two learners: each learner gets a seq_len x seq_len
+    // score matrix.
     std::vector<int8_t> attention_scores(seq_len * seq_len * 2u, 0);
-    attentionMatmulSdotBlocked(
-        query_out.data(),
-        key_out.data(),
-        seq_len,
-        seq_len,
-        head_hidden_size,
-        attention_scores.data());
+    attentionMatmulSdotBlocked(query_out.data(), key_out.data(), seq_len, seq_len,
+                               head_hidden_size, attention_scores.data());
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "qk_scores_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        attention_scores.data(),
-        seq_len,
-        seq_len);
+        dump_dirs, "qk_scores_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        attention_scores.data(), seq_len, seq_len);
 
     // Includes score-buffer initialization, Q * K^T and optional debug output.
     dumpTransformerStatsCheckpointIfProfiling("after_qk_h", "MHA_QK");
 
-    // Softmax is applied independently per learner while preserving the 2-learner interleaved storage layout.
-    heads[0]->softmax_->computeInterleaved2Learners(attention_scores.data(), seq_len); // softmax_approx((QK^T) / 8)
+    // Softmax is applied independently per learner while preserving the 2-learner
+    // interleaved storage layout.
+    heads[0]->softmax_->computeInterleaved2Learners(
+        attention_scores.data(), seq_len); // softmax_approx((QK^T) / 8)
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "softmax_qk_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        attention_scores.data(),
-        seq_len,
-        seq_len);
+        dump_dirs, "softmax_qk_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        attention_scores.data(), seq_len, seq_len);
 
     // Includes softmax and any enabled intermediate-output capture.
     dumpTransformerStatsCheckpointIfProfiling("after_softmax_h", "MHA_softmax");
 
-    // Put V into column-major learner-interleaved layout so the final scores * V matmul can stream columns.
+    // Put V into column-major learner-interleaved layout so the final scores * V matmul
+    // can stream columns.
     std::vector<int8_t> value_by_col(head_hidden_size * seq_len * 2u, 0);
-    transposeInterleavedRowsToCols2(
-        value_out.data(),
-        value_by_col.data(),
-        seq_len,
-        head_hidden_size);
+    transposeInterleavedRowsToCols2(value_out.data(), value_by_col.data(), seq_len,
+                                    head_hidden_size);
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "v_by_col_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        value_by_col.data(),
-        head_hidden_size,
-        seq_len);
+        dump_dirs, "v_by_col_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        value_by_col.data(), head_hidden_size, seq_len);
 
     // Final attention output: softmax(QK^T) * V.
-    attentionMatmulSdotBlocked(
-        attention_scores.data(),
-        value_by_col.data(),
-        seq_len,
-        head_hidden_size,
-        seq_len,
-        output_interleaved);
+    attentionMatmulSdotBlocked(attention_scores.data(), value_by_col.data(), seq_len,
+                               head_hidden_size, seq_len, output_interleaved);
+
+    dumpInterleavedLearnerMatrices2(dump_dirs,
+                                    "softmax_v_pre_post_h" +
+                                        std::to_string(heads[0]->head_idx_) + ".txt",
+                                    output_interleaved, seq_len, head_hidden_size);
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "softmax_v_pre_post_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        output_interleaved,
-        seq_len,
-        head_hidden_size);
+        dump_dirs, "head_out_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        output_interleaved, seq_len, head_hidden_size);
+
+    // Post-softmax scaling is fused into the final output matmul for better int8
+    // accuracy, so we apply it to the output of the matmul here before dumping final
+    // head output.
+    heads[0]->softmax_->post_softmax_interleaved2D(output_interleaved, seq_len,
+                                                   head_hidden_size);
 
     dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "head_out_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        output_interleaved,
-        seq_len,
-        head_hidden_size);
-
-    // Post-softmax scaling is fused into the final output matmul for better int8 accuracy, so we apply it to the output of the matmul here before dumping final head output.
-    heads[0]->softmax_->post_softmax_interleaved2D(
-        output_interleaved,
-        seq_len,
-        head_hidden_size);
-
-    dumpInterleavedLearnerMatrices2(
-        dump_dirs,
-        "head_out_post_h" + std::to_string(heads[0]->head_idx_) + ".txt",
-        output_interleaved,
-        seq_len,
-        head_hidden_size);
+        dump_dirs, "head_out_post_h" + std::to_string(heads[0]->head_idx_) + ".txt",
+        output_interleaved, seq_len, head_hidden_size);
 }
 
 /**
