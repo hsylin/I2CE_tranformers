@@ -33,3 +33,8 @@ taskflow
 gem5.pem
 /weights/
 /Full_NN/gemm_definitions/
+
+# Outputs of the contributed experiment and validation tools.
+.ruff_cache/
+.build/
+experiment-output/

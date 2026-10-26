@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Check the subject and body of a contributed commit."""
+
+from pathlib import Path
+import re
+import sys
+
+
+def check_message(text):
+    lines = text.splitlines()
+    if not lines or not re.match(r"^[a-z][a-z0-9-]*: [A-Z]", lines[0]):
+        return "Start the subject with an area, for example 'build: Add ...'."
+    if len(lines[0]) > 72:
+        return "Keep the subject to 72 characters or fewer."
+    if len(lines) < 3 or lines[1] or not any(line.strip() for line in lines[2:]):
+        return "Leave a blank line after the subject, then explain the change."
+    if any(len(line) > 76 for line in lines[2:]):
+        return "Wrap the body at 76 characters or fewer."
+    return None
+
+
+if __name__ == "__main__":
+    error = check_message(Path(sys.argv[1]).read_text())
+    if error:
+        sys.exit(error)
