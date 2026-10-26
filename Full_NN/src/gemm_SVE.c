@@ -377,18 +377,8 @@ int sve_gemm_cb4_2l_full_i8(
     const uint32_t *indices, uint32_t n_words_row,
     uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
     const int32_t *codebook, const int32_t *bias, int8_t *output) {
-    // Materialize all modulo accumulations before the low-byte output pass.
-    const size_t count = (size_t)M * N * 2u;
-    if (count > SIZE_MAX / sizeof(int32_t)) return 0;
-    int32_t *temporary = (int32_t *)malloc(count * sizeof(int32_t));
-    if (!temporary && count) return 0;
-    const int accepted = gemm_cb4_2l_full(indices, n_words_row, M, N, K,
-                                        input, codebook, bias, temporary, NULL);
-    if (accepted)
-        for (size_t i = 0; i < count; ++i)
-            output[i] = (int8_t)(uint8_t)temporary[i];
-    free(temporary);
-    return accepted;
+    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
+                           codebook, bias, NULL, output);
 }
 
 /* Four interleaved streams. All four share one index row in the same_seq

@@ -90,17 +90,17 @@ static unsigned check_accumulators() {
                         }
                     }
                     require(std::memcmp(&actual, expected.data(), sizeof(actual)) == 0);
-                    std::vector<uint32_t> output(rows * columns * 2u + 2u, 0x12345678u);
+                    std::vector<int8_t> output(rows * columns * 2u + 2u, 0x5a);
                     cache_write_y_tiles(&actual, rows, columns, output.data() + 1u,
                                         columns, 0, 0);
                     for (size_t row = 0; row < rows; ++row) {
                         for (size_t column = 0; column < columns * 2u; ++column) {
-                            require(output[1u + row * columns * 2u + column] ==
-                                    (has_bias ? uint32_t(bias[column]) : 0u));
+                            require(
+                                output[1u + row * columns * 2u + column] ==
+                                (has_bias ? int8_t(uint8_t(bias[column])) : int8_t(0)));
                         }
                     }
-                    require(output.front() == 0x12345678u &&
-                            output.back() == 0x12345678u);
+                    require(output.front() == 0x5a && output.back() == 0x5a);
                     require(std::memcmp(&actual, expected.data(), sizeof(actual)) == 0);
                     ++cases;
                 }
@@ -133,7 +133,8 @@ int main() {
     require(stats.runtime_allocations == 1u && stats.frees == 1u);
     require(stats.retained_bytes == 0u);
     require(stats.peak_W_bytes == 147456u);
-    require(stats.requested_bytes == 1073152u);
+    require(stats.requested_bytes == 548864u);
+    require(cb_last_direct_calls == 1u && cb_last_source_cores == 2048u);
     std::printf("PASS: %u A layout cases and %u C initialization/output cases\n",
                 activations, accumulators);
 }
