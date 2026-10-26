@@ -1,0 +1,19 @@
+{
+  "history": "These milestones reconstruct the implementation sequence. Commit dates show when this history was prepared, not when the experiments were first developed.",
+  "stages": [
+    {
+      "stage": "E01",
+      "tag": "E01",
+      "binary_sha256": "bb6a2ce2eae79f9c8ee58278f439e716aebd0b3a48fccfd1fd81f40e8216c7b3",
+      "configuration": "../experiments/E01/config.json",
+      "source_binding": "../experiments/E01/source.json"
+    }
+  ],
+  "canonical_inputs": "../inputs/manifest.json",
+  "limits": [
+    "Production executable outputs have not been checked directly.",
+    "Functional comparisons used separately instrumented copies and cover only the recorded checks.",
+    "Historical timings apply only to their recorded binaries.",
+    "This reconstruction adds no performance measurements."
+  ]
+}
