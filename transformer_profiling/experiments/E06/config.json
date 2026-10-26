@@ -1,0 +1,41 @@
+{
+  "stage": "E06",
+  "previous": "E05",
+  "change": "Retain all K panels of packed A across outer output tiles",
+  "working_hypothesis": "Packing A once per sequence block instead of once per output block removes repeated producer work, at the cost of live storage proportional to total K",
+  "costs_removed": [
+    "A repacking across outer output blocks"
+  ],
+  "costs_introduced": [
+    "One A panel per outer K tile, retained across all output tiles"
+  ],
+  "dependencies": [
+    "E05 outer blocking",
+    "Explicit aligned owner and packed A layout"
+  ],
+  "predictions": [
+    "For 256x256x1024, A pack calls fall from 8 to 4 and assigned A bytes from 1048576 to 524288",
+    "W remains at 128 physical panels and 1179648 assigned bytes",
+    "Total owner grows from 937984 to 1073152 bytes for that shape"
+  ],
+  "contradictions": [
+    "A producer count still scales with outer output blocks",
+    "W producer count changes",
+    "Poisoned unused tails affect valid output or retention extends beyond the call"
+  ],
+  "unavoidable_changes": [
+    "Allocation size and subsequent addresses",
+    "Moving A packing before the output loop changes instruction placement and lifetime"
+  ],
+  "excluded": [
+    "Full-panel decoder specialization",
+    "Learner-first consumption order",
+    "Final-output fusion",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "Source assignment counts test reduced producer work; they do not measure memory traffic or establish a latency gain",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}

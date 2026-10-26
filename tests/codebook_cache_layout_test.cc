@@ -128,12 +128,12 @@ int main() {
         require(value == 0);
     }
     const auto stats = sve_cb4_scratch_get();
-    require(stats.A_pack_calls == 8u && stats.A_assigned_bytes == 1048576u);
+    require(stats.A_pack_calls == 4u && stats.A_assigned_bytes == 524288u);
     require(stats.W_pack_calls == 128u && stats.W_assigned_bytes == 1179648u);
     require(stats.runtime_allocations == 1u && stats.frees == 1u);
     require(stats.retained_bytes == 0u);
     require(stats.peak_W_bytes == 147456u);
-    require(stats.requested_bytes == 937984u);
+    require(stats.requested_bytes == 1073152u);
     std::printf("PASS: %u A layout cases and %u C initialization/output cases\n",
                 activations, accumulators);
 }
