@@ -1,0 +1,41 @@
+{
+  "stage": "E08",
+  "previous": "E07",
+  "change": "Consume complete Codebook tiles in learner, row4, column16 order",
+  "working_hypothesis": "Keeping a learner plane active and consuming both output groups for each four-row activation group shortens A reuse distance without changing packing or arithmetic",
+  "costs_removed": [
+    "Longer reuse distance between consumers of one four-row A group"
+  ],
+  "costs_introduced": [
+    "Different W and C traversal order; the effect depends on competing working sets"
+  ],
+  "dependencies": [
+    "E04 full 16x32/K256 consumer",
+    "E06 retained A panels",
+    "E07 unchanged W representation"
+  ],
+  "predictions": [
+    "Every full tile invokes the same sixteen MR4xNR16 calls with identical operands, in a new order",
+    "A/W packing counts, assigned bytes and owner capacity stay unchanged",
+    "Partial-tile traversal stays unchanged"
+  ],
+  "contradictions": [
+    "Any producer count or allocation capacity changes",
+    "The same logical accumulation receives a different operand or modulo result",
+    "The intended full-tile call order is not learner then row4 then column16"
+  ],
+  "unavoidable_changes": [
+    "Compiler loop generation and branch layout",
+    "Temporal order of C and operand accesses"
+  ],
+  "excluded": [
+    "Final-output fusion",
+    "Decoder or packing changes",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "Source order and unchanged numerical work can be checked directly; shorter reuse distance alone does not prove a cache hit or timing benefit",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
