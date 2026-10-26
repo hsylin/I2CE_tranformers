@@ -692,6 +692,7 @@ void test() {
 
 int main() {
     test();
+    finalizeTransformerStatsWindow();
 
 #if CFG_USE_CODEBOOK_REFERENCE
     // A reference build must execute comparisons and reject mismatches.
