@@ -1,0 +1,35 @@
+{
+  "stage": "E01",
+  "baseline_choices": [
+    "Cached widened int32 Codebook entries",
+    "Reusable widened int32 activation workspace",
+    "Predicated SVE widening with forward-copy overlap behavior",
+    "Original pre-SDOT interleaved multiplication",
+    "Direct libm5 markers with deferred index output",
+    "Split Attention intervals including setup and allocations"
+  ],
+  "excluded": [
+    "SDOT microkernel",
+    "CI01 runtime W packing",
+    "Cache blocking",
+    "All-K packed A retention",
+    "Streaming Attention",
+    "Vector softmax"
+  ],
+  "supported_workload": {
+    "sequence": 512,
+    "model_width": 256,
+    "heads": 4,
+    "head_width": 64,
+    "feed_forward_width": 1024,
+    "learners": 2,
+    "codebook_entries": 4,
+    "sve_bits": 128
+  },
+  "new_measurements": 0,
+  "reference_outputs": "Frozen historical E01/S25 tensor and final-output hashes",
+  "interpretation": "A deliberate widened baseline, not pristine upstream or a new performance result",
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}
