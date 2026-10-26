@@ -1,0 +1,1127 @@
+#!/usr/bin/env python3
+"""Extract one profiled Transformer run into cumulative and phase TSV tables.
+
+The input must contain a single complete measurement window. Pass --regions
+for split-MHA markers; equal interval names are summed across attention heads.
+Output namespaces have independent experiment IDs and provenance columns.
+Use --dry-run to inspect rows without changing a table.
+
+Example:
+    python transformer_profiling/add_experiment.py \
+        --stats runs/run_20261025_120000/stats.txt \
+        --study baseline --model BERT-mini --n-learners 2 \
+        --codebook-size 4 --sve-bits 128 --output-root results/baseline
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import os
+import shutil
+import re
+import sys
+import tempfile
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, getcontext
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
+
+
+getcontext().prec = 40
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_ROOT = SCRIPT_DIR / "hsylin"
+
+# Six-region schema when no explicit marker index is supplied. Split-MHA
+# schemas contain four regions per head plus the block tail. The marker index
+# defines the sequence; equal interval names are summed in first-seen order.
+REGIONS = [
+    ("after_mha", "MHA"),
+    ("after_projection", "Projection"),
+    ("after_attn_addnorm", "non_GEMM_after_projection"),
+    ("after_ff1", "FF1"),
+    ("after_ff2", "FF2"),
+    ("final_total", "non_GEMM_after_ff2"),
+]
+
+# (output column, gem5 stat, format)
+ADD_METRICS = [
+    ("sim_seconds", "simSeconds", "seconds"),
+    ("instructions", "simInsts", "int"),
+    ("ops", "simOps", "int"),
+    ("cpu_cycles", "system.cpu_cluster.cpus.numCycles", "int"),
+    ("memory_references", "system.cpu_cluster.cpus.commitStats0.numMemRefs", "int"),
+    ("load_instructions", "system.cpu_cluster.cpus.commitStats0.numLoadInsts", "int"),
+    ("store_instructions", "system.cpu_cluster.cpus.commitStats0.numStoreInsts", "int"),
+    (
+        "dcache_demand_accesses",
+        "system.cpu_cluster.cpus.dcache.demandAccesses::total",
+        "int",
+    ),
+    (
+        "dcache_demand_misses",
+        "system.cpu_cluster.cpus.dcache.demandMisses::total",
+        "int",
+    ),
+    (
+        "icache_demand_accesses",
+        "system.cpu_cluster.cpus.icache.demandAccesses::total",
+        "int",
+    ),
+    (
+        "icache_demand_misses",
+        "system.cpu_cluster.cpus.icache.demandMisses::total",
+        "int",
+    ),
+    ("l2_demand_accesses", "system.cpu_cluster.l2.demandAccesses::total", "int"),
+    ("l2_demand_misses", "system.cpu_cluster.l2.demandMisses::total", "int"),
+    (
+        "committed_branches",
+        "system.cpu_cluster.cpus.branchPred.committed_0::total",
+        "int",
+    ),
+    (
+        "branch_mispredictions",
+        "system.cpu_cluster.cpus.branchPred.mispredicted_0::total",
+        "int",
+    ),
+]
+
+BTB_HIT_RATIO_STAT = "system.cpu_cluster.cpus.branchPred.BTBHitRatio"
+
+# Provenance columns, appended to both tables. They are always written; a run
+# whose runner could not supply one records LEGACY_FILL rather than an empty
+# cell, so "not recorded" is visibly different from "recorded as empty".
+PROVENANCE_COLUMNS = [
+    "runner_id",  # experiments.tsv row this run came from
+    "repo_commit",  # short sha, with +dirty when the tree was modified
+    "commit_subject",  # first line of that commit's message
+    "binary_sha256",  # the binary that actually ran: the ground truth
+    "compile_flags",  # BUILD_FLAGS the binary was compiled with
+    "overrides",  # raw overrides string from experiments.tsv
+    "cores",
+    "l1i",
+    "l1d",
+    "l2",
+]
+
+# Written into provenance cells the caller did not supply.
+LEGACY_FILL = "-"
+
+OUTPUT_COLUMNS = [
+    "exp_id",
+    "study",
+    "model",
+    "d_q",
+    "d_seq",
+    "d_model",
+    "num_head",
+    "d_ff",
+    "implementation",
+    "n_learners",
+    "codebook_size",
+    "sve_bits",
+    "executable",
+    "gem5_timestamp",
+    "stats_file",
+    "row_index",
+    "row_kind",
+    "dump_index",
+    "checkpoint",
+    "interval",
+    *[column for column, _, _ in ADD_METRICS],
+    "ipc",
+    "cpi",
+    "dcache_demand_miss_rate",
+    "icache_demand_miss_rate",
+    "l2_demand_miss_rate",
+    "branch_misprediction_rate",
+    "btb_hit_ratio",
+    *PROVENANCE_COLUMNS,
+]
+
+MANIFEST_COLUMNS = [
+    "exp_id",
+    "study",
+    "implementation",
+    "n_learners",
+    "codebook_size",
+    "sve_bits",
+    "gem5_timestamp",
+    "stats_file",
+    "output_file",
+    "stats_blocks",
+    "rows_written",
+    *PROVENANCE_COLUMNS,
+]
+
+# name -> (d_q, d_seq, d_model, num_head, d_ff), matching transformer.h
+MODEL_PRESETS = {
+    "BERT-mini": (64, 512, 256, 4, 1024),
+    "BERT-base": (64, 512, 768, 12, 3072),
+}
+
+EXP_ID_RE = re.compile(r"^E(\d+)$")
+TIMESTAMP_RE = re.compile(r"(\d{8}_\d{6})")
+SECONDS_QUANTUM = Decimal("0.000001")
+
+Block = Dict[str, Decimal]
+Metrics = Dict[str, Decimal]
+
+
+class ExtractionError(Exception):
+    """Raised for input problems the user has to fix."""
+
+
+@dataclass(frozen=True)
+class Experiment:
+    exp_id: str
+    study: str
+    model: str
+    d_q: int
+    d_seq: int
+    d_model: int
+    num_head: int
+    d_ff: int
+    implementation: str
+    n_learners: int
+    codebook_size: str
+    sve_bits: int
+    executable: str
+    gem5_timestamp: str
+    stats_file: str
+    is_dense: bool
+    scale_first_learner: bool
+    provenance: Dict[str, str]
+
+    @property
+    def number(self) -> int:
+        return exp_number(self.exp_id)
+
+    @property
+    def output_name(self) -> str:
+        # The commit goes in the name so two runs with identical parameters but
+        # different code are told apart in a directory listing, not only by
+        # opening the file.
+        commit = commit_slug(self.provenance.get("repo_commit", LEGACY_FILL))
+        return (
+            f"e{self.number:02d}_{slugify_study(self.study)}_n{self.n_learners}_"
+            f"cb{self.codebook_size}_sve{self.sve_bits}_"
+            f"{commit}{self.gem5_timestamp}.tsv"
+        )
+
+
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--stats",
+        type=Path,
+        required=True,
+        help="gem5 stats file of the run, e.g. output/run_<ts>/stats_<ts>.txt",
+    )
+    parser.add_argument(
+        "--study",
+        required=True,
+        help='study label, e.g. "Dense baseline", "Learner scaling", '
+        '"Codebook-size scaling"; also used in the file name',
+    )
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="BERT-mini or BERT-base; any other name also needs --dims",
+    )
+    parser.add_argument(
+        "--dims",
+        type=int,
+        nargs=5,
+        metavar=("D_Q", "D_SEQ", "D_MODEL", "NUM_HEAD", "D_FF"),
+        help="model dimensions from transformer.h (required for non-preset models)",
+    )
+    parser.add_argument(
+        "--n-learners", type=int, required=True, help="N_LEARNERS of the run"
+    )
+    kind = parser.add_mutually_exclusive_group(required=True)
+    kind.add_argument(
+        "--codebook-size", type=int, help="CODEBOOK_SIZE of a codebook run"
+    )
+    kind.add_argument(
+        "--dense",
+        action="store_true",
+        help="dense baseline run (codebook_size is recorded as NA)",
+    )
+    parser.add_argument(
+        "--sve-bits", type=int, required=True, help="gem5 SVE vector length in bits"
+    )
+    parser.add_argument(
+        "--exp-id",
+        help="experiment ID such as E04 (default: next free ID in the output root's manifest.tsv)",
+    )
+    parser.add_argument(
+        "--implementation",
+        help='implementation label (default: "Dense naive/default" or "Codebook SIMD int8")',
+    )
+    parser.add_argument(
+        "--executable",
+        help="executable name to record (default: the E01-E36 naming scheme, e.g. "
+        "transformer_BERT_mini_int8_noTiling_4D_CB_8_SVE_256.o)",
+    )
+    parser.add_argument(
+        "--gem5-timestamp",
+        help="run_YYYYMMDD_HHMMSS label (default: taken from the stats path)",
+    )
+    parser.add_argument(
+        "--recorded-stats-path",
+        help="path to write in the stats_file column (default: absolute --stats path); "
+        "useful when the stats file was copied from the simulation server",
+    )
+    parser.add_argument(
+        "--start-block",
+        type=int,
+        default=1,
+        help="1-based stats block where this program's dumps start (default: 1); "
+        "use it when several programs ran in the same gem5 session",
+    )
+    parser.add_argument(
+        "--scale-first-learner",
+        action="store_true",
+        help="dense multi-learner runs only: use the first learner chunk multiplied by "
+        "--n-learners (the estimate used for the unfinished BERT-base E05/E06 runs)",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=DEFAULT_OUTPUT_ROOT,
+        help="directory holding manifest.tsv and <dirname>_all_experiments.tsv "
+        "(default: transformer_profiling/hsylin next to this script). "
+        "Experiment IDs are allocated per directory, so pointing this at "
+        "another dataset numbers into that dataset's sequence",
+    )
+    parser.add_argument(
+        "--regions",
+        type=Path,
+        help="the run's gem5_profile_regions.tsv, listing the (checkpoint, "
+        "interval) of every stats dump. Required for runs whose regions are "
+        "closed per attention head; without it the legacy six-region "
+        "sequence is assumed",
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="overwrite an experiment ID that already exists",
+    )
+    parser.add_argument(
+        "--force-new",
+        action="store_true",
+        help="collect a stats file that is already in the tables again, under a "
+        "new experiment ID (the duplicate check exists because experiment "
+        "IDs are assigned automatically)",
+    )
+    prov = parser.add_argument_group(
+        "provenance",
+        "Recorded verbatim so a row can be traced back to the code and settings "
+        "that produced it. Anything not supplied is written as '-'.",
+    )
+    prov.add_argument("--runner-id", help="experiments.tsv row id this run came from")
+    prov.add_argument("--repo-commit", help="short sha, '+dirty' suffix when modified")
+    prov.add_argument("--commit-subject", help="first line of that commit's message")
+    prov.add_argument("--binary-sha256", help="sha256 of the binary that ran")
+    prov.add_argument(
+        "--compile-flags", help="BUILD_FLAGS the binary was compiled with"
+    )
+    prov.add_argument("--overrides", help="raw overrides string from experiments.tsv")
+    prov.add_argument("--cores", help="simulated core count")
+    prov.add_argument("--l1i", help="L1 instruction cache size")
+    prov.add_argument("--l1d", help="L1 data cache size")
+    prov.add_argument("--l2", help="L2 cache size")
+    prov.add_argument(
+        "--provenance",
+        type=Path,
+        help="key/value file (build_config.tsv and friends) copied verbatim to "
+        "<output-root>/provenance/<exp_id>.tsv, so settings with no column of their "
+        "own are still recorded in the repository",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the rows to stdout and write nothing",
+    )
+    return parser.parse_args(argv)
+
+
+# --------------------------------------------------------------------------
+# Experiment metadata
+# --------------------------------------------------------------------------
+
+
+def exp_number(exp_id: str) -> int:
+    match = EXP_ID_RE.match(exp_id)
+    if not match:
+        raise ExtractionError(f"experiment ID must look like E37, got {exp_id!r}")
+    return int(match.group(1))
+
+
+def normalize_exp_id(exp_id: str) -> str:
+    label = exp_id.strip().upper()
+    return f"E{exp_number(label if label.startswith('E') else 'E' + label):02d}"
+
+
+def sanitize_subject(text: str) -> str:
+    """One line, no tabs, bounded length — a commit subject has to survive TSV."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) > 72:
+        collapsed = collapsed[:69].rstrip() + "..."
+    return collapsed or LEGACY_FILL
+
+
+def short_commit(value: str) -> str:
+    """Uniform width in the column: older runners recorded the full 40-char sha."""
+    if not value or value == LEGACY_FILL:
+        return LEGACY_FILL
+    head, sep, rest = value.partition("+")
+    head = head.strip()
+    if len(head) > 12 and all(c in "0123456789abcdefABCDEF" for c in head):
+        head = head[:12].lower()
+    return head + sep + rest
+
+
+def commit_slug(repo_commit: str) -> str:
+    """'1497c139+dirty' -> '1497c139d_'; unknown -> '' so the name is unchanged."""
+    if not repo_commit or repo_commit == LEGACY_FILL:
+        return ""
+    head = repo_commit.split("+", 1)[0].strip().lower()
+    short = "".join(ch for ch in head if ch in "0123456789abcdef")[:8]
+    if not short:
+        return ""
+    return f"{short}{'d' if '+dirty' in repo_commit else ''}_"
+
+
+def slugify_study(study: str) -> str:
+    return study.lower().replace("-", "_").replace(" ", "_").replace("/", "_")
+
+
+def model_dims(
+    model: str, dims: Optional[Sequence[int]]
+) -> Tuple[int, int, int, int, int]:
+    preset = MODEL_PRESETS.get(model)
+    if dims is not None:
+        dims = tuple(dims)
+        if preset is not None and dims != preset:
+            raise ExtractionError(
+                f"--dims {list(dims)} does not match the {model} preset {list(preset)}"
+            )
+        return dims  # type: ignore[return-value]
+    if preset is None:
+        known = ", ".join(MODEL_PRESETS)
+        raise ExtractionError(
+            f"unknown model {model!r}; use one of {known} or pass --dims"
+        )
+    return preset
+
+
+def derive_gem5_timestamp(stats_path: Path, override: Optional[str]) -> str:
+    if override:
+        label = override.strip()
+        return f"run_{label}" if re.fullmatch(r"\d{8}_\d{6}", label) else label
+    # Prefer the file name (stats_<ts>.txt), then its directory (run_<ts>).
+    for part in (stats_path.name, stats_path.parent.name):
+        match = TIMESTAMP_RE.search(part)
+        if match:
+            return f"run_{match.group(1)}"
+    raise ExtractionError(
+        f"no YYYYMMDD_HHMMSS timestamp found in {stats_path}; pass --gem5-timestamp"
+    )
+
+
+def read_region_index(path: Path) -> List[Tuple[str, str]]:
+    """(checkpoint, interval) per dump, from a run's gem5_profile_regions.tsv.
+
+    The file is written by finalizeTransformerStatsWindow() after the measured
+    window closes: a `scope` line, a header, then one row per dump. Reading it
+    instead of assuming a fixed schema is what lets the same extractor handle
+    the six-region runs and the per-head MHA split, whose dump count depends on
+    the head count.
+    """
+    rows: List[Tuple[int, str, str]] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ExtractionError(f"cannot read region index {path}: {error}") from error
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 3 or fields[0] in ("dump_index", "scope"):
+            continue
+        try:
+            index = int(fields[0])
+        except ValueError:
+            continue
+        rows.append((index, fields[1], fields[2]))
+    if not rows:
+        raise ExtractionError(
+            f"{path} lists no dumps. Was the run compiled with "
+            f"GEM5_PROFILE_REGIONS_FLAG=1 and did it reach the end of a block?"
+        )
+    rows.sort()
+    if [index for index, _, _ in rows] != list(range(1, len(rows) + 1)):
+        raise ExtractionError(
+            f"{path}: dump_index must run 1..N without gaps, got "
+            + ", ".join(str(index) for index, _, _ in rows)
+        )
+    return [(checkpoint, interval) for _, checkpoint, interval in rows]
+
+
+def output_regions(regions: Sequence[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """One output row per interval name, in order of first appearance.
+
+    A region closed once per attention head appears once in the table with its
+    dumps summed, so an experiment's row count is a property of the schema and
+    not of the head count.
+    """
+    collapsed: List[Tuple[str, str]] = []
+    seen: Dict[str, int] = {}
+    for checkpoint, interval in regions:
+        if interval not in seen:
+            seen[interval] = len(collapsed)
+            collapsed.append((checkpoint, interval))
+    return collapsed
+
+
+def combined_table_path(output_root: Path) -> Path:
+    """The directory's combined table: <dirname>_all_experiments.tsv.
+
+    That is the convention the committed datasets already use, so the filename
+    says which dataset a table belongs to. A directory that already holds a
+    differently named *_all_experiments.tsv keeps it; two of them is ambiguous
+    and is refused rather than guessed at.
+    """
+    preferred = output_root / f"{output_root.name}_all_experiments.tsv"
+    if preferred.exists():
+        return preferred
+    found = (
+        sorted(p for p in output_root.glob("*_all_experiments.tsv"))
+        if output_root.is_dir()
+        else []
+    )
+    if len(found) > 1:
+        raise ExtractionError(
+            f"{output_root}: more than one combined table: "
+            + ", ".join(p.name for p in found)
+        )
+    return found[0] if found else preferred
+
+
+def next_exp_id(manifest_path: Path) -> str:
+    """Highest ID in this manifest plus one; each directory numbers separately."""
+    highest = 0
+    if manifest_path.exists():
+        for row in read_tsv(manifest_path, MANIFEST_COLUMNS):
+            highest = max(highest, exp_number(row["exp_id"]))
+    return f"E{highest + 1:02d}"
+
+
+def build_experiment(args: argparse.Namespace) -> Experiment:
+    if args.n_learners < 1:
+        raise ExtractionError("--n-learners must be at least 1")
+    if args.scale_first_learner and not (args.dense and args.n_learners > 1):
+        raise ExtractionError(
+            "--scale-first-learner only applies to --dense runs with --n-learners > 1"
+        )
+
+    d_q, d_seq, d_model, num_head, d_ff = model_dims(args.model, args.dims)
+    model_token = args.model.replace("-", "_")
+
+    if args.dense:
+        codebook_size = "NA"
+        implementation = args.implementation or "Dense naive/default"
+        executable_impl = "dense_baseline"
+    else:
+        if args.codebook_size < 1:
+            raise ExtractionError("--codebook-size must be positive")
+        codebook_size = str(args.codebook_size)
+        implementation = args.implementation or "Codebook SIMD int8"
+        executable_impl = f"CB_{codebook_size}"
+
+    executable = args.executable or (
+        f"transformer_{model_token}_int8_noTiling_{args.n_learners}D_"
+        f"{executable_impl}_SVE_{args.sve_bits}.o"
+    )
+
+    provenance = {
+        "runner_id": args.runner_id,
+        "repo_commit": short_commit(args.repo_commit) if args.repo_commit else None,
+        "commit_subject": (
+            sanitize_subject(args.commit_subject) if args.commit_subject else None
+        ),
+        "binary_sha256": args.binary_sha256,
+        "compile_flags": args.compile_flags,
+        "overrides": args.overrides,
+        "cores": args.cores,
+        "l1i": args.l1i,
+        "l1d": args.l1d,
+        "l2": args.l2,
+    }
+    provenance = {
+        key: (str(value).strip() or LEGACY_FILL) if value is not None else LEGACY_FILL
+        for key, value in provenance.items()
+    }
+    for key, value in provenance.items():
+        if "\t" in value or "\n" in value:
+            raise ExtractionError(
+                f"--{key.replace('_', '-')} must not contain tabs or newlines"
+            )
+
+    stats_path = args.stats.expanduser().resolve()
+    manifest_path = args.output_root / "manifest.tsv"
+    exp_id = (
+        normalize_exp_id(args.exp_id) if args.exp_id else next_exp_id(manifest_path)
+    )
+
+    return Experiment(
+        exp_id=exp_id,
+        study=args.study,
+        model=args.model,
+        d_q=d_q,
+        d_seq=d_seq,
+        d_model=d_model,
+        num_head=num_head,
+        d_ff=d_ff,
+        implementation=implementation,
+        n_learners=args.n_learners,
+        codebook_size=codebook_size,
+        sve_bits=args.sve_bits,
+        executable=executable,
+        gem5_timestamp=derive_gem5_timestamp(stats_path, args.gem5_timestamp),
+        stats_file=args.recorded_stats_path or str(stats_path),
+        provenance=provenance,
+        is_dense=args.dense,
+        scale_first_learner=args.scale_first_learner,
+    )
+
+
+# --------------------------------------------------------------------------
+# gem5 stats parsing
+# --------------------------------------------------------------------------
+
+
+def parse_stats_blocks(path: Path) -> List[Block]:
+    """Return one {stat: value} dict per Begin/End Simulation Statistics block."""
+    blocks: List[Block] = []
+    current: Optional[Block] = None
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if "Begin Simulation Statistics" in line:
+                current = {}
+                continue
+            if "End Simulation Statistics" in line:
+                if current is None:
+                    raise ExtractionError(f"End marker before Begin marker in {path}")
+                blocks.append(current)
+                current = None
+                continue
+            if current is None:
+                continue
+            parts = line.split("#", 1)[0].split()
+            if len(parts) < 2:
+                continue
+            try:
+                current[parts[0]] = Decimal(parts[1])
+            except InvalidOperation:
+                continue
+    if current is not None:
+        # gem5 was still running (or was killed) while writing this block.
+        print(
+            f"note: ignoring an unfinished stats block at the end of {path}",
+            file=sys.stderr,
+        )
+    return blocks
+
+
+def stat(block: Block, name: str, block_number: int) -> Decimal:
+    try:
+        return block[name]
+    except KeyError:
+        raise ExtractionError(
+            f"stats block {block_number} has no {name!r}; check that the run used the "
+            f"same gem5 configuration (MinorCPU, cpu_cluster with l2) as E01-E36"
+        ) from None
+
+
+def repair_sim_seconds(blocks: List[Block], first_block_number: int) -> None:
+    """Fall back to simTicks / simFreq when gem5 printed a malformed simSeconds.
+
+    gem5 occasionally prints simSeconds wrongly (E02 block 1 reads
+    `2953792.` while simTicks / simFreq is 2.953792). The printed value is
+    kept whenever it agrees with the tick count to within its six decimals.
+    """
+    for offset, block in enumerate(blocks):
+        ticks, freq, seconds = (
+            block.get("simTicks"),
+            block.get("simFreq"),
+            block.get("simSeconds"),
+        )
+        if ticks is None or not freq:
+            continue
+        from_ticks = (ticks / freq).quantize(SECONDS_QUANTUM, rounding=ROUND_HALF_UP)
+        if (
+            seconds is None
+            or not seconds.is_finite()
+            or abs(seconds - ticks / freq) > SECONDS_QUANTUM
+        ):
+            print(
+                f"warning: stats block {first_block_number + offset}: simSeconds={seconds} "
+                f"disagrees with simTicks/simFreq={from_ticks}; using simTicks/simFreq",
+                file=sys.stderr,
+            )
+            block["simSeconds"] = from_ticks
+
+
+def check_single_stats_window(blocks: List[Block], first_block_number: int) -> None:
+    """All dumps of one program are cumulative since one `m5 resetstats`."""
+    previous: Optional[Decimal] = None
+    for offset, block in enumerate(blocks):
+        ticks = block.get("simTicks")
+        if ticks is not None and previous is not None and ticks < previous:
+            raise ExtractionError(
+                f"simTicks drops at stats block {first_block_number + offset}: the selected "
+                f"blocks span a stats reset (another program run?); set --start-block"
+            )
+        if ticks is not None:
+            previous = ticks
+
+
+# --------------------------------------------------------------------------
+# Interval math (same as extract_final_stats.py)
+# --------------------------------------------------------------------------
+
+
+def zero_metrics() -> Metrics:
+    return {column: Decimal(0) for column, _, _ in ADD_METRICS}
+
+
+def delta_metrics(
+    current: Block, previous: Optional[Block], block_number: int
+) -> Metrics:
+    return {
+        column: stat(current, source, block_number)
+        - (
+            stat(previous, source, block_number - 1)
+            if previous is not None
+            else Decimal(0)
+        )
+        for column, source, _ in ADD_METRICS
+    }
+
+
+def add_metrics(left: Metrics, right: Metrics) -> Metrics:
+    return {column: left[column] + right[column] for column, _, _ in ADD_METRICS}
+
+
+def sum_metrics(intervals: Sequence[Metrics]) -> Metrics:
+    total = zero_metrics()
+    for interval in intervals:
+        total = add_metrics(total, interval)
+    return total
+
+
+def dumps_needed(exp: Experiment, regions: Sequence[Tuple[str, str]]) -> int:
+    if exp.is_dense and exp.n_learners > 1 and not exp.scale_first_learner:
+        # DENSE_NO_SIMD_BASELINE runs the learners one after another inside a
+        # single stats window, so each learner contributes a full region sweep.
+        return len(regions) * exp.n_learners
+    return len(regions)
+
+
+def aggregate_intervals(
+    exp: Experiment,
+    blocks: List[Block],
+    first_block_number: int,
+    regions: Sequence[Tuple[str, str]],
+) -> Tuple[List[Metrics], Metrics, Block]:
+    """Return (one metric set per output region, final_total metrics, BTB block).
+
+    Adjacent dumps are differenced to recover each dump's own interval, then
+    dumps sharing an interval name are added together. Two things collapse this
+    way: a region closed once per attention head, and the dense multi-learner
+    baseline, which sweeps the whole schema once per learner.
+    """
+    per_dump: List[Metrics] = []
+    previous: Optional[Block] = None
+    for offset, current in enumerate(blocks):
+        per_dump.append(delta_metrics(current, previous, first_block_number + offset))
+        previous = current
+
+    collapsed = output_regions(regions)
+    position = {interval: index for index, (_, interval) in enumerate(collapsed)}
+    intervals = [zero_metrics() for _ in collapsed]
+    for dump_offset, metrics in enumerate(per_dump):
+        # A dense multi-learner run repeats the schema, so wrap around it.
+        _, interval = regions[dump_offset % len(regions)]
+        intervals[position[interval]] = add_metrics(
+            intervals[position[interval]], metrics
+        )
+
+    if len(blocks) == len(regions):
+        if exp.scale_first_learner:
+            intervals = [
+                {column: metrics[column] * exp.n_learners for column in metrics}
+                for metrics in intervals
+            ]
+            return intervals, sum_metrics(intervals), blocks[-1]
+        # One sweep: the last dump is cumulative over the whole window, which is
+        # a better total than the sum of the deltas because it cannot drift.
+        final_block = blocks[-1]
+        final = {
+            column: stat(final_block, source, first_block_number + len(blocks) - 1)
+            for column, source, _ in ADD_METRICS
+        }
+        return intervals, final, final_block
+
+    return intervals, sum_metrics(intervals), blocks[-1]
+
+
+# --------------------------------------------------------------------------
+# Row formatting
+# --------------------------------------------------------------------------
+
+
+def fmt_metric(number: Decimal, metric_type: str) -> str:
+    if metric_type == "seconds":
+        return format(number.quantize(SECONDS_QUANTUM, rounding=ROUND_HALF_UP), "f")
+    return str(int(number))
+
+
+def ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
+    return Decimal(0) if denominator == 0 else numerator / denominator
+
+
+def fmt_ratio(number: Decimal, places: int) -> str:
+    return format(
+        number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP), "f"
+    )
+
+
+def base_row(
+    exp: Experiment,
+    row_index: int,
+    row_kind: str,
+    dump_index: int,
+    region: Tuple[str, str],
+) -> Dict[str, str]:
+    checkpoint, interval = region
+    row = {column: "" for column in OUTPUT_COLUMNS}
+    row.update(
+        {
+            "exp_id": exp.exp_id,
+            "study": exp.study,
+            "model": exp.model,
+            "d_q": str(exp.d_q),
+            "d_seq": str(exp.d_seq),
+            "d_model": str(exp.d_model),
+            "num_head": str(exp.num_head),
+            "d_ff": str(exp.d_ff),
+            "implementation": exp.implementation,
+            "n_learners": str(exp.n_learners),
+            "codebook_size": exp.codebook_size,
+            "sve_bits": str(exp.sve_bits),
+            "executable": exp.executable,
+            "gem5_timestamp": exp.gem5_timestamp,
+            "stats_file": exp.stats_file,
+            "row_index": str(row_index),
+            "row_kind": row_kind,
+            "dump_index": str(dump_index),
+            "checkpoint": checkpoint,
+            "interval": interval,
+            **exp.provenance,
+        }
+    )
+    return row
+
+
+def build_rows(
+    exp: Experiment,
+    all_blocks: List[Block],
+    start_block: int,
+    regions: Optional[Sequence[Tuple[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    regions = list(regions) if regions else list(REGIONS)
+    if start_block < 1 or start_block > max(len(all_blocks), 1):
+        raise ExtractionError(
+            f"--start-block {start_block} is outside the {len(all_blocks)} stats blocks"
+        )
+    needed = dumps_needed(exp, regions)
+    available = all_blocks[start_block - 1 :]
+    if len(available) < needed:
+        raise ExtractionError(
+            f"found {len(available)} stats block(s) from block {start_block}, need {needed} "
+            f"({len(regions)} dumps x {needed // len(regions)} learner chunk(s)). Did the run "
+            f"finish, and was it compiled with GEM5_PROFILE_REGIONS_FLAG=1?"
+            + (
+                " For an unfinished dense multi-learner run see --scale-first-learner."
+                if exp.is_dense and exp.n_learners > 1 and not exp.scale_first_learner
+                else ""
+            )
+            + (
+                f" The region index lists {len(regions)} dumps; if that does not match "
+                f"this binary, pass the --regions written by the run itself."
+                if regions != list(REGIONS)
+                else ""
+            )
+        )
+    blocks = [dict(block) for block in available[:needed]]
+    ignored = len(available) - needed
+    if ignored:
+        reason = (
+            "gem5 adds one when the simulation exits"
+            if ignored == 1
+            else "if the file holds several program runs, choose one with --start-block"
+        )
+        print(
+            f"note: using stats blocks {start_block}-{start_block + needed - 1}; ignoring "
+            f"{ignored} later block(s) ({reason})",
+            file=sys.stderr,
+        )
+
+    repair_sim_seconds(blocks, start_block)
+    check_single_stats_window(blocks, start_block)
+    intervals, final, ratio_block = aggregate_intervals(
+        exp, blocks, start_block, regions
+    )
+    collapsed = output_regions(regions)
+
+    rows: List[Dict[str, str]] = []
+    for index, metrics in enumerate(intervals, start=1):
+        row = base_row(exp, index, "interval_delta", index, collapsed[index - 1])
+        for column, _, metric_type in ADD_METRICS:
+            row[column] = fmt_metric(metrics[column], metric_type)
+            if metrics[column] < 0:
+                print(
+                    f"warning: negative {column} in interval {collapsed[index - 1][1]}",
+                    file=sys.stderr,
+                )
+        rows.append(row)
+
+    total = base_row(
+        exp, len(collapsed) + 1, "final_total", len(collapsed), collapsed[-1]
+    )
+    total["checkpoint"] = "final_total"
+    total["interval"] = "total_program"
+    for column, _, metric_type in ADD_METRICS:
+        total[column] = fmt_metric(final[column], metric_type)
+    total["ipc"] = fmt_ratio(ratio(final["instructions"], final["cpu_cycles"]), 6)
+    total["cpi"] = fmt_ratio(ratio(final["cpu_cycles"], final["instructions"]), 6)
+    total["dcache_demand_miss_rate"] = fmt_ratio(
+        ratio(final["dcache_demand_misses"], final["dcache_demand_accesses"]), 12
+    )
+    total["icache_demand_miss_rate"] = fmt_ratio(
+        ratio(final["icache_demand_misses"], final["icache_demand_accesses"]), 12
+    )
+    total["l2_demand_miss_rate"] = fmt_ratio(
+        ratio(final["l2_demand_misses"], final["l2_demand_accesses"]), 12
+    )
+    total["branch_misprediction_rate"] = fmt_ratio(
+        ratio(final["branch_mispredictions"], final["committed_branches"]), 12
+    )
+    total["btb_hit_ratio"] = fmt_ratio(
+        stat(ratio_block, BTB_HIT_RATIO_STAT, start_block + needed - 1), 6
+    )
+    rows.append(total)
+    return rows
+
+
+# --------------------------------------------------------------------------
+# TSV input/output
+# --------------------------------------------------------------------------
+
+
+def read_tsv(path: Path, expected_columns: List[str]) -> List[Dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        names = reader.fieldnames
+        if names == expected_columns:
+            return list(reader)
+        # A file written before columns were appended is still readable, as long
+        # as what it has is an exact prefix of the current schema: the missing
+        # cells are filled in and the next write stores the full schema. Any
+        # other difference is a real mismatch and must not be guessed at.
+        if names is not None and expected_columns[: len(names)] == list(names):
+            missing = expected_columns[len(names) :]
+            print(
+                f"note: {path} predates {len(missing)} column(s) "
+                f"({', '.join(missing)}); filling them with '{LEGACY_FILL}'",
+                file=sys.stderr,
+            )
+            rows = []
+            for row in reader:
+                row.update({column: LEGACY_FILL for column in missing})
+                rows.append(row)
+            return rows
+        raise ExtractionError(f"{path} does not have the expected columns")
+
+
+def write_tsv(path: Path, columns: List[str], rows: List[Dict[str, str]]) -> None:
+    """Write like extract_final_stats.py, replacing the file atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        os.chmod(tmp_name, mode)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle, fieldnames=columns, delimiter="\t", lineterminator="\n"
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
+
+
+def merge_rows(
+    existing: List[Dict[str, str]], exp_id: str, new_rows: List[Dict[str, str]]
+) -> List[Dict[str, str]]:
+    kept = [row for row in existing if row["exp_id"] != exp_id]
+    # A stable sort keeps the row order inside each experiment.
+    return sorted(kept + new_rows, key=lambda row: exp_number(row["exp_id"]))
+
+
+def add_experiment(
+    exp: Experiment,
+    rows: List[Dict[str, str]],
+    stats_blocks: int,
+    output_root: Path,
+    replace: bool,
+    force_new: bool = False,
+    provenance_file: Optional[Path] = None,
+) -> Path:
+    manifest_path = output_root / "manifest.tsv"
+    combined_path = combined_table_path(output_root)
+    manifest = (
+        read_tsv(manifest_path, MANIFEST_COLUMNS) if manifest_path.exists() else []
+    )
+    combined = read_tsv(combined_path, OUTPUT_COLUMNS) if combined_path.exists() else []
+
+    previous = [row for row in manifest if row["exp_id"] == exp.exp_id]
+    if previous and not replace:
+        raise ExtractionError(
+            f"{exp.exp_id} already exists in {manifest_path}; pass --replace to overwrite it"
+        )
+
+    # With IDs assigned automatically, "the ID is taken" no longer catches a run
+    # collected twice -- it would just get the next ID and silently duplicate the
+    # data. Key the check on the stats file instead, which identifies the run.
+    duplicates = [
+        row
+        for row in manifest
+        if row.get("stats_file") == exp.stats_file and row["exp_id"] != exp.exp_id
+    ]
+    if duplicates and not (replace or force_new):
+        ids = ", ".join(sorted({row["exp_id"] for row in duplicates}))
+        raise ExtractionError(
+            f"this run is already in {manifest_path} as {ids} "
+            f"(same stats file: {exp.stats_file}). Re-collect it with "
+            f"--exp-id {ids.split(',')[0]} --replace, or pass --force-new to add "
+            f"it a second time under a new ID."
+        )
+
+    output_path = output_root.resolve() / exp.output_name
+    write_tsv(output_path, OUTPUT_COLUMNS, rows)
+
+    # With --replace, drop the old per-experiment TSV if its name changed.
+    for row in previous:
+        old_path = output_root.resolve() / Path(row["output_file"]).name
+        if (
+            old_path != output_path
+            and old_path.exists()
+            and old_path.name.startswith(f"e{exp.number:02d}_")
+        ):
+            old_path.unlink()
+
+    manifest_row = {
+        "exp_id": exp.exp_id,
+        "study": exp.study,
+        "implementation": exp.implementation,
+        "n_learners": str(exp.n_learners),
+        "codebook_size": exp.codebook_size,
+        "sve_bits": str(exp.sve_bits),
+        "gem5_timestamp": exp.gem5_timestamp,
+        "stats_file": exp.stats_file,
+        "output_file": str(output_path),
+        "stats_blocks": str(stats_blocks),
+        "rows_written": str(len(rows)),
+        **exp.provenance,
+    }
+    if provenance_file is not None:
+        # Columns cover what gets grouped and plotted; this keeps everything
+        # else, so a parameter added later is still recorded for older runs.
+        prov_dir = output_root.resolve() / "provenance"
+        prov_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(provenance_file, prov_dir / f"{exp.exp_id}.tsv")
+
+    write_tsv(combined_path, OUTPUT_COLUMNS, merge_rows(combined, exp.exp_id, rows))
+    write_tsv(
+        manifest_path,
+        MANIFEST_COLUMNS,
+        merge_rows(manifest, exp.exp_id, [manifest_row]),
+    )
+    return output_path
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = parse_args(argv)
+    try:
+        exp = build_experiment(args)
+        if not args.stats.is_file():
+            raise ExtractionError(f"stats file not found: {args.stats}")
+        blocks = parse_stats_blocks(args.stats)
+        regions = read_region_index(args.regions) if args.regions else None
+        rows = build_rows(exp, blocks, args.start_block, regions)
+
+        if args.dry_run:
+            writer = csv.DictWriter(
+                sys.stdout,
+                fieldnames=OUTPUT_COLUMNS,
+                delimiter="\t",
+                lineterminator="\n",
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+            return 0
+
+        if args.provenance is not None and not args.provenance.is_file():
+            raise ExtractionError(f"--provenance file not found: {args.provenance}")
+        output_path = add_experiment(
+            exp,
+            rows,
+            len(blocks),
+            args.output_root,
+            args.replace,
+            force_new=args.force_new,
+            provenance_file=args.provenance,
+        )
+    except ExtractionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    total = rows[-1]
+    print(f"{exp.exp_id}: wrote {output_path}")
+    print(
+        f"  total sim_seconds={total['sim_seconds']} ipc={total['ipc']} cpi={total['cpi']}"
+    )
+    print(
+        f"  updated {args.output_root / 'manifest.tsv'} and "
+        f"{combined_table_path(args.output_root).name}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
