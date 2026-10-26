@@ -1,0 +1,60 @@
+{
+  "stage": "E09",
+  "previous": "E08",
+  "change": "Fuse final-K accumulation with byte output and remove complete C32 output temporaries",
+  "working_hypothesis": "Writing final low bytes in the last K consumer removes full-output staging and its traversal, while partial tiles use direct low-byte output",
+  "costs_removed": [
+    "Complete int32 output temporary",
+    "Last full C writeback and separate output traversal on complete tiles"
+  ],
+  "costs_introduced": [
+    "Two final-K epilogue kernels and shape selection",
+    "Learner 0 bytes temporarily replace its completed accumulator row until learner 1 interleaves them"
+  ],
+  "dependencies": [
+    "E08 learner-first order",
+    "Low-byte modulo narrowing contract",
+    "Earlier unchanged A/C initialization and table setup"
+  ],
+  "predictions": [
+    "Registered owner falls from 1073152 to 548864 bytes",
+    "Full 256x256x1024 case records one direct call and 2048 final core calls",
+    "A/W pack counts and assignments remain unchanged",
+    "Observer and ordinary byte-output paths agree with independent modulo oracle"
+  ],
+  "contradictions": [
+    "Any setup, A packing, C initialization or producer count changes",
+    "Final learner 1 consumes learner 0 before its final bytes exist",
+    "Tail, bias overflow or canary checks differ from the oracle"
+  ],
+  "unavoidable_changes": [
+    "Output interface and lifetime shrink together with fusion",
+    "Allocator addresses, code size and register use",
+    "Diagnostic full-C observer disables fusion; ordinary-output tests exercise fusion"
+  ],
+  "excluded": [
+    "A/C initialization changes",
+    "Table or index setup changes",
+    "Decoder or packing changes",
+    "Attention changes"
+  ],
+  "formal_measurements": 0,
+  "interpretation": "The stage is final-K fusion plus its necessary byte-output interface and temporary removal; no latency claim is made",
+  "scope_checks": {
+    "unchanged_functions": [
+      "cache_pack_x",
+      "cache_pack_w_blocks",
+      "cache_init_c",
+      "cache_init_c_tiles_data",
+      "cache_compute_step",
+      "cache_compute_inner",
+      "cache_compute_pair_edge",
+      "cache_compute_mr4nr16"
+    ],
+    "unchanged_table_setup_sha256": "244433f3cc0b58dc08748c008c0b2af8704da5469ee27bbbc704ce95c463b76c",
+    "generic_output_change": "sve_gemm_cb4_2l_full_i8 removes its complete C32 temporary; ordinary row computation is unchanged"
+  },
+  "history_kind": "reconstructed milestone",
+  "new_publication_measurements": 0,
+  "study": "e01-e13"
+}

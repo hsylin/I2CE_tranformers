@@ -120,7 +120,7 @@ static svint32x4_t gemm_load_in4_s8(svbool_t pg, const int8_t *row_in_i8) {
  * bits_per_cb = 3 straddles whenever 3i mod 8 > 5. Reaching this path with an
  * 8-entry codebook therefore needs the index stream padded to 4 bits when it
  * is generated, which costs a third more index memory; the generator does
- * that only when asked, and until then CB8 builds keep the svmla path.
+ * that only when requested; unpadded CB8 indices use the svmla path.
  *
  * svtbl_s8 selects within a single vector, which is svcntb() bytes; the
  * 16-byte bound keeps one table valid at every vector length from 128 bits
@@ -348,9 +348,8 @@ static inline int gemm_cb4_2l_full(
     const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
     svuint8_t byte_sel, shifts8;
     gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
-    /* N -> M -> K; only invariant setup is hoisted at this stage. */
     /* M -> N -> K, one output per learner at a time. No cache blocks,
-     * cross-row reuse, packing or partial-K accumulation is introduced. */
+     * cross-row reuse, packing or partial-K accumulation is performed. */
     for (uint32_t m = 0; m < M; ++m) {
         for (uint32_t n = 0; n < N; ++n) {
             gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
@@ -378,18 +377,8 @@ int sve_gemm_cb4_2l_full_i8(
     const uint32_t *indices, uint32_t n_words_row,
     uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
     const int32_t *codebook, const int32_t *bias, int8_t *output) {
-    // Materialize all modulo accumulations before the low-byte output pass.
-    const size_t count = (size_t)M * N * 2u;
-    if (count > SIZE_MAX / sizeof(int32_t)) return 0;
-    int32_t *temporary = (int32_t *)malloc(count * sizeof(int32_t));
-    if (!temporary && count) return 0;
-    const int accepted = gemm_cb4_2l_full(indices, n_words_row, M, N, K,
-                                        input, codebook, bias, temporary, NULL);
-    if (accepted)
-        for (size_t i = 0; i < count; ++i)
-            output[i] = (int8_t)(uint8_t)temporary[i];
-    free(temporary);
-    return accepted;
+    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
+                           codebook, bias, NULL, output);
 }
 
 /* Four interleaved streams. All four share one index row in the same_seq

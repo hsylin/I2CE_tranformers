@@ -89,7 +89,7 @@ typedef struct {
                     [CACHE_X1_STRIDE];
 } cb4_cache_arena;
 typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 278528u) ? 1 : -1];
-/* A is repacked for each outer sequence/output tile and K chunk. */
+/* All K panels belong to the current sequence block across output tiles. */
 typedef int8_t cb4_x_panel[2][CACHE_S2][CACHE_X2_STRIDE];
 
 static size_t cache_min(size_t a, size_t b) {
@@ -200,15 +200,34 @@ static void cache_init_c(uint32_t *c, size_t plane, size_t stride, size_t rows,
         }
     }
 }
-/* Preserve the complete modulo-32-bit matrix before low-byte conversion. */
 static void cache_write_y(const uint32_t *c, size_t plane, size_t stride, size_t rows,
-                          size_t cols, uint32_t *output, size_t columns,
-                          size_t row_base, size_t column_base) {
+                          size_t cols, int8_t *output, size_t columns, size_t row_base,
+                          size_t column_base) {
+#ifdef I2CE_TEST_CB4_CACHE
+    if (i2ce_cb4_cache_observed) {
+        for (size_t row = 0; row < rows; ++row) {
+            for (size_t column = 0; column < cols; ++column) {
+                for (size_t learner = 0; learner < 2u; ++learner) {
+                    i2ce_cb4_cache_observed
+                        [((row_base + row) * columns + column_base + column) * 2u +
+                         learner] = c[learner * plane + row * stride + column];
+                }
+            }
+        }
+    }
+#endif
     for (size_t row = 0; row < rows; ++row) {
-        for (size_t column = 0; column < cols; ++column) {
-            for (size_t learner = 0; learner < 2u; ++learner) {
-                output[((row_base + row) * columns + column_base + column) * 2u +
-                       learner] = c[learner * plane + row * stride + column];
+        for (size_t column = 0; column < cols; column += 4u) {
+            svbool_t pg = svwhilelt_b32((uint64_t)column, (uint64_t)cols);
+            svuint32_t a = svld1_u32(pg, c + row * stride + column),
+                       b = svld1_u32(pg, c + plane + row * stride + column);
+            svuint32_t lo = svzip1_u32(a, b), hi = svzip2_u32(a, b);
+            uint8_t *y = (uint8_t *)output +
+                         ((row_base + row) * columns + column_base + column) * 2u;
+            size_t remain = cache_min(4u, cols - column) * 2u;
+            svst1b_u32(svwhilelt_b32((uint64_t)0, (uint64_t)remain), y, lo);
+            if (remain > 4u) {
+                svst1b_u32(svwhilelt_b32((uint64_t)4, (uint64_t)remain), y + 4u, hi);
             }
         }
     }
@@ -229,7 +248,7 @@ static void cache_init_c_tiles_data(uint32_t *accumulators, size_t rows, size_t 
     }
 }
 static void cache_write_y_tiles_data(uint32_t *accumulators, size_t rows, size_t cols,
-                                     uint32_t *output, size_t columns, size_t row_base,
+                                     int8_t *output, size_t columns, size_t row_base,
                                      size_t column_base) {
     for (size_t inner_column = 0; inner_column < cols; inner_column += CACHE_O1) {
         for (size_t inner_row = 0; inner_row < rows; inner_row += CACHE_S1) {
@@ -249,7 +268,7 @@ static void cache_init_c_tiles(cb4_cache_arena *arena, size_t rows, size_t cols,
     cache_init_c_tiles_data(arena->c, rows, cols, bias, column_base);
 }
 static void cache_write_y_tiles(cb4_cache_arena *arena, size_t rows, size_t cols,
-                                uint32_t *output, size_t columns, size_t row_base,
+                                int8_t *output, size_t columns, size_t row_base,
                                 size_t column_base) {
     cache_write_y_tiles_data(arena->c, rows, cols, output, columns, row_base,
                              column_base);
@@ -320,6 +339,39 @@ static void cache_compute_inner(cb4_c_view c, size_t row_base, size_t feature_ba
     }
 }
 
+static void cache_accumulate_and_store_final(cb4_c_view c, size_t row_base,
+                                             size_t feature_base, const int8_t *weights,
+                                             const int8_t *input_panel, int8_t *output,
+                                             size_t columns) {
+    for (size_t learner = 0; learner < 2u; ++learner) {
+        for (size_t row = 0; row < 16u; row += 4u) {
+            for (size_t column = 0; column < 32u; column += 16u) {
+                const int8_t *packed_activations =
+                    input_panel + learner * CACHE_S2 * CACHE_X2_STRIDE +
+                    (row_base + row) * CACHE_X2_STRIDE + feature_base;
+                const int8_t *packed_weights = weights +
+                                               learner * CACHE_O1 * CACHE_X1_STRIDE +
+                                               column * CACHE_X1_STRIDE;
+                uint32_t *accumulator_tile =
+                    c.base + learner * c.plane + row * c.stride + column;
+                if (learner == 0) {
+                    i2ce_sdot_cb_last_l0(packed_activations, packed_weights,
+                                         accumulator_tile);
+                } else {
+                    i2ce_sdot_cb_last_l1(
+                        packed_activations, packed_weights, accumulator_tile,
+                        (const uint8_t *)(c.base + row * c.stride + column),
+                        output + (row * columns + column) * 2u, columns * 2u);
+                }
+                CACHE_COUNT(sdot_instructions, 1024u);
+                CACHE_COUNT(a_vectors, 64u);
+                CACHE_COUNT(w_vectors, 256u);
+                CACHE_COUNT(outputs, 32u);
+                CACHE_COUNT(mr_tiles, 1u);
+            }
+        }
+    }
+}
 static void cache_compute_step(cb4_c_view c, size_t row_base, size_t feature_base,
                                size_t tile_rows, size_t tile_columns,
                                size_t tile_features, const int8_t *weights,
@@ -373,6 +425,15 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
     if (!rows || !columns) {
         return 1;
     }
+    int fuse_final_output = (features != 0u && rows % 16u == 0u &&
+                             columns % 32u == 0u && features % 256u == 0u);
+#ifdef I2CE_TEST_CB4_CACHE
+    /* Full-C diagnostic API remains generic. Separate last-output oracle and full model
+     * exercise optimized production route. */
+    if (i2ce_cb4_cache_observed) {
+        fuse_final_output = 0;
+    }
+#endif
     const size_t input_bytes = rows * features * 2u, output_bytes = rows * columns * 2u,
                  index_payload_bytes =
                      features ? ci_payload_bytes(columns, features) : 0u,
@@ -421,13 +482,12 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
         }
         return 1;
     }
-    // One aligned owner contains C, W, all K panels of A, and the full
-    // C32 output temporary. A survives every outer output tile for the
-    // current sequence block; W is overwritten after its consumers finish.
+    // One aligned owner contains C, W and all K panels of A. A survives
+    // every outer output tile for this sequence block; W is overwritten
+    // after its consumers finish. Output bytes go directly to the caller.
     const size_t x_panels = (features + CACHE_K2 - 1u) / CACHE_K2;
     const size_t prefix_bytes = sizeof(cb4_cache_arena);
-    const size_t temporary_offset = prefix_bytes + x_panels * sizeof(cb4_x_panel);
-    const size_t storage_bytes = temporary_offset + output_bytes * sizeof(uint32_t);
+    const size_t storage_bytes = prefix_bytes + x_panels * sizeof(cb4_x_panel);
     void *storage = NULL;
 #ifdef I2CE_TEST_CB4_CACHE
     const int alloc_status = i2ce_cb4_cache_test_allocate(&storage, 64u, storage_bytes);
@@ -454,12 +514,6 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
     cb4_x_panel *input_panels =
         (cb4_x_panel *)((unsigned char *)storage + prefix_bytes);
 #endif
-#ifdef __cplusplus
-    uint32_t *temporary =
-        ::new ((unsigned char *)storage + temporary_offset) uint32_t[output_bytes];
-#else
-    uint32_t *temporary = (uint32_t *)((unsigned char *)storage + temporary_offset);
-#endif
     uint32_t *accumulators = arena->c;
     int8_t scratch0[256] = {0}, scratch1[256] = {0};
     const svint8_t learner0_table = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, scratch0);
@@ -468,6 +522,10 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
     gemm_sdot_lane_patterns(2u, &byte_selector, &index_shifts);
     CACHE_COUNT(calls, 1);
     ++cb_sdot_calls;
+    if (fuse_final_output) {
+        ++cb_last_direct_calls;
+        cb_last_source_cores += (rows / 4u) * (columns / 16u) * 2u;
+    }
     if (rows % 16u == 0u && columns % 32u == 0u && features % 256u == 0u) {
         cb_sdot_full_calls += (rows / 4u) * (columns / 16u) * 2u * (features / 256u);
         cb_sdot_source += (rows / 4u) * (columns / 16u) * 2u * features * 4u;
@@ -534,27 +592,35 @@ static int cache_gemm_runtime_i8(const uint8_t *indices, size_t index_bytes,
                              inner_row += CACHE_S1) {
                             const size_t rows_in_tile =
                                 cache_min(CACHE_S1, tile_rows - inner_row);
-                            cache_compute_step(
-                                cache_c_view_data(accumulators, inner_row,
-                                                  inner_column),
-                                inner_row, inner_feature, rows_in_tile, columns_in_tile,
-                                features_in_step, weights, input_panel);
+                            if (fuse_final_output &&
+                                feature_base + tile_features == features &&
+                                inner_feature + features_in_step == tile_features) {
+                                cache_accumulate_and_store_final(
+                                    cache_c_view_data(accumulators, inner_row,
+                                                      inner_column),
+                                    inner_row, inner_feature, weights, input_panel,
+                                    output + ((row_base + inner_row) * columns +
+                                              column_base + inner_column) *
+                                                 2u,
+                                    columns);
+                            } else {
+                                cache_compute_step(
+                                    cache_c_view_data(accumulators, inner_row,
+                                                      inner_column),
+                                    inner_row, inner_feature, rows_in_tile,
+                                    columns_in_tile, features_in_step, weights,
+                                    input_panel);
+                            }
                         }
                         inner_feature += features_in_step;
                     }
                 }
             }
-            cache_write_y_tiles_data(accumulators, tile_rows, tile_columns, temporary,
-                                     columns, row_base, column_base);
+            if (!fuse_final_output) {
+                cache_write_y_tiles_data(accumulators, tile_rows, tile_columns, output,
+                                         columns, row_base, column_base);
+            }
         }
-    }
-#ifdef I2CE_TEST_CB4_CACHE
-    if (i2ce_cb4_cache_observed) {
-        memcpy(i2ce_cb4_cache_observed, temporary, output_bytes * sizeof(uint32_t));
-    }
-#endif
-    for (size_t index = 0; index < output_bytes; ++index) {
-        output[index] = (int8_t)(uint8_t)temporary[index];
     }
     free(storage);
     ++cb4_scratch_stats.frees;
