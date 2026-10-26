@@ -1312,8 +1312,8 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local
      * stack buffer while preserving [codebook index][learner], which matches
-     * the SVE load pattern. The local expansion supplies the required values bit for
-     * bit when codebook_i32_interleaved_opt is NULL.
+     * the SVE load pattern. The local expansion provides the same values when
+     * codebook_i32_interleaved_opt is NULL.
      */
     int32_t codebook_i32_local[4u * 256u];
     const int32_t *codebook_i32_interleaved;
@@ -1504,8 +1504,8 @@ void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local
      * stack buffer while preserving [codebook index][learner], which matches
-     * the SVE load pattern. The local expansion supplies the required values bit for
-     * bit when codebook_i32_interleaved_opt is NULL.
+     * the SVE load pattern. The local expansion provides the same values when
+     * codebook_i32_interleaved_opt is NULL.
      */
     int32_t codebook_i32_local[2u * 256u];
     const int32_t *codebook_i32_interleaved;
@@ -1696,8 +1696,8 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
      * Step 4: prefer the caller-owned widened codebook when it is available.
      * Otherwise expand the interleaved int8 codebook to int32 into a local
      * stack buffer while preserving [codebook index][learner], which matches
-     * the SVE load pattern. The local expansion supplies the required values bit for
-     * bit when codebook_i32_interleaved_opt is NULL.
+     * the SVE load pattern. The local expansion provides the same values when
+     * codebook_i32_interleaved_opt is NULL.
      */
     int32_t codebook_i32_local[4u * 256u];
     const int32_t *codebook_i32_interleaved;
