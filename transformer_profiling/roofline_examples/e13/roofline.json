@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "method": "gem5_theoretical_references",
+  "experiments": [
+    {
+      "id": "E01",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E02",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E03",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E04",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E05",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E06",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E07",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E08",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E09",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E10",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E11",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E12",
+      "unavailable_reason": "No matching native CommMonitor run and configuration bundle is retained for this milestone; existing timing TSVs cannot supply boundary bytes."
+    },
+    {
+      "id": "E13",
+      "label": "Preserved monitored whole-block run · original mostly_excl policy",
+      "gem5_revision": "ed752e78a2ddd5587c1954e2cda51f94cbbe554e",
+      "source_commit": "f601c78b482494ff33030d5a84a0cad966df30ae",
+      "binary_sha256": "5d52441dc570a1a1b2db66bdb80287290c3c2c5318fd82fb3bbff059337b9766",
+      "artifacts": {
+        "stats": {
+          "path": "stats.txt",
+          "sha256": "69a23bb174149efed38a0fad1865ca905f46a489694f54c1fb56befcd8369c2e"
+        },
+        "config": {
+          "path": "config.json",
+          "sha256": "0e4416841a0741a388bc2e512c7d05974a540d68c761da893ce68b1664f8b18c"
+        },
+        "regions": {
+          "path": "regions.tsv",
+          "sha256": "a657d4c484b3d833b185411f6dd292f8539dd2c3553d09dd36dd8f82de666fbb"
+        },
+        "receipt": {
+          "path": "receipt.json",
+          "sha256": "0e3c710db3fc6e6eda03a7a7c01c2dff9259bd20a2e3201eeef1be28da93941f"
+        },
+        "provenance": {
+          "path": "provenance.json",
+          "sha256": "58879b52a7373ff674ee814f0c5aaf728b8d08480bd2c7435bb169dadf83d9d4"
+        }
+      },
+      "roi": {
+        "counter_mode": "cumulative_since_reset",
+        "begin_block": null,
+        "end_block": 21,
+        "expected_blocks": 23,
+        "labels": [
+          "MHA_QKV",
+          "MHA_QK",
+          "MHA_softmax",
+          "MHA_SV",
+          "MHA_QKV",
+          "MHA_QK",
+          "MHA_softmax",
+          "MHA_SV",
+          "MHA_QKV",
+          "MHA_QK",
+          "MHA_softmax",
+          "MHA_SV",
+          "MHA_QKV",
+          "MHA_QK",
+          "MHA_softmax",
+          "MHA_SV",
+          "MHA_out",
+          "Projection",
+          "non_GEMM_after_projection",
+          "FF1",
+          "FF2",
+          "non_GEMM_after_ff2"
+        ]
+      },
+      "operation_model": {
+        "kind": "transformer_gemm",
+        "instruction_model": "sve128_int8_sdot",
+        "learners": 2,
+        "sequence": 512,
+        "dimension": 256,
+        "feedforward": 1024
+      },
+      "limitations": [
+        "One preserved monitored run; no repeatability estimate or new experiment.",
+        "The monitored ROI differs from its uninstrumented control by +0.024765% in time; these are the monitored counters, not a replacement for historical TSV timings.",
+        "Useful GEMM operations exclude softmax, packing and other work while ROI time includes them. SimdDotProd is an OpClass cross-check, not a dynamic mnemonic trace.",
+        "L1D–L2 monitor excludes the separate instruction-cache and page-walker paths. Physical DRAM counters include system traffic during the ROI.",
+        "Conditional issue/crossbar bounds are not intrinsic L1/L2 cache peaks. A projection/headroom is not a promised speedup or proof of the bottleneck.",
+        "The final cleanup dump is excluded; dirty cache contents are not flushed at the ROI boundary. Production tensor-value correctness is unobserved."
+      ]
+    }
+  ]
+}

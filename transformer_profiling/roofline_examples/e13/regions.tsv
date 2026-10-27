@@ -1,0 +1,24 @@
+scope	group2_full_interleaved_transformer_block
+dump_index	checkpoint	interval_since_previous
+1	after_qkv_h	MHA_QKV
+2	after_qk_h	MHA_QK
+3	after_softmax_h	MHA_softmax
+4	after_sv_h	MHA_SV
+5	after_qkv_h	MHA_QKV
+6	after_qk_h	MHA_QK
+7	after_softmax_h	MHA_softmax
+8	after_sv_h	MHA_SV
+9	after_qkv_h	MHA_QKV
+10	after_qk_h	MHA_QK
+11	after_softmax_h	MHA_softmax
+12	after_sv_h	MHA_SV
+13	after_qkv_h	MHA_QKV
+14	after_qk_h	MHA_QK
+15	after_softmax_h	MHA_softmax
+16	after_sv_h	MHA_SV
+17	after_mha	MHA_out
+18	after_projection	Projection
+19	after_attn_addnorm	non_GEMM_after_projection
+20	after_ff1	FF1
+21	after_ff2	FF2
+22	final_total	non_GEMM_after_ff2

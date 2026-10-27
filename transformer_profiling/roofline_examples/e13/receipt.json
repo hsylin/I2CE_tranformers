@@ -1,0 +1,11 @@
+{
+  "host_returncode": 0,
+  "guest_returncode": 0,
+  "guest_binary_hash_ok": true,
+  "simulation_code": 0,
+  "simulation_cause": "m5_exit instruction encountered",
+  "config_gate_passed": true,
+  "binary_sha256": "5d52441dc570a1a1b2db66bdb80287290c3c2c5318fd82fb3bbff059337b9766",
+  "source_commit": "f601c78b482494ff33030d5a84a0cad966df30ae",
+  "scope": "Extracted completion checks from the preserved monitored E13 run; tensor-value outputs were not observed."
+}

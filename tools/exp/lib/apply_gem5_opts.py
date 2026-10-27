@@ -7,6 +7,7 @@ Add per-run CLI options to gem5's configs/example/arm/starter_fs.py:
     --l1i-size S     override L1 instruction cache size (default 48KiB)
     --l1d-size S     override L1 data cache size        (default 32KiB)
     --l2-size  S     override shared L2 cache size      (default 1MiB)
+    --roofline-monitors  observe Core–L1D and L1D–L2 payloads (off by default)
 
 Written against gem5 25.1 (Jerry0209/gem5 @ ed752e78, the tree this project
 uses). Idempotent, and each edit is detected independently, so a tree that
@@ -50,6 +51,35 @@ SVE_OLD = "    root.system.sve_vl = 1"
 SVE_NEW = "    root.system.sve_vl = args.sve_vl  # exp.sh patch-gem5: was hard-coded 1"
 
 CACHE_ANCHOR = "    system.addCaches(want_caches, last_cache_level=2)"
+ROOFLINE_OPT = """
+    parser.add_argument(
+        "--roofline-monitors", action="store_true",
+        help="native CommMonitor bytes at Core-L1D and L1D-L2 (single timing CPU)",
+    )"""
+ROOFLINE_BLOCK = """
+
+    # ---- optional native Roofline monitors ----
+    if args.roofline_monitors:
+        from m5.objects import CommMonitor
+        if (not want_caches or len(system.cpu_cluster) != 1
+                or len(system.cpu_cluster[0].cpus) != 1):
+            raise ValueError("Roofline monitors require one timing CPU and L1/L2 caches")
+        if hasattr(system, "roofline_l1") or hasattr(system, "roofline_l2"):
+            raise ValueError("Roofline monitors already attached")
+        for monitor_name in ("roofline_l1", "roofline_l2"):
+            setattr(system, monitor_name, CommMonitor(
+                sample_period="1s", disable_bandwidth_hists=False,
+                disable_burst_length_hists=True, disable_latency_hists=True,
+                disable_itt_dists=True, disable_outstanding_hists=True,
+                disable_transaction_hists=True, disable_addr_dists=True,
+            ))
+        cpu = system.cpu_cluster[0].cpus[0]
+        cpu.dcache_port.splice(
+            system.roofline_l1.cpu_side_port, system.roofline_l1.mem_side_port)
+        cpu.dcache.mem_side.splice(
+            system.roofline_l2.cpu_side_port, system.roofline_l2.mem_side_port)
+    # ---- end native Roofline monitors ----
+"""
 CACHE_BLOCK = """    system.addCaches(want_caches, last_cache_level=2)
 
     # ---- per-run cache size overrides (exp.sh patch-gem5) ----
@@ -84,6 +114,7 @@ def main() -> int:
     #    carrying --sve-vl (earlier apply_sve_vl.py) is never given a duplicate.
     need_sve_opt = '"--sve-vl"' not in text
     need_cache_opts = '"--l1d-size"' not in text
+    need_roofline_opt = '"--roofline-monitors"' not in text
     if not need_sve_opt:
         done.append("--sve-vl option already registered")
     if not need_cache_opts:
@@ -93,6 +124,8 @@ def main() -> int:
         insert += SVE_OPT
     if need_cache_opts:
         insert += CACHE_OPTS
+    if need_roofline_opt:
+        insert += ROOFLINE_OPT
     if insert:
         if ARG_ANCHOR not in text:
             print(
@@ -107,6 +140,8 @@ def main() -> int:
             todo.append("added --sve-vl option")
         if need_cache_opts:
             todo.append("added --l1i-size / --l1d-size / --l2-size options")
+        if need_roofline_opt:
+            todo.append("added optional --roofline-monitors flag")
 
     # 2. sve_vl assignment
     if "root.system.sve_vl = args.sve_vl" in text:
@@ -131,6 +166,10 @@ def main() -> int:
         print("ERROR: could not find the system.addCaches anchor.", file=sys.stderr)
         return 3
 
+    if "# ---- optional native Roofline monitors ----" not in text:
+        text = text.replace(CACHE_ANCHOR, CACHE_ANCHOR + ROOFLINE_BLOCK, 1)
+        todo.append("added opt-in native byte monitors; default hardware is unchanged")
+
     for msg in done:
         print(f"[patch-gem5] skip: {msg}")
     if not todo:
@@ -151,7 +190,13 @@ def main() -> int:
         return 4
 
     # a registered-twice option would crash gem5 at startup; make it impossible
-    for opt in ('"--sve-vl"', '"--l1i-size"', '"--l1d-size"', '"--l2-size"'):
+    for opt in (
+        '"--sve-vl"',
+        '"--l1i-size"',
+        '"--l1d-size"',
+        '"--l2-size"',
+        '"--roofline-monitors"',
+    ):
         if cfg.read_text().count(opt) > 1:
             cfg.write_text(original)
             print(

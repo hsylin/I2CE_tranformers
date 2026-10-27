@@ -32,6 +32,7 @@ OPTIONAL_RESULTS = {
     "scaling_results": "scaling_results.csv",
     "phase_results": "phase_results.csv",
     "cache_comparison": "cache_comparison.json",
+    "roofline": "roofline.json",
 }
 # Loaded after argparse, so --help works before the dependencies are installed.
 pd = None
@@ -1406,12 +1407,14 @@ def build_report(
     provenance=None,
     phase_path=None,
     cache_path=None,
+    roofline_path=None,
     compact_labels=False,
     single_run_study=False,
     interpretation_html="",
     marker_schemes=None,
 ):
     specs, sections = {}, []
+    provenance = dict(provenance or {})
 
     def graph(figure, tab):
         ident = "chart_{}".format(len(specs))
@@ -1451,6 +1454,45 @@ def build_report(
         sections.append("</div>")
 
     tabs = [("stages", "Overview"), ("curves", "Parameters")]
+    if roofline_path:
+        import roofline
+
+        tabs.append(("roofline", "Hierarchical Roofline"))
+        manifests = (
+            [roofline_path] if isinstance(roofline_path, (str, Path)) else roofline_path
+        )
+        provenance["roofline_results"] = []
+        for manifest in manifests:
+            manifest = Path(manifest)
+            try:
+                result = roofline.load(manifest)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                result = dict(
+                    observations=[],
+                    skipped=[dict(id=manifest.parent.name, reason=str(error))],
+                )
+            sections.extend(
+                graph(roofline.figure(o), "roofline") for o in result["observations"]
+            )
+            provenance["roofline_results"].append(
+                {
+                    "manifest": str(manifest),
+                    "observations": [
+                        {
+                            key: observation[key]
+                            for key in (
+                                "id",
+                                "source_commit",
+                                "binary_sha256",
+                                "roi",
+                                "operation_model",
+                            )
+                        }
+                        for observation in result["observations"]
+                    ],
+                    "skipped": result["skipped"],
+                }
+            )
     if cache_path:
         from cache_comparison import comparison_charts
 
@@ -1580,7 +1622,7 @@ function refresh(){
  document.querySelectorAll('.model-view').forEach(e=>e.classList.toggle('hidden',e.dataset.model!==model.value));
  document.querySelectorAll('[data-tab]').forEach(e=>e.classList.toggle('hidden',e.dataset.tab!==activeTab));
  document.querySelectorAll('[data-view]').forEach(e=>{e.classList.toggle('active',e.dataset.view===activeTab);e.setAttribute('aria-pressed',e.dataset.view===activeTab);});
- model.disabled=['tiles','scaling','phases','cache'].includes(activeTab);
+ model.disabled=['tiles','scaling','phases','cache','roofline'].includes(activeTab);
  document.querySelectorAll('.graph').forEach(e=>{if(e.offsetParent!==null){if(!e.dataset.drawn){e.dataset.drawn='1';const s=specs[e.id];Plotly.newPlot(e,s.data,s.layout,{responsive:true,displaylogo:false,locale:'en',toImageButtonOptions:{format:'svg',filename:e.id}});}else{Plotly.Plots.resize(e);}}});
 }
 model.addEventListener('change',refresh);document.querySelectorAll('[data-view]').forEach(e=>e.addEventListener('click',()=>{activeTab=e.dataset.view;refresh();}));refresh();
@@ -1648,11 +1690,54 @@ def optional_paths(args):
     }
 
 
+def roofline_manifests(input_path, explicit=None):
+    """Discover registered run bundles inside this dataset only.
+
+    An explicit or dataset-root manifest is an authoritative selection. Without
+    one, discover per-run manifests recursively; never join runs by E-number or
+    fall back to the repository's example/historical datasets.
+    """
+    if explicit is not None:
+        return [Path(explicit)]
+    folder = input_path if input_path.is_dir() else input_path.parent
+    root = folder / "roofline.json"
+    if root.is_file() and root.resolve().is_relative_to(folder.resolve()):
+        return [root]
+    found = []
+    for path in sorted(folder.rglob("roofline.json")):
+        if not path.is_file() or any(
+            part.startswith(".") for part in path.relative_to(folder).parts
+        ):
+            continue
+        if not path.resolve().is_relative_to(folder.resolve()):
+            continue
+        found.append(path)
+    return found
+
+
+def roofline_evidence_paths(manifests):
+    """Protect/watch available artifacts even if a different bundle is invalid."""
+    import roofline
+
+    paths = set(manifests)
+    for manifest in manifests:
+        try:
+            paths.update(roofline.evidence_paths(manifest))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            # Rendering reports the malformed bundle without blocking valid runs.
+            continue
+    return paths
+
+
 def generate(args, get_plotlyjs):
     optional = optional_paths(args)
+    manifests = roofline_manifests(args.input, args.roofline)
+    if optional["roofline"] not in manifests:
+        optional["roofline"] = None
     inputs = {p.resolve() for p in input_files(args.input)} | {
         p.resolve() for p in optional.values() if p is not None
     }
+    inputs.update(p.resolve() for p in roofline_evidence_paths(manifests))
     saved_inputs = set(inputs)
     if args.interpretation:
         inputs.add(args.interpretation)
@@ -1695,8 +1780,23 @@ def generate(args, get_plotlyjs):
     provenance["renderer_sha256"] = hashlib.sha256(
         Path(__file__).read_bytes()
     ).hexdigest()
+    if manifests:
+        provenance["roofline_renderer_sha256"] = hashlib.sha256(
+            Path(__file__).with_name("roofline.py").read_bytes()
+        ).hexdigest()
+        provenance["roofline_manifests"] = [
+            {
+                "path": str(path),
+                "sha256": (
+                    hashlib.sha256(path.read_bytes()).hexdigest()
+                    if path.is_file()
+                    else None
+                ),
+            }
+            for path in manifests
+        ]
     for key, path in optional.items():
-        if path:
+        if path and (key != "roofline" or path.is_file()):
             provenance[key] = {
                 "path": str(path),
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -1714,6 +1814,7 @@ def generate(args, get_plotlyjs):
         scaling_path=optional["scaling_results"],
         phase_path=optional["phase_results"],
         cache_path=optional["cache_comparison"],
+        roofline_path=manifests,
         provenance=provenance,
         compact_labels=args.compact_labels,
         single_run_study=args.single_run_study,
@@ -1729,6 +1830,14 @@ def generate(args, get_plotlyjs):
         "Experiments: {} | stage intervals: {}".format(len(totals), len(stages)),
         flush=True,
     )
+    print(
+        (
+            "Roofline: {} evidence bundle(s)".format(len(manifests))
+            if manifests
+            else "Roofline skipped: no roofline.json evidence bundle in the input dataset."
+        ),
+        flush=True,
+    )
 
 
 def watched_state(args):
@@ -1738,6 +1847,7 @@ def watched_state(args):
     paths.update(
         getattr(args, key) or folder / name for key, name in OPTIONAL_RESULTS.items()
     )
+    paths.update(roofline_evidence_paths(roofline_manifests(args.input, args.roofline)))
     if args.interpretation:
         paths.add(args.interpretation)
     if args.marker_schemes:
@@ -1775,6 +1885,11 @@ def main(argv=None):
     )
     parser.add_argument("--tile-results", type=Path)
     parser.add_argument("--scaling-results", type=Path)
+    parser.add_argument(
+        "--roofline",
+        type=Path,
+        help="Select a native gem5 Roofline manifest; otherwise discover roofline.json at the input root or in run subdirectories",
+    )
     parser.add_argument(
         "--phase-results",
         type=Path,

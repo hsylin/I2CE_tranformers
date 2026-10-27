@@ -1,5 +1,11 @@
 # Transformer profiling tools
 
+For **theoretical reference lines + native gem5 measured points**, see the
+[hierarchical Roofline guide](roofline.md). The included preserved E13 bundle
+can be plotted offline; experiments without matching traffic evidence are
+listed as unavailable. No simulation or empirical calibration is required to
+render it, and the E13 implementation is unchanged.
+
 This directory contains reusable collection and reporting tools alongside
 historical datasets. For the reconstructed E01-E13 implementation sequence,
 source preparation and build reproduction, use the
@@ -21,6 +27,24 @@ python -B transformer_profiling/report.py \
 `report.py` writes self-contained HTML with Plotly.js and source metadata
 embedded for offline viewing. The chart camera exports individual figures.
 Reporting does not need a compiler, gem5 or `runner.conf`.
+
+The same command also adds a **Hierarchical Roofline** tab when the input
+directory contains registered `roofline.json` evidence bundles. It reads a
+manifest at the input root first; otherwise it finds manifests in run
+subdirectories automatically. Each bundle supplies native `stats.txt`, hardware
+`config.json`, ROI markers, useful-work dimensions and verified run identity.
+Valid runs are plotted; unsupported or incomplete bundles are skipped, with
+reasons retained in the HTML's embedded provenance. The Roofline tab displays
+charts only, without evidence paths, explanatory prose or tables.
+The existing TSV charts remain in the same HTML. `--watch` notices new bundles
+and changes to their raw evidence as well as TSV updates.
+
+For example, `results/e13-monitored/roofline.json` is discovered by
+`report.py --input results --output profiling_report.html` alongside the
+TSVs in `results/`. A TSV alone cannot supply native boundary bytes. The tool
+does not substitute the bundled E13 example for another dataset automatically;
+see the [Roofline guide](roofline.md) for the evidence layout and an explicit
+command for including that separate observation.
 
 The [final](final/README.md) and [base_mini](base_mini/README.md) datasets are
 inherited studies. Their experiment numbering does not identify the new stage
