@@ -28,8 +28,8 @@ class BuildCommandTest(unittest.TestCase):
             "if sys.argv[1:] == ['-print-sysroot']:\n"
             "    print('/test/sysroot')\n"
             "else:\n"
-            "    with open(os.environ['ARGUMENT_LOG'], 'w') as stream:\n"
-            "        json.dump(sys.argv[1:], stream)\n"
+            "    with open(os.environ['ARGUMENT_LOG'], 'a') as stream:\n"
+            "        stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
             "    sys.exit(int(os.environ.get('COMPILER_STATUS', '0')))\n"
         )
         compiler.chmod(0o755)
@@ -54,7 +54,13 @@ class BuildCommandTest(unittest.TestCase):
         )
 
     def arguments(self):
-        return json.loads((self.root / "arguments.json").read_text())
+        return self.invocations()[-1]
+
+    def invocations(self):
+        return [
+            json.loads(line)
+            for line in (self.root / "arguments.json").read_text().splitlines()
+        ]
 
     def test_default_flags(self):
         result = self.run_build()
@@ -87,11 +93,20 @@ class BuildCommandTest(unittest.TestCase):
             "-DSIMD",
             "-DI2CE_USE_LIBM5",
             "-DCORE_NUM=3",
-            "Full_NN/src/gemm_SVE.c",
             "-I" + str(include),
         ]:
             self.assertIn(option, args)
         self.assertGreater(args.index(str(library)), args.index("transformer.o"))
+        compile_args, link_args = self.invocations()
+        self.assertIn("-O2", compile_args)
+        self.assertIn("-fno-schedule-insns", compile_args)
+        self.assertIn("Full_NN/src/gemm_SVE.c", compile_args)
+        self.assertIn("-c", compile_args)
+        self.assertNotIn("transformer.cpp", compile_args)
+        self.assertNotIn("-fno-schedule-insns", link_args)
+        self.assertNotIn("Full_NN/src/gemm_SVE.c", link_args)
+        self.assertIn(compile_args[compile_args.index("-o") + 1], link_args)
+        self.assertFalse(list(self.root.glob("build-sve.*")))
 
     def test_direct_build_rejects_missing_inputs(self):
         result = self.run_build(I2CE_USE_LIBM5_FLAG="1")
@@ -101,6 +116,12 @@ class BuildCommandTest(unittest.TestCase):
     def test_compiler_failure_is_propagated(self):
         result = self.run_build(COMPILER_STATUS="9")
         self.assertEqual(result.returncode, 9)
+
+    def test_sve_failure_prevents_link(self):
+        result = self.run_build(COMPILER_STATUS="7", SIMD_FLAG="1")
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(len(self.invocations()), 1)
+        self.assertFalse(list(self.root.glob("build-sve.*")))
 
     def test_library_paths_with_spaces(self):
         include = self.root / "guest headers"

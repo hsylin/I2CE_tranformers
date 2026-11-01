@@ -1,0 +1,62 @@
+{
+  "stage": "E01",
+  "validation_status": "not_validated",
+  "production_model_executed": false,
+  "formal_measurements": 0,
+  "tests": [],
+  "test_builds": [
+    {
+      "name": "row",
+      "source": "tests/gemm_row_contract_test.cc",
+      "expected": [
+        "1680",
+        "420"
+      ]
+    }
+  ],
+  "reference_measurement": {
+    "source_commit": "071961b6cb87fd2385689baa1f915a7966669ffe",
+    "binary_sha256": "0d621d0e21e4e1d3113d569e945e00cdf9ce2f4a9568445db4910090c1d50e24"
+  },
+  "reference_validation": {
+    "stage": "E01",
+    "tests": [
+      {
+        "name": "row",
+        "pass_lines": [
+          "PASS: 1680 independent widened-row cases and 420 dense cases, bias/accumulate/tails/output sentinels/input immutability"
+        ],
+        "binary_sha256": "1e0c326f7729483f9f2dc8a4765ae7a6473e27a4b8f301a9a16d9b2783622e22",
+        "log_sha256": "97a052b6821c07f96f9f5833ecc2e4db34c12fb92aa048bbda246ecef82c4421"
+      }
+    ],
+    "test_sources": {
+      "tests/gemm_row_contract_test.cc": "fd26aa635d302201bc39a209bee9ea933d58b777560a23133473b767dd2f9e6b"
+    },
+    "K256_core": null,
+    "production_model_executed": false,
+    "formal_measurements": 0,
+    "limitations": [
+      "Component tests cover the declared bounded inputs; full production tensor values were not observed.",
+      "Rebuilt binaries have no inherited historical timing or Roofline points."
+    ],
+    "compiler_policy": {
+      "common": "-O2",
+      "Full_NN/src/gemm_SVE.c": "-O2 -fno-schedule-insns"
+    },
+    "test_builds": [
+      {
+        "name": "row",
+        "source": "tests/gemm_row_contract_test.cc",
+        "expected": [
+          "1680",
+          "420"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Historical component proofs do not validate the repaired source or binary.",
+    "No production tensor or timing observation has been collected for this checkpoint."
+  ]
+}
