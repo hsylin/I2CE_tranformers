@@ -69,6 +69,12 @@ void gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
     int32_t *input_i32_workspace_opt,
     uint32_t input_i32_workspace_capacity);
 
+/* Try the full-K CB4/I2 two-learner C8 consumer. A zero return leaves the
+ * destination untouched so the original C32 consumer can handle fallback. */
+int gemm_exec_cb4_2l_i8(gemm_t layer, const int8_t *input,
+    const uint32_t *indices, const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint8_t bits_per_cb);
+
 void gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
     gemm_t gemm_layer,
     const int8_t *in_interleaved,

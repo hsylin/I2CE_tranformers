@@ -3,6 +3,7 @@
 
 import importlib.util
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -188,6 +189,18 @@ class ValidationRunnerTest(unittest.TestCase):
             validation.instrument_copy(self.root, self.root / "weights", True)
         self.assertEqual(replace.call_count, 3)
         self.assertEqual(replace.call_args.args[0].name, "layerFactory.cc")
+
+    def test_current_sources_accept_input_redirection_and_capture(self):
+        repository = MODULE.parents[2]
+        (self.root / "transformer_layers").mkdir()
+        for name in ("transformer.cpp", "transformer_layers/layerFactory.cc"):
+            shutil.copyfile(repository / name, self.root / name)
+        validation.instrument_copy(self.root, self.root / "weights", True)
+        main = (self.root / "transformer.cpp").read_text()
+        factory = (self.root / "transformer_layers/layerFactory.cc").read_text()
+        self.assertIn("final-learner", main)
+        self.assertIn(str(self.root / "weights/compressed_indices"), factory)
+        self.assertNotIn('"weights/compressed_indices"', factory)
 
 
 if __name__ == "__main__":

@@ -3,10 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <string>
 
 #include "linearLayer.h"
 
 struct CodebookDenseConfig {
+    std::string compressed_index_directory;
     std::size_t input_size;
     std::size_t output_size;
     std::size_t n_words_row;
@@ -30,6 +32,7 @@ struct CodebookDenseConfig {
 
 class CodebookDense : public LinearLayer {
 public:
+    static void reportCompressedIndexSetup();
     explicit CodebookDense(const CodebookDenseConfig &config);
     ~CodebookDense() override = default;
 
@@ -50,6 +53,9 @@ public:
                                     int8_t* output_interleaved) const;
 
 private:
+    void loadCompressedIndices(const std::string& directory);
+    std::vector<uint8_t> compressed_indices_;
+    bool compressed_index_requested_;
     static uint32_t getPackedIndex(const uint32_t *packed_row,
                                    std::size_t elem_idx,
                                    uint8_t bits_per_cb);

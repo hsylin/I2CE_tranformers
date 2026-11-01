@@ -129,7 +129,7 @@ def instrument_copy(source, weights, compressed_indices):
     if compressed_indices:
         replace_once(
             source / "transformer_layers/layerFactory.cc",
-            '"/home/thu/TiC-SAT/weights/compressed_indices"',
+            '"weights/compressed_indices"',
             json.dumps(str(weights / "compressed_indices")),
         )
 
