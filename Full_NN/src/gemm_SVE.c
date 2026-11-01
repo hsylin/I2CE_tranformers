@@ -378,18 +378,30 @@ int sve_gemm_cb4_2l_full_i8(
     const uint32_t *indices, uint32_t n_words_row,
     uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
     const int32_t *codebook, const int32_t *bias, int8_t *output) {
-    // Materialize all modulo accumulations before the low-byte output pass.
-    const size_t count = (size_t)M * N * 2u;
-    if (count > SIZE_MAX / sizeof(int32_t)) return 0;
-    int32_t *temporary = (int32_t *)malloc(count * sizeof(int32_t));
-    if (!temporary && count) return 0;
-    const int accepted = gemm_cb4_2l_full(indices, n_words_row, M, N, K,
-                                        input, codebook, bias, temporary, NULL);
-    if (accepted)
-        for (size_t i = 0; i < count; ++i)
-            output[i] = (int8_t)(uint8_t)temporary[i];
-    free(temporary);
-    return accepted;
+    if (n_words_row < (K + 15u) / 16u ||
+        !gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
+    int8_t cb_bytes0[256] = {0}, cb_bytes1[256] = {0};
+    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
+    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
+    svuint8_t byte_sel, shifts8;
+    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+    for (uint32_t row = 0; row < M; ++row) {
+        for (uint32_t column = 0; column < N; ++column) {
+            // The unblocked fallback needs only one completed learner pair.
+            // Apply modulo bias and low-byte conversion after its full K loop.
+            int32_t pair[2];
+            gemm_sdot_rows_2l(indices + column * n_words_row, n_words_row, K,
+                input + (size_t)row * K * 2u, 1u, K * 2u, pair, 0u, 2u,
+                NULL, 0, 0, cb0, cb1, byte_sel, shifts8, 3u, 1u, NULL);
+            for (size_t learner = 0; learner < 2u; ++learner) {
+                const uint32_t value = (uint32_t)pair[learner] +
+                    (bias ? (uint32_t)bias[column * 2u + learner] : 0u);
+                output[((size_t)row * N + column) * 2u + learner] =
+                    (int8_t)(uint8_t)value;
+            }
+        }
+    }
+    return 1;
 }
 
 /* Four interleaved streams. All four share one index row in the same_seq
