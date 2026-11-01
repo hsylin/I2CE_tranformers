@@ -167,7 +167,7 @@ def check_contract(contract):
     """Reject an incomplete or nonfunctional registration before any build."""
     require(contract["helper_sha256"] == digest(Path(__file__)), "Unbound helper")
     require(
-        contract["experiment_id"] in {f"E{i:02d}" for i in range(1, 14)},
+        contract["experiment_id"] in {f"E{i:02d}" for i in range(1, 11)},
         "Unknown reconstruction stage",
     )
     require(contract["formal_measurements"] == 0, "Formal measurements are forbidden")
@@ -566,7 +566,10 @@ def main():
     contract = json.loads(args.contract.read_text())
     check_contract(contract)
     args.output.mkdir(parents=True, exist_ok=False)
-    environment = os.environ.copy()
+    # Unregistered shell mode switches must not alter the contracted build.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.endswith("_FLAG")
+    }
     environment.update(contract["build_environment"])
     environment["PATH"] = (
         str(Path(contract["tools"]["compiler"]["path"]).parent)

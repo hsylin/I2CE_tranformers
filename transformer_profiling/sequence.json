@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "profiling_sha256": "30843fdefbc69ec1fdb367bbf815998d91268c510d1754e8488bd5b998133b01",
+  "experiments": [
+    {
+      "id": "E01",
+      "source_commit": "071961b6cb87fd2385689baa1f915a7966669ffe",
+      "binary_sha256": "0d621d0e21e4e1d3113d569e945e00cdf9ce2f4a9568445db4910090c1d50e24",
+      "title": "Scalar Codebook baseline"
+    },
+    {
+      "id": "E02",
+      "source_commit": "c2159d028aff4e2c035b6bdd3e59bb1b9880e0ec",
+      "binary_sha256": "23e4872af6d7081d1bf84f62f4815c6b94c48e0c59cf1ca78bc029a17bde5004",
+      "title": "Codebook SDOT with packed panels"
+    },
+    {
+      "id": "E03",
+      "source_commit": "d9dff0519ef9bc27b38d8ddeb494d3f4880daed9",
+      "binary_sha256": "3bbcd978081f71dd4e013b8cc30a363aae21d282e58544ec51cad353f5f53c7a",
+      "title": "Byte operands and shared indices"
+    },
+    {
+      "id": "E04",
+      "source_commit": "b149ca53bfff2cc8fa90257b106fef26de655930",
+      "binary_sha256": "3ac4f763376938c1694e8e78c11d838b157c05c6df63e11b8a01f4738986f3cc",
+      "title": "Fixed-depth inner blocking"
+    },
+    {
+      "id": "E05",
+      "source_commit": "bac19a28edb77ac23ee8853a2789b0fc08b8c0cd",
+      "binary_sha256": "e5206dc8cf56b2f79db05bb2c9ff2d9fcadd90e8db54afe6bebff154665ca968",
+      "title": "Outer Codebook blocking"
+    },
+    {
+      "id": "E06",
+      "source_commit": "7fc72abf6dd75a5b568d4e589afdee8c2c82e0dc",
+      "binary_sha256": "ea26cf79c421f06da2aa16a10012eaa0105c2660bcabdbfd002a10499f4f2504",
+      "title": "Packed activation retention"
+    },
+    {
+      "id": "E07",
+      "source_commit": "57ce7d6cb5d6adf222b733d6d27c3aea86ef18ea",
+      "binary_sha256": "a92c02ebc3e8e336b7202ce713f58911bb15ea178c412d5345c1eea03fc64c23",
+      "title": "Complete-panel decoding"
+    },
+    {
+      "id": "E08",
+      "source_commit": "7d4030ade870c3c0d7f57cbac1ba1e330843758a",
+      "binary_sha256": "02230f9f4fb40a5755e61b28cfff35d2f8dcd8713cfd7923e36cd86a829bd213",
+      "title": "Learner-first traversal and bounded tile output"
+    },
+    {
+      "id": "E09",
+      "source_commit": "eed87a9efd076feb62dd274c8bd516fd07d0337b",
+      "binary_sha256": "f8b46e50b0f54f3f034ad6f3a5853946cbc820954bbbc58fbd8623b63f585ecf",
+      "title": "Attention SDOT"
+    },
+    {
+      "id": "E10",
+      "source_commit": "06b017352141cea4ba949b8ef20d1b735d547d80",
+      "binary_sha256": "9e04f6348eb8b32aaa34d1cd574a366cad7eada531f07a546b422aeba98edfbe",
+      "title": "Attention QK and SV blocking"
+    }
+  ],
+  "measurement_scope": "Historical observations of the registered source and binary; rebuilt checkpoints are not measured."
+}

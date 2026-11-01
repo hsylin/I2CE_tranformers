@@ -108,6 +108,44 @@ class ValidationRunnerTest(unittest.TestCase):
             "additional_inputs": {},
         }
 
+    def test_main_drops_unregistered_ambient_mode_flags(self):
+        contract = self.contract()
+        contract.update(
+            build_environment={"SIMD_FLAG": "1"},
+            tools={"compiler": {"path": "/registered/compiler"}},
+            source_revision="fixture",
+        )
+        import json
+
+        contract_path = self.root / "contract.json"
+        contract_path.write_text(json.dumps(contract))
+        output = self.root / "out"
+        argv = ["build_stage.py", "--contract", str(contract_path)]
+        for name in ("candidate", "reference-build", "inputs", "host-cxx"):
+            argv += ["--" + name, str(self.root / name)]
+        argv += ["--output", str(output)]
+        with (
+            patch.dict(
+                os.environ, {"USE_FP32_TRANSFORMER_FLAG": "1", "SIMD_FLAG": "0"}
+            ),
+            patch.object(sys, "argv", argv),
+            patch.object(validation, "validate", return_value={"passed": True}) as run,
+        ):
+            validation.main()
+        build_env = run.call_args.args[1].environment
+        self.assertNotIn("USE_FP32_TRANSFORMER_FLAG", build_env)
+        self.assertEqual(build_env["SIMD_FLAG"], "1")
+
+    def test_contract_rejects_obsolete_stage_ids(self):
+        for stage in ("E11", "E12", "E13"):
+            contract = self.contract()
+            contract["experiment_id"] = stage
+            with (
+                self.subTest(stage=stage),
+                self.assertRaisesRegex(RuntimeError, "Unknown reconstruction stage"),
+            ):
+                validation.check_contract(contract)
+
     def test_contract_rejects_measurements_retries_and_unbound_tests(self):
         validation.check_contract(self.contract())
         for field in ("formal_measurements", "automatic_retries"):

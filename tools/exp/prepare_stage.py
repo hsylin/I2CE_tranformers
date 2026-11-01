@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an isolated E01-E13 source tree and optionally reproduce its binary.
+"""Prepare an isolated stage source tree and optionally build its binary.
 
 Canonical inputs are overlaid only in the new output directory. This command
 never executes the resulting binary or launches a simulator.
@@ -53,16 +53,39 @@ def save(path, record):
         stream.write("\n")
 
 
+def load_stage_manifest(stage, revision=None):
+    directory = ROOT / "transformer_profiling"
+    catalog = json.loads((directory / "sequence.json").read_text())
+    identities = {item["id"]: item for item in catalog["experiments"]}
+    require(stage in identities, "Unknown stage: " + stage)
+    name = "transformer_profiling/experiments/" + stage + "/source.json"
+    manifest = json.loads(
+        git_bytes(revision, name) if revision else (ROOT / name).read_bytes()
+    )
+    require(manifest["stage"] == stage, "Stage manifest mismatch")
+    require(
+        manifest.get("reference_measurement", manifest)["binary_sha256"]
+        == identities[stage]["binary_sha256"],
+        "Stage binary identity mismatch",
+    )
+    return manifest
+
+
 def prepare(stage, revision, output):
-    require(stage in {f"E{i:02}" for i in range(1, 14)}, "Unknown stage")
+    require(not output.exists(), "Output already exists; choose a new directory")
+    load_stage_manifest(stage)
     commit = subprocess.check_output(
         ["git", "-C", str(ROOT), "rev-parse", "--verify", revision + "^{commit}"],
         text=True,
     ).strip()
-    prefix = "transformer_profiling/experiments/" + stage + "/"
-    manifest = json.loads(git_bytes(commit, prefix + "source.json"))
-    require(manifest["stage"] == stage, "Stage manifest mismatch")
-    require(not output.exists(), "Output already exists; choose a new directory")
+    manifest = load_stage_manifest(stage, commit)
+    inputs = json.loads(
+        checked_bytes(
+            commit,
+            "transformer_profiling/inputs/manifest.json",
+            manifest["scientific_inputs_manifest_sha256"],
+        )
+    )
     output.mkdir(parents=True)
     source = output / "source"
     source.mkdir()
@@ -70,7 +93,6 @@ def prepare(stage, revision, output):
         target = source / relative_path(name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(checked_bytes(commit, name, expected))
-    inputs = json.loads(git_bytes(commit, "transformer_profiling/inputs/manifest.json"))
     for name, expected in inputs["files"].items():
         relative_path(name)
         data = checked_bytes(
@@ -89,7 +111,11 @@ def prepare(stage, revision, output):
         "public_commit": commit,
         "source_files": manifest["source_files"],
         "scientific_inputs": inputs["files"],
-        "reference_binary_sha256": manifest["binary_sha256"],
+        "reference_binary_sha256": manifest.get("reference_measurement", manifest)[
+            "binary_sha256"
+        ],
+        "expected_binary_sha256": manifest["binary_sha256"],
+        "measurement_status": "not_measured",
         "binary_built": False,
         "binary_executed": False,
         "formal_measurements": 0,
@@ -99,7 +125,11 @@ def prepare(stage, revision, output):
 
 
 def build(source, manifest, record, output):
-    environment = dict(os.environ, **manifest["build_environment"])
+    # Stage flags come only from the registered manifest, never the caller shell.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.endswith("_FLAG")
+    }
+    environment.update(manifest["build_environment"])
     requirements = {
         "compiler": "A64CXX",
         "libm5": "LIBM5_A",
@@ -129,18 +159,24 @@ def build(source, manifest, record, output):
     record["returncode"] = result.returncode
     if result.returncode == 0:
         record["binary_sha256"] = sha256((source / "transformer.o").read_bytes())
-        record["matches_reference"] = (
-            record["binary_sha256"] == manifest["binary_sha256"]
+        expected = manifest["binary_sha256"]
+        record["matches_expected_binary"] = (
+            record["binary_sha256"] == expected if expected else None
         )
+        record["validation_status"] = "not_validated"
     save(output / "build-result.json", record)
     require(result.returncode == 0, "Build failed; inspect the preserved build.log")
-    require(record["matches_reference"], "Binary differs from the accepted reference")
+    if manifest["binary_sha256"]:
+        require(
+            record["matches_expected_binary"],
+            "Binary differs from the accepted reference",
+        )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", required=True)
-    parser.add_argument("--revision", help="Defaults to the stage tag")
+    parser.add_argument("--stage", required=True, help="Published stage E01-E10")
+    parser.add_argument("--revision", help="Defaults to the public stage tag, e.g. E10")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--build", action="store_true")
     args = parser.parse_args()
