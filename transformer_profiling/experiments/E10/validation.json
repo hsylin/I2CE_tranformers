@@ -1,0 +1,149 @@
+{
+  "stage": "E10",
+  "validation_status": "not_validated",
+  "production_model_executed": false,
+  "formal_measurements": 0,
+  "tests": [],
+  "test_builds": [
+    {
+      "name": "row",
+      "source": "tests/gemm_row_contract_test.cc",
+      "expected": [
+        "1680",
+        "420"
+      ]
+    },
+    {
+      "name": "codebook",
+      "source": "tests/codebook_compressed_sdot_test.cc",
+      "flags": [
+        "-DI2CE_TEST_CB4_CACHE"
+      ],
+      "expected": [
+        "1278",
+        "8 guard-page",
+        "9 rejected",
+        "6 bounded-scratch"
+      ]
+    },
+    {
+      "name": "epilogue",
+      "source": "tests/codebook_epilogue_fallback_test.cc",
+      "expected": [
+        "1260"
+      ]
+    },
+    {
+      "name": "attention",
+      "source": "tests/attention_sdot_contract_test.cc",
+      "expected": [
+        "242"
+      ]
+    }
+  ],
+  "reference_measurement": {
+    "source_commit": "06b017352141cea4ba949b8ef20d1b735d547d80",
+    "binary_sha256": "9e04f6348eb8b32aaa34d1cd574a366cad7eada531f07a546b422aeba98edfbe"
+  },
+  "reference_validation": {
+    "stage": "E10",
+    "tests": [
+      {
+        "name": "row",
+        "pass_lines": [
+          "PASS: 1680 independent byte-row cases and 420 dense cases, bias/accumulate/tails/output sentinels/input immutability"
+        ],
+        "binary_sha256": "dbec1455de18c0ebd661b351f0e31cac9be71795c4afa9a8f33d19da1e727d41",
+        "log_sha256": "a013497fac4e0ec324fb63ca103fbd541e292b25d57cba6029cb46ff68b7ed52"
+      },
+      {
+        "name": "codebook",
+        "pass_lines": [
+          "PASS: 6 bounded-scratch cases, each with full-C observer and ordinary output",
+          "PASS: 1278 independent CI01 signed-byte/tail/bias cases, 1278 ordinary-output cases, 8 guard-page cases and 9 rejected descriptors"
+        ],
+        "binary_sha256": "5196ba8cf440c21f9d36a8392f7567e7a55655f397cecdc252f14ca4fed9b967",
+        "log_sha256": "4f16b0612f055ce792ddb433e75fec88919cd5a8fce39b8d2ffdb7bbe620f4b1"
+      },
+      {
+        "name": "epilogue",
+        "pass_lines": [
+          "PASS: 1260 independent fallback low-byte/bias/zero/tail cases"
+        ],
+        "binary_sha256": "31070d401cf906d6873aaca520ffab9437d4877af93cad52c6553b5fcb447408",
+        "log_sha256": "3448434ad78572fd4b92531414dd1e0df21393fed76058e4fb7bc1a30caa7815"
+      },
+      {
+        "name": "attention",
+        "pass_lines": [
+          "PASS: 242 Attention arithmetic cases, layout, alias, rejection and ownership checks"
+        ],
+        "binary_sha256": "03c7d126daedaf53ce11151fc8b29cff3219139745b1562b8cdaf2bc7a4a7d56",
+        "log_sha256": "f1c89172a3e251bb4e993938d1e83d9366665a7e13c7e09ba07a80a0fc125d40"
+      }
+    ],
+    "test_sources": {
+      "tests/gemm_row_contract_test.cc": "35a62afcb2df02621365806e00cbb4750659f0bf04152978c5fabb3f03d08dae",
+      "tests/codebook_compressed_sdot_test.cc": "64af69c33af20d4fdf5130e773b9a01b9e7d8cbf2902b74cc36726cb8bcdee66",
+      "tests/codebook_epilogue_fallback_test.cc": "614615739214078b1193a04147077963c6b570b5396b6d3b67b5272eb0acd25a",
+      "tests/attention_sdot_contract_test.cc": "1e8fa49c3f734043c9b83c0b82f4cb96cc0e501cb3e441211770b4e782bf3907"
+    },
+    "K256_core": {
+      "instructions": 204,
+      "machine_words_sha256": "236b0f60b1adace2833f9fcb9ef49734d5f9db0159415a4cd20f14952f04d03d",
+      "vector_stack_accesses": [],
+      "whole_binary_spill_free_claim": false
+    },
+    "production_model_executed": false,
+    "formal_measurements": 0,
+    "limitations": [
+      "Component tests cover the declared bounded inputs; full production tensor values were not observed.",
+      "Rebuilt binaries have no inherited historical timing or Roofline points."
+    ],
+    "compiler_policy": {
+      "common": "-O2",
+      "Full_NN/src/gemm_SVE.c": "-O2 -fno-schedule-insns"
+    },
+    "test_builds": [
+      {
+        "name": "row",
+        "source": "tests/gemm_row_contract_test.cc",
+        "expected": [
+          "1680",
+          "420"
+        ]
+      },
+      {
+        "name": "codebook",
+        "source": "tests/codebook_compressed_sdot_test.cc",
+        "flags": [
+          "-DI2CE_TEST_CB4_CACHE"
+        ],
+        "expected": [
+          "1278",
+          "8 guard-page",
+          "9 rejected",
+          "6 bounded-scratch"
+        ]
+      },
+      {
+        "name": "epilogue",
+        "source": "tests/codebook_epilogue_fallback_test.cc",
+        "expected": [
+          "1260"
+        ]
+      },
+      {
+        "name": "attention",
+        "source": "tests/attention_sdot_contract_test.cc",
+        "expected": [
+          "242"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Historical component proofs do not validate the repaired source or binary.",
+    "No production tensor or timing observation has been collected for this checkpoint."
+  ]
+}
