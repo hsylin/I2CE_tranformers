@@ -328,49 +328,150 @@ static void core_4x16(const int8_t *left, const int8_t *right, uint32_t *accumul
     counters.sdot += 4u * padded_features;
 }
 #endif
-// A single MR4xNR16 output tile uses row-major A and grouped-four-column B.
-// Each invocation accumulates the complete padded K span before narrowing.
+// Pack inner row/column blocks directly into their final SDOT layouts.
+// Finish every consumer of the outer reduction tile before reusing its owner.
 static bool compute(const int8_t *left, const int8_t *right, size_t rows,
                     size_t columns, size_t features, int8_t *output) {
 #if CFG_SIMD
-    if (svcntb() != 16u || rows > 65535u || columns > 65535u || features > 512u) {
+    constexpr size_t row_tile = 128, column_tile = 128, feature_tile = 512;
+    constexpr size_t row_block = 16, column_block = 32, feature_block = 128;
+    constexpr size_t micro_rows = 4, micro_columns = 16, vector_bytes = 16;
+    if (svcntb() != vector_bytes || rows > 65535 || columns > 65535 ||
+        features > 65535) {
         return false;
     }
-    const size_t padded_features = padded(features, 16u);
-    const size_t left_bytes = 2u * 4u * padded_features;
-    const size_t right_bytes = 2u * 16u * padded_features;
-    const size_t accumulator_bytes = 2u * 4u * 16u * sizeof(uint32_t);
-    Arena owner(left_bytes + right_bytes + accumulator_bytes);
-    int8_t *packed_left = owner.data();
-    int8_t *packed_right = packed_left + left_bytes;
-    auto *accumulator = reinterpret_cast<uint32_t *>(packed_right + right_bytes);
+    const size_t row_capacity = padded(std::min(row_tile, rows), micro_rows),
+                 column_capacity =
+                     padded(std::min(column_tile, columns), micro_columns),
+                 feature_capacity =
+                     padded(std::min(feature_tile, features), vector_bytes);
+    const size_t left_capacity = 2 * row_capacity * feature_capacity,
+                 right_capacity = 2 * column_capacity * feature_capacity,
+                 accumulator_capacity =
+                     2 * row_capacity * column_capacity * sizeof(uint32_t);
+    Arena owner(left_capacity + right_capacity + accumulator_capacity);
+    int8_t *packed_left = owner.data(), *packed_right = packed_left + left_capacity;
+    uint32_t *accumulators =
+        reinterpret_cast<uint32_t *>(packed_right + right_capacity);
     ++counters.calls;
-    for (size_t first_row = 0; first_row < rows; first_row += 4u) {
-        pack_sdot(left, rows, features, first_row, 0u, 4u, padded_features, packed_left,
-                  false);
-        for (size_t first_column = 0; first_column < columns; first_column += 16u) {
-            pack_sdot(right, columns, features, first_column, 0u, 16u, padded_features,
-                      packed_right, true);
-            std::fill(accumulator, accumulator + 128u, uint32_t(0));
-            counters.c_initialized += accumulator_bytes;
-            for (size_t learner = 0; learner < 2u; ++learner) {
-                core_4x16(packed_left + learner * 4u * padded_features,
-                          packed_right + learner * 16u * padded_features,
-                          accumulator + learner * 64u, padded_features, 16u);
+    for (size_t row_base = 0; row_base < rows; row_base += row_tile) {
+        for (size_t column_base = 0; column_base < columns;
+             column_base += column_tile) {
+            const size_t tile_rows = std::min(row_tile, rows - row_base),
+                         tile_columns = std::min(column_tile, columns - column_base),
+                         padded_rows = padded(tile_rows, micro_rows),
+                         padded_columns = padded(tile_columns, micro_columns);
+            std::fill(accumulators, accumulators + 2 * padded_rows * padded_columns,
+                      uint32_t(0));
+            counters.c_initialized +=
+                2 * padded_rows * padded_columns * sizeof(uint32_t);
+            for (size_t feature_base = 0; feature_base < features;
+                 feature_base += feature_tile) {
+                const size_t tile_features =
+                                 std::min(feature_tile, features - feature_base),
+                             padded_features = padded(tile_features, vector_bytes);
+                for (size_t inner_row = 0; inner_row < tile_rows;
+                     inner_row += row_block) {
+                    const size_t inner_padded_rows =
+                        padded(std::min(row_block, tile_rows - inner_row), micro_rows);
+                    for (size_t inner_feature = 0; inner_feature < tile_features;
+                         inner_feature += feature_block) {
+                        const size_t inner_padded_features = padded(
+                            std::min(feature_block, tile_features - inner_feature),
+                            vector_bytes);
+                        pack_sdot(left, rows, features, row_base + inner_row,
+                                  feature_base + inner_feature, inner_padded_rows,
+                                  inner_padded_features,
+                                  packed_left + 2 * inner_row * padded_features +
+                                      2 * inner_padded_rows * inner_feature,
+                                  false);
+                    }
+                }
+                for (size_t inner_column = 0; inner_column < tile_columns;
+                     inner_column += column_block) {
+                    const size_t inner_padded_columns =
+                        padded(std::min(column_block, tile_columns - inner_column),
+                               micro_columns);
+                    for (size_t inner_feature = 0; inner_feature < tile_features;
+                         inner_feature += feature_block) {
+                        const size_t inner_padded_features = padded(
+                            std::min(feature_block, tile_features - inner_feature),
+                            vector_bytes);
+                        pack_sdot(right, columns, features, column_base + inner_column,
+                                  feature_base + inner_feature, inner_padded_columns,
+                                  inner_padded_features,
+                                  packed_right + 2 * inner_column * padded_features +
+                                      2 * inner_padded_columns * inner_feature,
+                                  true);
+                    }
+                }
+                for (size_t inner_column = 0; inner_column < tile_columns;
+                     inner_column += column_block) {
+                    const size_t inner_columns = std::min(column_block,
+                                                          tile_columns - inner_column),
+                                 inner_padded_columns =
+                                     padded(inner_columns, micro_columns);
+                    for (size_t inner_feature = 0; inner_feature < tile_features;
+                         inner_feature += feature_block) {
+                        const size_t inner_features = std::min(
+                                         feature_block, tile_features - inner_feature),
+                                     inner_padded_features =
+                                         padded(inner_features, vector_bytes);
+                        const int8_t *right_panel =
+                            packed_right + 2 * inner_column * padded_features +
+                            2 * inner_padded_columns * inner_feature;
+                        for (size_t inner_row = 0; inner_row < tile_rows;
+                             inner_row += row_block) {
+                            const size_t inner_padded_rows = padded(
+                                std::min(row_block, tile_rows - inner_row), micro_rows);
+                            const int8_t *left_panel =
+                                packed_left + 2 * inner_row * padded_features +
+                                2 * inner_padded_rows * inner_feature;
+                            for (size_t kernel_row = 0; kernel_row < inner_padded_rows;
+                                 kernel_row += micro_rows) {
+                                for (size_t kernel_column = 0;
+                                     kernel_column < inner_padded_columns;
+                                     kernel_column += micro_columns) {
+                                    for (size_t learner = 0; learner < 2; ++learner) {
+                                        const int8_t *kernel_left =
+                                            left_panel +
+                                            learner * inner_padded_rows *
+                                                inner_padded_features +
+                                            kernel_row * inner_padded_features;
+                                        const int8_t *kernel_right =
+                                            right_panel +
+                                            learner * inner_padded_columns *
+                                                inner_padded_features +
+                                            kernel_column * inner_padded_features;
+                                        uint32_t *kernel_accumulators =
+                                            accumulators +
+                                            learner * padded_rows * padded_columns +
+                                            (inner_row + kernel_row) * padded_columns +
+                                            inner_column + kernel_column;
+                                        core_4x16(kernel_left, kernel_right,
+                                                  kernel_accumulators,
+                                                  inner_padded_features,
+                                                  padded_columns);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            for (size_t row = 0; row < std::min(size_t(4), rows - first_row); ++row) {
-                for (size_t column = 0;
-                     column < std::min(size_t(16), columns - first_column); ++column) {
-                    for (size_t learner = 0; learner < 2u; ++learner) {
-                        const size_t index =
-                            ((first_row + row) * columns + first_column + column) * 2u +
+            for (size_t row = 0; row < tile_rows; ++row) {
+                for (size_t column = 0; column < tile_columns; ++column) {
+                    for (size_t learner = 0; learner < 2; ++learner) {
+                        size_t output_index =
+                            ((row_base + row) * columns + column_base + column) * 2 +
                             learner;
-                        const uint32_t value =
-                            accumulator[learner * 64u + row * 16u + column];
-                        output[index] = int8_t(uint8_t(value));
+                        uint32_t value =
+                            accumulators[learner * padded_rows * padded_columns +
+                                         row * padded_columns + column];
+                        output[output_index] = (int8_t)(uint8_t)value;
 #ifdef I2CE_TEST_ATTENTION_SDOT
                         if (observed) {
-                            observed[index] = value;
+                            observed[output_index] = value;
                         }
 #endif
                     }

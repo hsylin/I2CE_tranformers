@@ -274,10 +274,10 @@ static void source_work() {
     require(after.allocations - before.allocations == 1u);
     require(after.frees - before.frees == 1u);
     require(after.a_packs - before.a_packs == 8u);
-    require(after.b_packs - before.b_packs == 32u);
-    require(after.b_bytes - before.b_bytes == 524288u);
-    require(after.core_calls - before.core_calls == 64u);
-    require(after.requested - before.requested == 20992u);
+    require(after.b_packs - before.b_packs == 8u);
+    require(after.b_bytes - before.b_bytes == 65536u);
+    require(after.core_calls - before.core_calls == 256u);
+    require(after.requested - before.requested == 114688u);
 }
 int main() {
     require(svcntb() == 16u);
