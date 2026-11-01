@@ -21,11 +21,11 @@ void Softmax::compute(uint32_t *input, std::size_t seq_len){
             sum += *(input_uptr);
             input_uptr ++;
         }
-        sum = (sum==0) ? sum + 1 : sum;
+        const int32_t denominator = (sum < 256) ? 1 : (sum >> 8);
         input_uptr = (uint8_t*) (input + i * (seq_len >> 2));
         for (int j=0; j< seq_len; j++){
 //            std::cout << "Ptr " << i << "\t: " << (int) *(input_ptr)  << std::endl;
-            *(input_uptr) = (uint8_t) ((*(input_uptr)) /(sum >> 8)); // divide the sum by 256 otherwise all the outputs will be 0!
+            *(input_uptr) = (uint8_t) ((*(input_uptr)) /denominator); // divide the sum by 256 otherwise all the outputs will be 0!
 //            std::cout << "LUT " << i << "\t: " << (int) *(input_ptr) << std::endl;
             input_uptr ++;
         }
@@ -161,11 +161,11 @@ void Softmax::computeRearranged(uint32_t *input, std::size_t seq_len, std::size_
             }
             input_uptr += seq_len* kernelDim;
         }
-        sum = (sum==0) ? sum + 1 : sum;
+        const int32_t denominator = (sum < 256) ? 1 : (sum >> 8);
         input_uptr = ((uint8_t*) input) + i * kernelDim;
         for (int j =0; j< seq_len / kernelDim; j++){
             for (int k=0; k< kernelDim; k++) {
-                *(input_uptr+k) = (uint8_t) ((*(input_uptr+k)) /(sum >> 8));
+                *(input_uptr+k) = (uint8_t) ((*(input_uptr+k)) /denominator);
             }
             input_uptr += seq_len* kernelDim;
         }
