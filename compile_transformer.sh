@@ -24,7 +24,7 @@ export A64SYSROOT
 # Keep arguments separate so include and archive paths may contain spaces.
 BUILD_DEFINES=()
 BUILD_CXXFLAGS=()
-BUILD_SVE_SOURCES=()
+BUILD_SVE_OBJECTS=()
 BUILD_LIBRARIES=()
 for flag in RELOAD_WEIGHT USE_NOTEBOOK_GENERATED_WEIGHTS USE_CODEBOOK_GEMM \
     ENABLE_CODEBOOK_REFERENCE ENABLE_DEBUG_PRINT PROFILE_GEMM_ONLY \
@@ -43,7 +43,6 @@ for flag in RELOAD_WEIGHT USE_NOTEBOOK_GENERATED_WEIGHTS USE_CODEBOOK_GEMM \
 done
 if [ "${SIMD_FLAG:-0}" = 1 ]; then
     BUILD_CXXFLAGS+=(-march=armv8-a+sve)
-    BUILD_SVE_SOURCES+=(Full_NN/src/gemm_SVE.c)
 fi
 CORE_NUM_VALUE="${CORE_NUM_FLAG:-1}"
 printf '  CORE_NUM (build)=%s\n' "$CORE_NUM_VALUE"
@@ -73,10 +72,23 @@ if [ "${I2CE_USE_LIBM5_FLAG:-0}" = 1 ]; then
 fi
 printf '  I2CE_USE_LIBM5_FLAG=%s\n' "${I2CE_USE_LIBM5_FLAG:-0}"
 
+# Keep the scheduling exception local to the SVE translation unit.
+if [ "${SIMD_FLAG:-0}" = 1 ]; then
+    BUILD_DIRECTORY="$(mktemp -d ./build-sve.XXXXXX)" || exit 1
+    trap 'rm -rf -- "$BUILD_DIRECTORY"' EXIT
+    "$A64CXX" -std=c++17 -O2 -Wall -fno-schedule-insns \
+        "${BUILD_CXXFLAGS[@]}" "${BUILD_DEFINES[@]}" \
+        -I. -IFull_NN/inc -IFull_NN/gemm_definitions \
+        -DSA_SIZE=4 -DDEVELOP -DCORE_NUM="$CORE_NUM_VALUE" \
+        -fopenmp -static -c Full_NN/src/gemm_SVE.c \
+        -o "$BUILD_DIRECTORY/gemm_SVE.o" || exit $?
+    BUILD_SVE_OBJECTS+=("$BUILD_DIRECTORY/gemm_SVE.o")
+fi
+
 "$A64CXX" -std=c++17 -O2 -Wall \
     "${BUILD_CXXFLAGS[@]}" \
     transformer.cpp transformer_layers/*.cc \
-    Full_NN/src/gemm_exec.c "${BUILD_SVE_SOURCES[@]}" \
+    Full_NN/src/gemm_exec.c "${BUILD_SVE_OBJECTS[@]}" \
     accelerator/smm_gem.cpp accelerator/systolic_m2m.cc \
     "${BUILD_DEFINES[@]}" \
     -I. -IFull_NN/inc -IFull_NN/gemm_definitions \
