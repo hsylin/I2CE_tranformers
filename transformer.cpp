@@ -19,6 +19,7 @@
 
 #include "transformer_layers/debuggerFunctions.h"
 #include "transformer_layers/profile.h"
+#include "transformer_layers/weight_file.h"
 #if CFG_USE_FP32_TRANSFORMER
 #include "transformer_layers/transformerFloat.h"
 #endif
@@ -68,43 +69,6 @@ void saveWeight(int n_head, int qkv, int size, uint32_t *array, const std::strin
     }
 }
 
-
-bool tryLoadWeight(int n_head, int qkv, int size, uint32_t *array, const std::string &dir_name) {
-    std::string filename = dir_name + "/H" + std::to_string(n_head) + "_L" +
-            std::to_string(qkv) + ".bin";
-    std::ifstream fin(filename);
-    if (!fin.is_open()) {
-        return false;
-    }
-
-    for (int i = 0; i < size; i++) {
-        if (!(fin >> array[i])) {
-            std::cout << "Weight file size mismatch: " << filename
-                      << " (expected " << size << " words)" << std::endl;
-            fin.close();
-            return false;
-        }
-    }
-
-    uint32_t extra;
-    if (fin >> extra) {
-        std::cout << "Weight file has extra data: " << filename
-                  << " (expected exactly " << size << " words)" << std::endl;
-        fin.close();
-        return false;
-    }
-
-    fin.close();
-    return true;
-}
-
-void loadWeight(int n_head, int qkv, int size, uint32_t *array, const std::string &dir_name) {
-    std::string filename = dir_name + "/H" + std::to_string(n_head) + "_L" +
-            std::to_string(qkv) + ".bin";
-    if (!tryLoadWeight(n_head, qkv, size, array, dir_name)) {
-        std::cout << filename + " Not loaded" << std::endl;
-    }
-}
 
 std::size_t getTransformerLearnerCount() {
 #if CFG_DENSE_NO_SIMD_BASELINE
