@@ -10,26 +10,14 @@ import time
 from study_records import digest, load, save, require, study_budget
 
 AGGREGATES = ("BLOCK", "CODEBOOK", "ATTENTION", "NORMALIZATION_PHASES")
-TITLES = dict(
-    zip(
-        ["E%02d" % i for i in range(1, 14)],
-        [
-            "Widened baseline",
-            "SDOT core and adapters",
-            "int8 and bounded W packing",
-            "L1 blocking",
-            "Outer W reuse",
-            "All-K A retention",
-            "Full-panel decoder",
-            "Learner-first consumption",
-            "Final-K output fusion",
-            "Direct-int8 Attention",
-            "Attention blocking",
-            "Query16 streaming",
-            "Vector integer softmax",
-        ],
-    )
-)
+TITLES = {
+    stage["id"]: stage["title"]
+    for stage in json.loads(
+        (
+            Path(__file__).resolve().parents[3] / "transformer_profiling/sequence.json"
+        ).read_text()
+    )["experiments"]
+}
 
 
 def comparison(current_ticks, reference_ticks):
@@ -214,11 +202,9 @@ def report_tables(rows, counters):
         metrics = stats["metrics"]
         total = metrics["BLOCK"]["sim_ticks"] / 1000000000000.0
         implementation = stage + ": " + TITLES[stage]
-        if stage in ("E12", "E13"):
-            implementation += " (compare aggregate Attention; internal markers move)"
         metadata = dict(
             exp_id=stage,
-            study="E01-E13 reconstructed milestones; single runs",
+            study="E01-E10 reconstructed milestones; single runs",
             model="BERT-mini",
             d_q=64,
             d_seq=512,
@@ -317,7 +303,7 @@ def main():
             single_measurement_each=True,
             independent_confirmation=False,
             global_optimum_claim=False,
-            phase_boundary_limit="E12/E13 streaming moves work into QK markers; compare aggregate Attention.",
+            phase_boundary_limit="Compare aggregate Attention when internal phase markers differ.",
             setup_limit="CI01 setup is partial outside ROI; post-ROI dump23 is not pure cleanup.",
             bindings=bindings,
         ),

@@ -44,6 +44,11 @@ def command(root, registration, row, configuration=False):
         "--l1d-size=32KiB",
         "--l2-size=1MiB",
     ]
+    if "roofline" in registration:
+        require(
+            "roofline" in row, "Every monitored row needs explicit Roofline metadata"
+        )
+        args.append("--roofline-monitors")
     if configuration:
         args.append("--configuration-check")
     return args
@@ -76,7 +81,7 @@ def prepare(row, registration):
         """#!/bin/sh
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 fail() { echo "[guest] STAGE failure $1"; /sbin/m5 fail "$1"; exit "$1"; }
-echo "[guest] E01-E13 STAGE once-only formal"
+echo "[guest] E01-E10 STAGE once-only formal"
 mkdir -p /mnt
 mount -t 9p -o trans=virtio,version=9p2000.L,aname=INPUT gem5 /mnt || fail 1
 cd /mnt || fail 2
@@ -312,6 +317,10 @@ def collect(root, registration, row):
             epoch=time.time(),
         ),
     )
+    if "roofline" in registration:
+        import study_roofline
+
+        study_roofline.collect(root, registration, row)
     archive = archive_once(root, row, evidence)
     save(
         state / "complete.json",

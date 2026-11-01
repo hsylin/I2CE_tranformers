@@ -54,6 +54,9 @@ def main():
             "transformer_profiling/add_experiment.py",
             "transformer_profiling/report.py",
             "transformer_profiling/cache_comparison.py",
+            "transformer_profiling/roofline.py",
+            "transformer_profiling/roofline_calibration.py",
+            "transformer_profiling/experiment_names.py",
         ]
         run([sys.executable, "-m", "black", "--workers", "1", "--check", *sources])
         run([sys.executable, "-m", "ruff", "check", *sources])

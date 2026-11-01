@@ -21,6 +21,8 @@ import sys
 import tempfile
 import time
 
+import experiment_names
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 # The current run directory. transformer_profiling/final/ holds the historical
 # E01-E36 dataset and is never read unless --input names it explicitly: both
@@ -32,6 +34,7 @@ OPTIONAL_RESULTS = {
     "scaling_results": "scaling_results.csv",
     "phase_results": "phase_results.csv",
     "cache_comparison": "cache_comparison.json",
+    "roofline": "roofline.json",
 }
 # Loaded after argparse, so --help works before the dependencies are installed.
 pd = None
@@ -222,7 +225,7 @@ def read_results(path):
     """Individual experiment files override their rows in a stale combined table."""
     files = input_files(path)
     if not path.is_dir():
-        return pd.read_csv(files[0], sep="\t")
+        return experiment_names.profile_names(pd.read_csv(files[0], sep="\t"), files[0])
     combined_name = combined_table(path).name
     combined, parts, seen = None, [], set()
     for source in files:
@@ -237,7 +240,7 @@ def read_results(path):
         if "exp_id" not in data or data.empty or data.exp_id.isna().any():
             raise ValueError(str(source) + ": missing experiment identifiers.")
         if source.name == combined_name:
-            combined = data
+            combined = experiment_names.profile_names(data, source)
             continue
         ids = set(data.exp_id)
         expected = re.match(r"e(\d+)", source.name, re.IGNORECASE).group(1)
@@ -247,6 +250,10 @@ def read_results(path):
             raise ValueError(
                 "Duplicate per-experiment files for " + ", ".join(sorted(ids & seen))
             )
+        data = experiment_names.profile_names(data, source)
+        ids = set(data.exp_id)
+        if ids & seen:
+            raise ValueError("Duplicate registered experiment IDs")
         seen.update(ids)
         parts.append(data)
     if combined is not None:
@@ -1406,12 +1413,15 @@ def build_report(
     provenance=None,
     phase_path=None,
     cache_path=None,
+    roofline_path=None,
     compact_labels=False,
     single_run_study=False,
     interpretation_html="",
     marker_schemes=None,
+    roofline_identities=None,
 ):
     specs, sections = {}, []
+    provenance = dict(provenance or {})
 
     def graph(figure, tab):
         ident = "chart_{}".format(len(specs))
@@ -1442,15 +1452,81 @@ def build_report(
             sections.append(
                 graph(cache_chart(compatible, compatible_stages, title), "stages")
             )
-        codebook = total.loc[total.implementation == "Codebook SIMD int8"]
-        if (codebook.codebook_size == 8).any():
-            sections.append(graph(sve_chart(total, model), "curves"))
-        if (codebook.n_learners == 4).any():
-            sections.append(graph(codebook_chart(total, model), "curves"))
-        sections.append(graph(miss_time_chart(total, model), "curves"))
         sections.append("</div>")
 
-    tabs = [("stages", "Overview"), ("curves", "Parameters")]
+    tabs = [("stages", "Overview")]
+    if roofline_path:
+        import roofline
+
+        manifests = (
+            [roofline_path] if isinstance(roofline_path, (str, Path)) else roofline_path
+        )
+        provenance["roofline_results"] = []
+        for scope, tab, title in [
+            ("codebook", "roofline-codebook", "Codebook Roofline"),
+            ("block", "roofline", "Complete BLOCK Roofline"),
+        ]:
+            tabs.append((tab, title))
+            for manifest in manifests:
+                manifest = Path(manifest)
+                try:
+                    result = roofline.load(manifest, scope)
+                    if roofline_identities is not None:
+                        result["observations"] = [
+                            observation
+                            for observation in result["observations"]
+                            if (
+                                observation["source_commit"],
+                                observation["binary_sha256"],
+                            )
+                            in roofline_identities
+                        ]
+                except (
+                    OSError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    AttributeError,
+                ) as error:
+                    result = dict(
+                        scope=scope,
+                        observations=[],
+                        skipped=[dict(id=manifest.parent.name, reason=str(error))],
+                    )
+                notice = roofline.summary_html(result)
+                if notice:
+                    sections.append(
+                        '<section class="plot-card" data-tab="'
+                        + tab
+                        + '">'
+                        + notice
+                        + "</section>"
+                    )
+                sections.extend(
+                    graph(roofline.figure(o), tab) for o in result["observations"]
+                )
+                provenance["roofline_results"].append(
+                    {
+                        "manifest": str(manifest),
+                        "scope": scope,
+                        "observations": [
+                            {
+                                key: o[key]
+                                for key in (
+                                    "id",
+                                    "source_commit",
+                                    "binary_sha256",
+                                    "roi",
+                                    "operation_model",
+                                    "scope",
+                                    "selected_intervals",
+                                )
+                            }
+                            for o in result["observations"]
+                        ],
+                        "skipped": result["skipped"],
+                    }
+                )
     if cache_path:
         from cache_comparison import comparison_charts
 
@@ -1471,7 +1547,6 @@ def build_report(
             tabs.append((key, label))
             sections.extend(graph(figure, key) for figure in figures)
 
-    stage_key = ""
     if compact_labels:
         labels = dict(zip(totals.label, totals.exp_id))
         implementations = set(totals.implementation)
@@ -1510,29 +1585,6 @@ def build_report(
                     orientation="v", x=1.02, y=1, yanchor="top"
                 )
                 figure["layout"]["xaxis"]["tickangle"] = 0
-        rows = "".join(
-            "<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-                html.escape(str(row.model)),
-                html.escape(str(row.exp_id)),
-                html.escape(str(row.implementation)),
-            )
-            for row in totals.itertuples()
-        )
-        stage_key = (
-            '<details class="stage-key"><summary>Experiment key</summary>'
-            "<table><thead><tr><th>Model</th><th>ID</th><th>Implementation</th>"
-            "</tr></thead><tbody>" + rows + "</tbody></table></details>"
-        )
-    study_note = ""
-    if single_run_study:
-        study_note = (
-            '<p class="study-note">One observation per stage in this batch. '
-            "Other studies may contain executions of identical binaries; see the bound comparison notes. "
-            "This batch supplies no independent confirmation or calibrated uncertainty estimate. "
-            "Phase intervals include their surrounding setup and boundary costs; "
-            "use aggregate Attention when its internal markers move.</p>"
-        )
-
     options = "".join(
         '<option value="{0}">{0}</option>'.format(html.escape(m, quote=True))
         for m in models
@@ -1554,15 +1606,15 @@ def build_report(
         + "</style><script>"
         + bundle
         + '</script></head><body><main><header class="report-header"><h1>Transformer Inference Performance</h1></header>'
-        '<div class="toolbar"><label>Model <select id="model">'
+        '<div class="toolbar"><label'
+        + (' style="display:none"' if len(models) == 1 else "")
+        + '>Model <select id="model">'
         + options
         + "</select></label>"
         '<nav class="tabs" aria-label="Charts">'
         + buttons
         + "</nav></div>"
-        + study_note
         + interpretation_html
-        + stage_key
         + "".join(sections)
         + "</main>"
         '<script type="application/json" id="report-provenance">'
@@ -1580,7 +1632,7 @@ function refresh(){
  document.querySelectorAll('.model-view').forEach(e=>e.classList.toggle('hidden',e.dataset.model!==model.value));
  document.querySelectorAll('[data-tab]').forEach(e=>e.classList.toggle('hidden',e.dataset.tab!==activeTab));
  document.querySelectorAll('[data-view]').forEach(e=>{e.classList.toggle('active',e.dataset.view===activeTab);e.setAttribute('aria-pressed',e.dataset.view===activeTab);});
- model.disabled=['tiles','scaling','phases','cache'].includes(activeTab);
+ model.disabled=['tiles','scaling','phases','cache','roofline','roofline-codebook'].includes(activeTab);
  document.querySelectorAll('.graph').forEach(e=>{if(e.offsetParent!==null){if(!e.dataset.drawn){e.dataset.drawn='1';const s=specs[e.id];Plotly.newPlot(e,s.data,s.layout,{responsive:true,displaylogo:false,locale:'en',toImageButtonOptions:{format:'svg',filename:e.id}});}else{Plotly.Plots.resize(e);}}});
 }
 model.addEventListener('change',refresh);document.querySelectorAll('[data-view]').forEach(e=>e.addEventListener('click',()=>{activeTab=e.dataset.view;refresh();}));refresh();
@@ -1648,11 +1700,54 @@ def optional_paths(args):
     }
 
 
+def roofline_manifests(input_path, explicit=None):
+    """Discover registered run bundles inside this dataset only.
+
+    An explicit or dataset-root manifest is an authoritative selection. Without
+    one, discover per-run manifests recursively; never join runs by E-number or
+    fall back to the repository's example/historical datasets.
+    """
+    if explicit is not None:
+        return [Path(explicit)]
+    folder = input_path if input_path.is_dir() else input_path.parent
+    root = folder / "roofline.json"
+    if root.is_file() and root.resolve().is_relative_to(folder.resolve()):
+        return [root]
+    found = []
+    for path in sorted(folder.rglob("roofline.json")):
+        if not path.is_file() or any(
+            part.startswith(".") for part in path.relative_to(folder).parts
+        ):
+            continue
+        if not path.resolve().is_relative_to(folder.resolve()):
+            continue
+        found.append(path)
+    return found
+
+
+def roofline_evidence_paths(manifests):
+    """Protect/watch available artifacts even if a different bundle is invalid."""
+    import roofline
+
+    paths = set(manifests)
+    for manifest in manifests:
+        try:
+            paths.update(roofline.evidence_paths(manifest))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            # Rendering reports the malformed bundle without blocking valid runs.
+            continue
+    return paths
+
+
 def generate(args, get_plotlyjs):
     optional = optional_paths(args)
+    manifests = roofline_manifests(args.input, args.roofline)
+    if optional["roofline"] not in manifests:
+        optional["roofline"] = None
     inputs = {p.resolve() for p in input_files(args.input)} | {
         p.resolve() for p in optional.values() if p is not None
     }
+    inputs.update(p.resolve() for p in roofline_evidence_paths(manifests))
     saved_inputs = set(inputs)
     if args.interpretation:
         inputs.add(args.interpretation)
@@ -1695,8 +1790,23 @@ def generate(args, get_plotlyjs):
     provenance["renderer_sha256"] = hashlib.sha256(
         Path(__file__).read_bytes()
     ).hexdigest()
+    if manifests:
+        provenance["roofline_renderer_sha256"] = hashlib.sha256(
+            Path(__file__).with_name("roofline.py").read_bytes()
+        ).hexdigest()
+        provenance["roofline_manifests"] = [
+            {
+                "path": str(path),
+                "sha256": (
+                    hashlib.sha256(path.read_bytes()).hexdigest()
+                    if path.is_file()
+                    else None
+                ),
+            }
+            for path in manifests
+        ]
     for key, path in optional.items():
-        if path:
+        if path and (key != "roofline" or path.is_file()):
             provenance[key] = {
                 "path": str(path),
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -1714,11 +1824,18 @@ def generate(args, get_plotlyjs):
         scaling_path=optional["scaling_results"],
         phase_path=optional["phase_results"],
         cache_path=optional["cache_comparison"],
+        roofline_path=manifests,
         provenance=provenance,
         compact_labels=args.compact_labels,
         single_run_study=args.single_run_study,
         interpretation_html=notes,
         marker_schemes=schemes,
+        roofline_identities=(
+            set(zip(frame.repo_commit, frame.binary_sha256))
+            if args.experiments
+            and {"repo_commit", "binary_sha256"}.issubset(frame.columns)
+            else set() if args.experiments else None
+        ),
     )
     metrics = frame.to_csv(sep="\t", index=False) if args.metrics_output else None
     atomic_write(args.output, report)
@@ -1727,6 +1844,14 @@ def generate(args, get_plotlyjs):
     print("Created:", args.output.resolve(), flush=True)
     print(
         "Experiments: {} | stage intervals: {}".format(len(totals), len(stages)),
+        flush=True,
+    )
+    print(
+        (
+            "Roofline: {} evidence bundle(s)".format(len(manifests))
+            if manifests
+            else "Roofline skipped: no roofline.json evidence bundle in the input dataset."
+        ),
         flush=True,
     )
 
@@ -1738,6 +1863,7 @@ def watched_state(args):
     paths.update(
         getattr(args, key) or folder / name for key, name in OPTIONAL_RESULTS.items()
     )
+    paths.update(roofline_evidence_paths(roofline_manifests(args.input, args.roofline)))
     if args.interpretation:
         paths.add(args.interpretation)
     if args.marker_schemes:
@@ -1775,6 +1901,11 @@ def main(argv=None):
     )
     parser.add_argument("--tile-results", type=Path)
     parser.add_argument("--scaling-results", type=Path)
+    parser.add_argument(
+        "--roofline",
+        type=Path,
+        help="Select a native gem5 Roofline manifest; otherwise discover roofline.json at the input root or in run subdirectories",
+    )
     parser.add_argument(
         "--phase-results",
         type=Path,

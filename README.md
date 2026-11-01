@@ -21,10 +21,21 @@ Once you have installed gem5-x, you can follow Section 3.3 of [this document](ge
 ## Compiling a transformer code
 In this repository, you can find the code to simulate a transformer model. To compile the code, you have two options. While using the compile command inside the gem5-x system is available, it is not recommended due to its prolonged execution time. Instead, follow the steps below to compile the code on your host system, place the compiled code in the shared folder, and then mount it in the gem5-x system.
 
-Use the following compilation command on your host system:
-``` script
-aarch64-linux-gnu-g++ transformer.cpp -o transformer.o  [-DSA, -DSIMD] [-DSA_SIZE=16] [-DBWMA] [-DRELOAD_WEIGHT] [-DDEVELOP] [-DCORE_NUM=4] -fopenmp -O2
+For the reconstructed E01–E10 sequence, use the preparation tool included in
+each checkpoint. It selects that stage's pinned sources and canonical inputs:
+
+```sh
+python tools/exp/prepare_stage.py --stage E10 --output /tmp/i2ce-e10
 ```
+
+The output directory must not exist. Add `--build` only after setting the
+registered AArch64 compiler and libm5 paths described in
+[the stage guide](transformer_profiling/reconstructed-sequence.md).
+Preparation does not run the model. Rebuilt checkpoints have no inherited
+performance result; [saved reports](reports/README.md) describe earlier binaries.
+
+The following TiC-SAT mode descriptions are historical options; the stage
+manifest defines the compiler flags for each reconstructed checkpoint.
 The parameters you can have in your code are:
 
 - **-DSA** or **-DSIMD**: Indicates whether the system has a systolic array or an activated SIMD accelerator.

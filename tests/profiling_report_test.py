@@ -30,6 +30,7 @@ CURRENT = ROOT / "transformer_profiling/hsylin"
 sys.path.insert(0, str(SCRIPT.parent))
 import report
 import cache_comparison
+import experiment_names
 
 report.load_dependencies()
 pd = report.pd
@@ -285,8 +286,10 @@ class ReportTest(unittest.TestCase):
                 numbers(right[name]["layout"].get("updatemenus", [])),
             )
         text = compact.read_text()
-        self.assertIn("Experiment key", text)
-        self.assertIn("no independent confirmation", text)
+        self.assertNotIn("Experiment key", text)
+        self.assertNotIn('data-view="curves"', text)
+        self.assertNotIn('data-tab="curves"', text)
+        self.assertNotIn("Measurement note", text)
         self.assertIn("renderer_sha256", text)
 
     def test_interpretation_is_input_bound_and_escaped(self):
@@ -548,7 +551,7 @@ class ReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "saved inputs"):
             report.marker_scheme_record(path, {source}, {"E01", "E02"})
 
-    def test_incompatible_markers_are_separate_and_parameter_labels_survive(self):
+    def test_incompatible_markers_remain_separate_without_parameters_page(self):
         frame, totals, stages = self.load(
             self.raw[self.raw.exp_id.isin(["E09", "E16"])]
         )
@@ -582,23 +585,51 @@ class ReportTest(unittest.TestCase):
             for fig in specs.values()
             if "execution time and L2" in fig["layout"]["title"]["text"]
         ]
-        self.assertEqual(len(parameter_charts), 2)
-        self.assertEqual(
-            {
-                value
-                for chart in parameter_charts
-                for trace in chart["data"]
-                for value in trace["text"]
-            },
-            {"E09", "E16"},
+        self.assertEqual(parameter_charts, [])
+        self.assertNotIn('data-view="curves"', text)
+
+    def test_registered_sequence_updates_ids_and_hover_text_without_merging_rows(self):
+        parts = []
+        for eid in ("E08", "E10", "E11"):
+            part = self.raw[self.raw.exp_id == "E09"].copy()
+            part["exp_id"] = eid
+            part["implementation"] = "Reconstructed " + eid + " / monitored Cache A"
+            parts.append(part)
+        path = self.directory / "sequence.tsv"
+        pd.concat(parts).to_csv(path, sep="\t", index=False)
+        raw_bytes = path.read_bytes()
+        before, _, _ = report.load_data(path)
+        sequence = dict(
+            profiling_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+            experiments=[dict(id=eid) for eid in ("E08", "E09", "E10")],
         )
-        self.assertTrue(
-            all(
-                trace["mode"] == "markers+text"
-                for chart in parameter_charts
-                for trace in chart["data"]
-            )
+        with mock.patch.object(experiment_names, "SEQUENCE", sequence):
+            frame, totals, stages = report.load_data(path)
+            folder = self.directory / "registered"
+            folder.mkdir()
+            (folder / "registered_all_experiments.tsv").write_bytes(raw_bytes)
+            directory_frame, directory_totals, _ = report.load_data(folder)
+        pd.testing.assert_frame_equal(frame, directory_frame)
+        self.assertEqual(directory_totals.exp_id.tolist(), ["E08", "E09", "E10"])
+        self.assertEqual(totals.exp_id.tolist(), ["E08", "E09", "E10"])
+        self.assertEqual(set(frame.label), {"E08", "E09", "E10"})
+        pd.testing.assert_frame_equal(
+            frame.select_dtypes("number").drop(columns="exp_order"),
+            before.select_dtypes("number").drop(columns="exp_order"),
+            check_exact=True,
         )
+        page = report.build_report(
+            frame, totals, stages, "", "fixture", compact_labels=True
+        )
+        specs = json.loads(re.search(r'id="chart-specs">(.*?)</script>', page, re.S)[1])
+        self.assertNotRegex(json.dumps(specs), r"\bE11\b")
+        self.assertIn("Reconstructed E09", json.dumps(specs))
+        self.assertEqual(path.read_bytes(), raw_bytes)
+        # An unregistered input with identical numeric IDs keeps its own namespace.
+        path.write_bytes(raw_bytes + b"\n")
+        with mock.patch.object(experiment_names, "SEQUENCE", sequence):
+            _, other, _ = report.load_data(path)
+        self.assertEqual(other.exp_id.tolist(), ["E08", "E10", "E11"])
 
     def test_invalid_phase_accounting_is_rejected(self):
         path = self.directory / "phases.csv"

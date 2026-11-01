@@ -253,8 +253,12 @@ class ResultsTests(unittest.TestCase):
         ]:
             metrics[n] = {k: v * multiplier for k, v in values.items()}
         counter = dict(metrics=metrics, intervals=[{"label": n} for n in names])
-        row = dict(id="E13", source_commit="fixture", binary_sha256="fixture")
-        table, phases = results.report_tables([row], {"E13": counter})
+        row = dict(id="E10", source_commit="fixture", binary_sha256="fixture")
+        table, phases = results.report_tables([row], {"E10": counter})
+        self.assertIn("Attention QK and SV blocking", table[0]["implementation"])
+        self.assertIn("E01-E10", table[0]["study"])
+        self.assertEqual(set(results.TITLES), {f"E{i:02}" for i in range(1, 11)})
+        self.assertEqual(results.TITLES["E09"], "Attention SDOT")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             results.write_table(root / "results.tsv", table, "\t")
