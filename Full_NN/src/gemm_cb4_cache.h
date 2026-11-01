@@ -45,9 +45,9 @@ enum {
     CACHE_K1 = 128,
     CACHE_KACC = 256,
     CACHE_X1_STRIDE = 128,
-    CACHE_S2 = 16,
-    CACHE_O2 = 32,
-    CACHE_K2 = 256,
+    CACHE_S2 = 128,
+    CACHE_O2 = 128,
+    CACHE_K2 = 512,
     CACHE_X2_STRIDE = CACHE_K2
 };
 
@@ -58,8 +58,8 @@ typedef struct {
     int8_t w2_blocks[CACHE_O2 / CACHE_O1][CACHE_K2 / CACHE_K1][2][CACHE_O1]
                     [CACHE_X1_STRIDE];
 } cb4_cache_arena;
-typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 20480u) ? 1 : -1];
-/* A is repacked for each sequence/output tile and K chunk. */
+typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 262144u) ? 1 : -1];
+/* A is repacked for each outer sequence/output tile and K chunk. */
 typedef int8_t cb4_x_panel[2][CACHE_S2][CACHE_X2_STRIDE];
 
 static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
@@ -96,6 +96,7 @@ static inline __attribute__((always_inline)) void
 cache_pack_x(int8_t *dst, size_t rows, size_t stride, size_t plane, const int8_t *input,
              size_t features, size_t row_base, size_t feature_base,
              size_t tile_features) {
+
     const svbool_t all = svptrue_b8();
     for (size_t row = 0; row < rows; ++row) {
         const int8_t *src = input + ((row_base + row) * features + feature_base) * 2u;
@@ -369,7 +370,7 @@ int sve_gemm_ci_cb4_cache_i8(const uint8_t *indices, size_t index_bytes,
         }
         return 1;
     }
-    // One aligned owner contains C, two physical W panels, one A panel,
+    // One aligned owner contains C, the outer W panels, one A panel,
     // and the full C32 output temporary. The owner lasts through the complete output
     // conversion.
     const size_t x_panels = 1u;

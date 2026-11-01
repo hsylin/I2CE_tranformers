@@ -213,7 +213,7 @@ i2ce_sdot_intrinsic_mr4nr16(const int8_t *packed_a, const int8_t *packed_b,
 static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *packed_a,
                                                                 const int8_t *packed_b,
                                                                 uint32_t *partial_c) {
-    const size_t a_stride = 256u, b_group_stride = 512u, c_stride = 32u;
+    const size_t a_stride = 512u, b_group_stride = 512u, c_stride = 32u;
     const svbool_t bytes = svptrue_b8(), words = svptrue_b32();
     svint32_t sum_r0_g0 = svdup_s32(0);
     svint32_t sum_r0_g1 = svdup_s32(0);
@@ -442,6 +442,6 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16(const int8_t *packed_
                                                            const int8_t *packed_b,
                                                            uint32_t *partial_c,
                                                            size_t padded_features) {
-    i2ce_sdot_intrinsic_mr4nr16(packed_a, packed_b, partial_c, padded_features, 256u,
+    i2ce_sdot_intrinsic_mr4nr16(packed_a, packed_b, partial_c, padded_features, 512u,
                                 512u, 32u);
 }
