@@ -183,10 +183,34 @@ static void guarded_tails() {
     }
 }
 
+static void bounded_output_scratch() {
+    // Keep K fixed while crossing both outer M/N tile boundaries. A full C32
+    // matrix would make the request grow with M*N; the tile owner must not.
+    for (uint16_t features : {256, 1024}) {
+        for (const auto &shape : std::vector<std::pair<uint16_t, uint16_t>>{
+                 {16, 32}, {129, 129}, {256, 256}}) {
+            sve_cb4_scratch_reset();
+            check_case(shape.first, features, shape.second, true);
+            const auto stats = sve_cb4_scratch_get();
+            const uint64_t expected =
+                262144u + ((uint64_t(features) + 511u) / 512u) * 131072u;
+            if (stats.runtime_allocations != 2u || stats.frees != 2u ||
+                stats.max_request_bytes != expected ||
+                stats.requested_bytes != expected * 2u || stats.retained_bytes != 0u) {
+                std::fprintf(stderr, "FAIL: output scratch depends on full matrix\n");
+                std::exit(1);
+            }
+        }
+    }
+    std::puts(
+        "PASS: 6 bounded-scratch cases, each with full-C observer and ordinary output");
+}
+
 int main() {
     if (svcntb() != 16u)
         return 2;
     guarded_tails();
+    bounded_output_scratch();
     unsigned cases = 0;
     for (uint16_t rows : {1, 3, 4, 5, 16, 17}) {
         for (uint16_t columns : {1, 15, 16, 17, 31, 32, 33}) {
