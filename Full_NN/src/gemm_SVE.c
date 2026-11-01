@@ -120,7 +120,7 @@ static svint32x4_t gemm_load_in4_s8(svbool_t pg, const int8_t *row_in_i8) {
  * bits_per_cb = 3 straddles whenever 3i mod 8 > 5. Reaching this path with an
  * 8-entry codebook therefore needs the index stream padded to 4 bits when it
  * is generated, which costs a third more index memory; the generator does
- * that only when asked, and until then CB8 builds keep the svmla path.
+ * that only when requested; unpadded CB8 indices use the svmla path.
  *
  * svtbl_s8 selects within a single vector, which is svcntb() bytes; the
  * 16-byte bound keeps one table valid at every vector length from 128 bits
@@ -348,9 +348,8 @@ static inline int gemm_cb4_2l_full(
     const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
     svuint8_t byte_sel, shifts8;
     gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
-    /* N -> M -> K; only invariant setup is hoisted at this stage. */
     /* M -> N -> K, one output per learner at a time. No cache blocks,
-     * cross-row reuse, packing or partial-K accumulation is introduced. */
+     * cross-row reuse, packing or partial-K accumulation is performed. */
     for (uint32_t m = 0; m < M; ++m) {
         for (uint32_t n = 0; n < N; ++n) {
             gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
@@ -2429,4 +2428,13 @@ void sve_gemm_dense_int8_interleaved_2Learners(
             out_slot[1] = svaddv_s32(svptrue_b32(), acc_v1);
         }
     }
+}
+
+void attention_sdot_mr4nr16(const int8_t *packed_left, const int8_t *packed_right,
+                           uint32_t *accumulators, size_t padded_features,
+                           size_t left_row_stride, size_t right_group_stride,
+                           size_t accumulator_stride) {
+    i2ce_sdot_intrinsic_mr4nr16(packed_left, packed_right, accumulators,
+                               padded_features, left_row_stride,
+                               right_group_stride, accumulator_stride);
 }
