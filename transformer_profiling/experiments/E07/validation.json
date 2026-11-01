@@ -1,0 +1,100 @@
+{
+  "stage": "E07",
+  "validation_status": "not_validated",
+  "production_model_executed": false,
+  "formal_measurements": 0,
+  "tests": [],
+  "test_builds": [
+    {
+      "name": "row",
+      "source": "tests/gemm_row_contract_test.cc",
+      "expected": [
+        "1680",
+        "420"
+      ]
+    },
+    {
+      "name": "codebook",
+      "source": "tests/codebook_compressed_sdot_test.cc",
+      "flags": [
+        "-DI2CE_TEST_CB4_CACHE"
+      ],
+      "expected": [
+        "1278",
+        "8 guard-page",
+        "9 rejected"
+      ]
+    }
+  ],
+  "reference_measurement": {
+    "source_commit": "57ce7d6cb5d6adf222b733d6d27c3aea86ef18ea",
+    "binary_sha256": "a92c02ebc3e8e336b7202ce713f58911bb15ea178c412d5345c1eea03fc64c23"
+  },
+  "reference_validation": {
+    "stage": "E07",
+    "tests": [
+      {
+        "name": "row",
+        "pass_lines": [
+          "PASS: 1680 independent byte-row cases and 420 dense cases, bias/accumulate/tails/output sentinels/input immutability"
+        ],
+        "binary_sha256": "aacfeed41ca7fb7a6f5512cb43c8dea4654d052e872b39a02c9a1c35b76e5258",
+        "log_sha256": "a013497fac4e0ec324fb63ca103fbd541e292b25d57cba6029cb46ff68b7ed52"
+      },
+      {
+        "name": "codebook",
+        "pass_lines": [
+          "PASS: 1278 independent CI01 signed-byte/tail/bias cases, 1278 ordinary-output cases, 8 guard-page cases and 9 rejected descriptors"
+        ],
+        "binary_sha256": "f4302b3e9347191998485169bd3541d9fbd772d850a3fd26ce66a96585f117ea",
+        "log_sha256": "5001024ab7d25dfaac4cc9d7c25d35e0af6dcf6b7d49b26b0f00fa122aa905a7"
+      }
+    ],
+    "test_sources": {
+      "tests/gemm_row_contract_test.cc": "35a62afcb2df02621365806e00cbb4750659f0bf04152978c5fabb3f03d08dae",
+      "tests/codebook_compressed_sdot_test.cc": "d809ccb05e10c3fb6912f4294239c000e17ed8aae7a0ce1613152b2fe0c7c03e"
+    },
+    "K256_core": {
+      "instructions": 204,
+      "machine_words_sha256": "236b0f60b1adace2833f9fcb9ef49734d5f9db0159415a4cd20f14952f04d03d",
+      "vector_stack_accesses": [],
+      "whole_binary_spill_free_claim": false
+    },
+    "production_model_executed": false,
+    "formal_measurements": 0,
+    "limitations": [
+      "Component tests cover the declared bounded inputs; full production tensor values were not observed.",
+      "Rebuilt binaries have no inherited historical timing or Roofline points."
+    ],
+    "compiler_policy": {
+      "common": "-O2",
+      "Full_NN/src/gemm_SVE.c": "-O2 -fno-schedule-insns"
+    },
+    "test_builds": [
+      {
+        "name": "row",
+        "source": "tests/gemm_row_contract_test.cc",
+        "expected": [
+          "1680",
+          "420"
+        ]
+      },
+      {
+        "name": "codebook",
+        "source": "tests/codebook_compressed_sdot_test.cc",
+        "flags": [
+          "-DI2CE_TEST_CB4_CACHE"
+        ],
+        "expected": [
+          "1278",
+          "8 guard-page",
+          "9 rejected"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Historical component proofs do not validate the repaired source or binary.",
+    "No production tensor or timing observation has been collected for this checkpoint."
+  ]
+}
