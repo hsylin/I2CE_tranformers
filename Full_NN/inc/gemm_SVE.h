@@ -9,6 +9,27 @@
 extern "C" {
 #endif
 
+/* Per-invocation runtime scratch accounting; metadata retains no backing storage. */
+typedef struct {
+    uint64_t offline_allocations;
+    uint64_t runtime_allocations;
+    uint64_t frees;
+    uint64_t max_request_bytes;
+    uint64_t requested_bytes;
+    uint64_t allocation_failures;
+    uint64_t retained_bytes;
+    uint64_t peak_W_bytes;
+    uint64_t W_pack_calls;
+    uint64_t W_outer_pack_calls;
+    uint64_t W_assigned_bytes;
+    uint64_t W_useful_bytes;
+    uint64_t A_pack_calls;
+    uint64_t A_assigned_bytes;
+    uint64_t A_useful_bytes;
+} i2ce_cb4_scratch_stats;
+void sve_cb4_scratch_reset(void);
+i2ce_cb4_scratch_stats sve_cb4_scratch_get(void);
+
 /**
  * @brief SVE row kernel for one int8 compact weight row and an input tile.
  *

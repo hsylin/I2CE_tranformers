@@ -1,0 +1,92 @@
+{
+  "stage": "E02",
+  "validation_status": "not_validated",
+  "production_model_executed": false,
+  "formal_measurements": 0,
+  "tests": [],
+  "test_builds": [
+    {
+      "name": "row",
+      "source": "tests/gemm_row_contract_test.cc",
+      "expected": [
+        "1680",
+        "420"
+      ]
+    },
+    {
+      "name": "adapter",
+      "source": "tests/codebook_adapter_test.cc",
+      "sve": false,
+      "expected": [
+        "840"
+      ]
+    }
+  ],
+  "reference_measurement": {
+    "source_commit": "c2159d028aff4e2c035b6bdd3e59bb1b9880e0ec",
+    "binary_sha256": "23e4872af6d7081d1bf84f62f4815c6b94c48e0c59cf1ca78bc029a17bde5004"
+  },
+  "reference_validation": {
+    "stage": "E02",
+    "tests": [
+      {
+        "name": "row",
+        "pass_lines": [
+          "PASS: 1680 independent widened-row cases and 420 dense cases, bias/accumulate/tails/output sentinels/input immutability"
+        ],
+        "binary_sha256": "0c51bacb5b8a0a0eed3e3bb174c723057e76ea11051a31845e2336603c33f620",
+        "log_sha256": "27cf549ccecca468f7ea7c33153a902a570a8ba6b3e715a28ed7f3ec78ad02df"
+      },
+      {
+        "name": "adapter",
+        "pass_lines": [
+          "PASS: 840 independent scalar int32-adapter cases including guarded output and tails"
+        ],
+        "binary_sha256": "79a4b60932c9b6f3c6ee0eb56aa06d21ffe0e33fb28e3c1dd9f96b894833622f",
+        "log_sha256": "4f07fe968875460ab7a9396e40e04ec9f4349c503353811edf4b2ff9724ad347"
+      }
+    ],
+    "test_sources": {
+      "tests/gemm_row_contract_test.cc": "fd26aa635d302201bc39a209bee9ea933d58b777560a23133473b767dd2f9e6b",
+      "tests/codebook_adapter_test.cc": "aab17ec27c941e1158521c37e278efb2ce92302c320153975b5d9cd307bf7b4e"
+    },
+    "K256_core": {
+      "instructions": 229,
+      "machine_words_sha256": "03325c964638d29d2330f106ecb94805f1b68a60f0b09d38ea24831e2c438168",
+      "vector_stack_accesses": [],
+      "whole_binary_spill_free_claim": false
+    },
+    "production_model_executed": false,
+    "formal_measurements": 0,
+    "limitations": [
+      "Component tests cover the declared bounded inputs; full production tensor values were not observed.",
+      "Rebuilt binaries have no inherited historical timing or Roofline points."
+    ],
+    "compiler_policy": {
+      "common": "-O2",
+      "Full_NN/src/gemm_SVE.c": "-O2 -fno-schedule-insns"
+    },
+    "test_builds": [
+      {
+        "name": "row",
+        "source": "tests/gemm_row_contract_test.cc",
+        "expected": [
+          "1680",
+          "420"
+        ]
+      },
+      {
+        "name": "adapter",
+        "source": "tests/codebook_adapter_test.cc",
+        "sve": false,
+        "expected": [
+          "840"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Historical component proofs do not validate the repaired source or binary.",
+    "No production tensor or timing observation has been collected for this checkpoint."
+  ]
+}
