@@ -37,7 +37,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
                 svld1_s8(bytes, packed_a + 3u * a_stride + panel * 128u + feature);
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 0u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 0u * b_group_stride +
                                         4u * feature + 0u);
                 sum_r0_g0 = svdot_lane_s32(sum_r0_g0, w, input_row0, 0);
                 sum_r1_g0 = svdot_lane_s32(sum_r1_g0, w, input_row1, 0);
@@ -46,7 +46,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 1u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 1u * b_group_stride +
                                         4u * feature + 0u);
                 sum_r0_g1 = svdot_lane_s32(sum_r0_g1, w, input_row0, 0);
                 sum_r1_g1 = svdot_lane_s32(sum_r1_g1, w, input_row1, 0);
@@ -55,7 +55,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 2u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 2u * b_group_stride +
                                         4u * feature + 0u);
                 sum_r0_g2 = svdot_lane_s32(sum_r0_g2, w, input_row0, 0);
                 sum_r1_g2 = svdot_lane_s32(sum_r1_g2, w, input_row1, 0);
@@ -64,7 +64,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 3u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 3u * b_group_stride +
                                         4u * feature + 0u);
                 sum_r0_g3 = svdot_lane_s32(sum_r0_g3, w, input_row0, 0);
                 sum_r1_g3 = svdot_lane_s32(sum_r1_g3, w, input_row1, 0);
@@ -73,7 +73,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 0u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 0u * b_group_stride +
                                         4u * feature + 16u);
                 sum_r0_g0 = svdot_lane_s32(sum_r0_g0, w, input_row0, 1);
                 sum_r1_g0 = svdot_lane_s32(sum_r1_g0, w, input_row1, 1);
@@ -82,7 +82,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 1u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 1u * b_group_stride +
                                         4u * feature + 16u);
                 sum_r0_g1 = svdot_lane_s32(sum_r0_g1, w, input_row0, 1);
                 sum_r1_g1 = svdot_lane_s32(sum_r1_g1, w, input_row1, 1);
@@ -91,7 +91,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 2u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 2u * b_group_stride +
                                         4u * feature + 16u);
                 sum_r0_g2 = svdot_lane_s32(sum_r0_g2, w, input_row0, 1);
                 sum_r1_g2 = svdot_lane_s32(sum_r1_g2, w, input_row1, 1);
@@ -100,7 +100,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 3u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 3u * b_group_stride +
                                         4u * feature + 16u);
                 sum_r0_g3 = svdot_lane_s32(sum_r0_g3, w, input_row0, 1);
                 sum_r1_g3 = svdot_lane_s32(sum_r1_g3, w, input_row1, 1);
@@ -109,7 +109,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 0u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 0u * b_group_stride +
                                         4u * feature + 32u);
                 sum_r0_g0 = svdot_lane_s32(sum_r0_g0, w, input_row0, 2);
                 sum_r1_g0 = svdot_lane_s32(sum_r1_g0, w, input_row1, 2);
@@ -118,7 +118,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 1u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 1u * b_group_stride +
                                         4u * feature + 32u);
                 sum_r0_g1 = svdot_lane_s32(sum_r0_g1, w, input_row0, 2);
                 sum_r1_g1 = svdot_lane_s32(sum_r1_g1, w, input_row1, 2);
@@ -127,7 +127,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 2u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 2u * b_group_stride +
                                         4u * feature + 32u);
                 sum_r0_g2 = svdot_lane_s32(sum_r0_g2, w, input_row0, 2);
                 sum_r1_g2 = svdot_lane_s32(sum_r1_g2, w, input_row1, 2);
@@ -136,7 +136,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 3u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 3u * b_group_stride +
                                         4u * feature + 32u);
                 sum_r0_g3 = svdot_lane_s32(sum_r0_g3, w, input_row0, 2);
                 sum_r1_g3 = svdot_lane_s32(sum_r1_g3, w, input_row1, 2);
@@ -145,7 +145,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 0u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 0u * b_group_stride +
                                         4u * feature + 48u);
                 sum_r0_g0 = svdot_lane_s32(sum_r0_g0, w, input_row0, 3);
                 sum_r1_g0 = svdot_lane_s32(sum_r1_g0, w, input_row1, 3);
@@ -154,7 +154,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 1u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 1u * b_group_stride +
                                         4u * feature + 48u);
                 sum_r0_g1 = svdot_lane_s32(sum_r0_g1, w, input_row0, 3);
                 sum_r1_g1 = svdot_lane_s32(sum_r1_g1, w, input_row1, 3);
@@ -163,7 +163,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 2u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 2u * b_group_stride +
                                         4u * feature + 48u);
                 sum_r0_g2 = svdot_lane_s32(sum_r0_g2, w, input_row0, 3);
                 sum_r1_g2 = svdot_lane_s32(sum_r1_g2, w, input_row1, 3);
@@ -172,7 +172,7 @@ static __attribute__((noinline)) void i2ce_sdot_cb_mr4nr16_k256(const int8_t *pa
             }
             {
                 const svint8_t w =
-                    svld1_s8(bytes, packed_b + panel * 2048u + 3u * b_group_stride +
+                    svld1_s8(bytes, packed_b + panel * 8192u + 3u * b_group_stride +
                                         4u * feature + 48u);
                 sum_r0_g3 = svdot_lane_s32(sum_r0_g3, w, input_row0, 3);
                 sum_r1_g3 = svdot_lane_s32(sum_r1_g3, w, input_row1, 3);

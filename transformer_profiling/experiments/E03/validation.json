@@ -1,0 +1,150 @@
+{
+  "stage": "E03",
+  "validation_status": "not_validated",
+  "production_model_executed": false,
+  "formal_measurements": 0,
+  "tests": [],
+  "test_builds": [
+    {
+      "name": "row",
+      "source": "tests/gemm_row_contract_test.cc",
+      "expected": [
+        "1680",
+        "420"
+      ]
+    },
+    {
+      "name": "codebook",
+      "source": "tests/codebook_compressed_sdot_test.cc",
+      "flags": [
+        "-DI2CE_TEST_CB4_CACHE"
+      ],
+      "expected": [
+        "1278",
+        "8 guard-page",
+        "9 rejected"
+      ]
+    },
+    {
+      "name": "index-file",
+      "source": "tests/compressed_index_file_test.cc",
+      "sve": false,
+      "expected": [
+        "20 rejected"
+      ]
+    },
+    {
+      "name": "index-layout",
+      "source": "tests/compressed_index_layout_contract_test.cc",
+      "sve": false,
+      "expected": [
+        "90 independent"
+      ]
+    }
+  ],
+  "reference_measurement": {
+    "source_commit": "d9dff0519ef9bc27b38d8ddeb494d3f4880daed9",
+    "binary_sha256": "3bbcd978081f71dd4e013b8cc30a363aae21d282e58544ec51cad353f5f53c7a"
+  },
+  "reference_validation": {
+    "stage": "E03",
+    "tests": [
+      {
+        "name": "row",
+        "pass_lines": [
+          "PASS: 1680 independent byte-row cases and 420 dense cases, bias/accumulate/tails/output sentinels/input immutability"
+        ],
+        "binary_sha256": "a6467e0103dbd2a9694436324fdc1d7c92170963a0ca4c064a274ed1467cf76d",
+        "log_sha256": "a013497fac4e0ec324fb63ca103fbd541e292b25d57cba6029cb46ff68b7ed52"
+      },
+      {
+        "name": "codebook",
+        "pass_lines": [
+          "PASS: 1278 independent CI01 signed-byte/tail/bias cases, 1278 ordinary-output cases, 8 guard-page cases and 9 rejected descriptors"
+        ],
+        "binary_sha256": "d6a3a21cf30ae17f756b9ca8d2c136cf7552a9f5995e05dd53cb80ba2a7772cf",
+        "log_sha256": "5001024ab7d25dfaac4cc9d7c25d35e0af6dcf6b7d49b26b0f00fa122aa905a7"
+      },
+      {
+        "name": "index-file",
+        "pass_lines": [
+          "PASS: valid CI01 file and 20 rejected header/payload/padding cases"
+        ],
+        "binary_sha256": "4239d256253b94be1c840364f048d1d4227cac6ebf7ecaf332255a281fd10d8c",
+        "log_sha256": "cd49f01183b99326cecb2db3ba8bd2189487186c242cb45ac1af4124ea41775d"
+      },
+      {
+        "name": "index-layout",
+        "pass_lines": [
+          "PASS: 90 independent CI01 storage-order layouts"
+        ],
+        "binary_sha256": "ad5cdd8e8508cd6b0c7d7bf9e184d30c65cd2a34da58c25fae052005eddd25cd",
+        "log_sha256": "c8dd2319213868312c30b2d16c771eb1e668f7655cea1b1c9d1aac899ef28d84"
+      }
+    ],
+    "test_sources": {
+      "tests/gemm_row_contract_test.cc": "35a62afcb2df02621365806e00cbb4750659f0bf04152978c5fabb3f03d08dae",
+      "tests/codebook_compressed_sdot_test.cc": "b4c93449909e0ff2c942ed1d0aa9ab86cd88ac31ba76ab2fcd6d7057f44836a4",
+      "tests/compressed_index_file_test.cc": "b568ad9fe1503dfd668ade7ab6fc8ee0a9e0aaa27d26344444a340182726e314",
+      "tests/compressed_index_layout_contract_test.cc": "bab548e302dfd3df046f6b179a820d9cfb26ae85aecb3513f9458d04b9ae9f76"
+    },
+    "K256_core": {
+      "instructions": 207,
+      "machine_words_sha256": "f7fa546644e229166b8f47d2654f7834e1f8ce1f4ec86029dace2f0dee043eb1",
+      "vector_stack_accesses": [],
+      "whole_binary_spill_free_claim": false
+    },
+    "production_model_executed": false,
+    "formal_measurements": 0,
+    "limitations": [
+      "Component tests cover the declared bounded inputs; full production tensor values were not observed.",
+      "Rebuilt binaries have no inherited historical timing or Roofline points."
+    ],
+    "compiler_policy": {
+      "common": "-O2",
+      "Full_NN/src/gemm_SVE.c": "-O2 -fno-schedule-insns"
+    },
+    "test_builds": [
+      {
+        "name": "row",
+        "source": "tests/gemm_row_contract_test.cc",
+        "expected": [
+          "1680",
+          "420"
+        ]
+      },
+      {
+        "name": "codebook",
+        "source": "tests/codebook_compressed_sdot_test.cc",
+        "flags": [
+          "-DI2CE_TEST_CB4_CACHE"
+        ],
+        "expected": [
+          "1278",
+          "8 guard-page",
+          "9 rejected"
+        ]
+      },
+      {
+        "name": "index-file",
+        "source": "tests/compressed_index_file_test.cc",
+        "sve": false,
+        "expected": [
+          "20 rejected"
+        ]
+      },
+      {
+        "name": "index-layout",
+        "source": "tests/compressed_index_layout_contract_test.cc",
+        "sve": false,
+        "expected": [
+          "90 independent"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Historical component proofs do not validate the repaired source or binary.",
+    "No production tensor or timing observation has been collected for this checkpoint."
+  ]
+}

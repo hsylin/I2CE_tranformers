@@ -57,9 +57,9 @@ void sve_gemm_row_compact_fp32_interleaved_2Learners_same_seq(const uint32_t *pa
 void sve_gemm_row_compact_fp32_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const float *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const float *codebook_interleaved, uint32_t codebook_size, float *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const float *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Int8/int32 compact row kernels for interleaved outputs. */
-void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
-void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int32_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(const uint32_t *packed_rows_interleaved, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
+void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems, const int8_t *in_mat_interleaved, uint32_t seq_tile, uint32_t ld_in_interleaved, const int32_t *codebook_i32_interleaved, uint32_t codebook_size, int32_t *out_mat_interleaved, uint32_t out_col, uint32_t ld_out_interleaved, const int32_t *bias_interleaved, int add_bias, int accumulate, uint8_t bits_per_cb);
 
 /* Dense interleaved int8/int32 GEMM helpers. */
 void sve_gemm_dense_int8_interleaved_4Learners(const int32_t *lhs_interleaved, const int32_t *rhs_by_col_interleaved, uint32_t lhs_rows, uint32_t rhs_cols, uint32_t k_elems, int32_t *out_interleaved);
@@ -74,6 +74,402 @@ void sve_gemm_dense_int8_interleaved_2Learners(const int32_t *lhs_interleaved, c
  */
 static uint32_t gemm_sve_idx_mask(uint8_t bits_per_cb) {
     return (bits_per_cb >= 32u) ? UINT32_MAX : ((1u << bits_per_cb) - 1u);
+}
+
+/*
+ * Load L interleaved int8 activations per K position and sign-extend them to
+ * int32, without materialising an int32 copy of the matrix first.
+ *
+ * The interleaved layout puts the L learner values for one K position in L
+ * adjacent bytes, so for L=4 those bytes are exactly one 32-bit word and for
+ * L=2 exactly one 16-bit halfword. One contiguous load therefore brings in a
+ * whole K position per lane, and each learner is recovered by shifting its byte
+ * into the sign position and arithmetic-shifting it back down. This replaces
+ * svld4_s32/svld2_s32 over a widened buffer: same lanes, same values, a quarter
+ * of the memory traffic.
+ *
+ * Byte j of memory is bits [8j+7:8j] of the loaded element on little-endian
+ * AArch64, which is what makes the shift amounts below the learner order.
+ *
+ * Alignment: the 32-bit form needs a 4-byte aligned base and the 16-bit form a
+ * 2-byte aligned base. Row bases are ld_in_interleaved apart, and that stride
+ * is a multiple of L, so checking the matrix base once is enough; the callers
+ * in gemm_exec.c do exactly that and fall back to the scalar path otherwise.
+ */
+static svint32x4_t gemm_load_in4_s8(svbool_t pg, const int8_t *row_in_i8) {
+    const svint32_t packed =
+        svreinterpret_s32_u32(svld1_u32(pg, (const uint32_t *)(const void *)row_in_i8));
+    return svcreate4_s32(
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 24), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 16), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 8), 24),
+        svasr_n_s32_x(pg, packed, 24));
+}
+
+/*
+ * Can this call use the svdot decode path?
+ *
+ * svdot_s32 consumes four int8 products per 32-bit lane, so the decoded
+ * weights must be produced as bytes, four consecutive K positions to a lane.
+ * That is only possible when a codebook index never straddles a byte
+ * boundary, which means 8 % bits_per_cb == 0. Two widths matter here:
+ *
+ *   bits_per_cb = 2  four indexes per byte, one packed word per 16 K
+ *   bits_per_cb = 4  two indexes per byte, two packed words per 16 K
+ *
+ * bits_per_cb = 3 straddles whenever 3i mod 8 > 5. Reaching this path with an
+ * 8-entry codebook therefore needs the index stream padded to 4 bits when it
+ * is generated, which costs a third more index memory; the generator does
+ * that only when asked, and until then CB8 builds keep the svmla path.
+ *
+ * svtbl_s8 selects within a single vector, which is svcntb() bytes; the
+ * 16-byte bound keeps one table valid at every vector length from 128 bits
+ * up. The codebook values are int8_t in the generated header but reach the
+ * kernel widened to int32, so the range is re-checked rather than assumed.
+ */
+static int gemm_sdot_decode_usable(const int32_t *codebook_i32_interleaved,
+                                   uint32_t codebook_size,
+                                   uint32_t n_learners,
+                                   uint8_t bits_per_cb) {
+    if ((bits_per_cb != 2u) && (bits_per_cb != 4u)) return 0;
+    if ((codebook_size == 0u) || (codebook_size > 16u)) return 0;
+    if (codebook_size > (1u << bits_per_cb)) return 0;
+    if (svcntb() < 16u) return 0;
+    if (codebook_i32_interleaved == NULL) return 0;
+    for (uint32_t i = 0; i < codebook_size * n_learners; i++) {
+        if ((codebook_i32_interleaved[i] < -128) ||
+            (codebook_i32_interleaved[i] > 127)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/*
+ * Narrow one learner's slice of the interleaved int32 codebook into an int8
+ * svtbl_s8 table: byte i holds the weight for index i. Callers must have
+ * cleared scratch and checked gemm_sdot_decode_usable() first.
+ */
+static svint8_t gemm_sdot_cb_table(const int32_t *codebook_i32_interleaved,
+                                   uint32_t codebook_size,
+                                   uint32_t n_learners,
+                                   uint32_t learner,
+                                   int8_t *scratch) {
+    for (uint32_t i = 0; i < codebook_size; i++) {
+        scratch[i] = (int8_t)codebook_i32_interleaved[i * n_learners + learner];
+    }
+    return svld1_s8(svptrue_b8(), scratch);
+}
+
+/*
+ * Lane patterns for the byte-wise decode, both loop invariant.
+ *
+ *   byte_sel[i] = i / (8 / bits)   which packed byte feeds output byte i
+ *   shifts8[i]  = bits * (i % (8 / bits))   where inside it that index sits
+ *
+ * For 2-bit indexes that is i/4 and 2*(i%4); for 4-bit, i/2 and 4*(i%2).
+ */
+static void gemm_sdot_lane_patterns(uint8_t bits_per_cb,
+                                    svuint8_t *byte_sel, svuint8_t *shifts8) {
+    const svbool_t ptrue8 = svptrue_b8();
+    const svuint8_t lanes = svindex_u8(0, 1);
+    const uint32_t sel_shift = (bits_per_cb == 2u) ? 2u : 1u;
+    const uint8_t mod_mask = (uint8_t)((8u / bits_per_cb) - 1u);
+    const uint32_t shift_scale = (bits_per_cb == 2u) ? 1u : 2u;
+    *byte_sel = svlsr_n_u8_x(ptrue8, lanes, sel_shift);
+    *shifts8 = svlsl_n_u8_x(ptrue8, svand_n_u8_x(ptrue8, lanes, mod_mask), shift_scale);
+}
+
+/*
+ * Decode the 16 codebook indexes that one svdot accumulator consumes.
+ *
+ * A 2-bit stream needs 4 packed bytes for 16 indexes and a 4-bit stream needs
+ * 8, so the source words are gathered into one 64-bit value and broadcast;
+ * byte_sel then reaches at most byte 3 or byte 7 of it.
+ *
+ * words_per_iter is always passed as a literal so that each width compiles to
+ * its own copy: at 2 bits the second word, and the bounds test that guards it,
+ * fold away entirely. Leaving it a runtime value cost eight instructions per
+ * iteration, a third of the loop.
+ */
+__attribute__((always_inline))
+static inline svuint8_t gemm_sdot_decode_idxs(svbool_t pg8,
+                                              const uint32_t *packed_row,
+                                              uint32_t cw, uint32_t n_words_row,
+                                              const uint32_t words_per_iter,
+                                              svuint8_t byte_sel,
+                                              svuint8_t shifts8,
+                                              uint8_t idx_mask8) {
+    svuint8_t src;
+    if (words_per_iter > 1u) {
+        const uint32_t cw1 = cw + 1u;
+        const uint64_t hi = (cw1 < n_words_row) ? (uint64_t)packed_row[cw1] : 0u;
+        src = svreinterpret_u8_u64(svdup_n_u64((uint64_t)packed_row[cw] | (hi << 32)));
+    } else {
+        src = svreinterpret_u8_u32(svdup_n_u32(packed_row[cw]));
+    }
+    const svuint8_t spread = svtbl_u8(src, byte_sel);
+    return svand_n_u8_x(pg8, svlsr_u8_x(pg8, spread, shifts8), idx_mask8);
+}
+
+/*
+ * One row-block of the svdot path, two interleaved streams.
+ *
+ * words_per_iter is always passed as a literal so each index width gets its
+ * own specialisation; see gemm_sdot_decode_idxs().
+ */
+__attribute__((always_inline))
+static inline void gemm_sdot_rows_2l(
+    const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems,
+    const int8_t *in_mat_interleaved, uint32_t seq_tile,
+    uint32_t ld_in_interleaved, int32_t *out_mat_interleaved,
+    uint32_t out_col, uint32_t ld_out_interleaved,
+    const int32_t *bias_interleaved, int add_bias, int accumulate,
+    svint8_t cb0_b, svint8_t cb1_b, svuint8_t byte_sel, svuint8_t shifts8,
+    uint8_t idx_mask8, const uint32_t words_per_iter,
+    int8_t *out_i8) {
+    for (uint32_t row = 0; row < seq_tile; row++) {
+        svint32_t acc_v0 = svdup_s32(0);
+        svint32_t acc_v1 = svdup_s32(0);
+        uint32_t input_idx = 0;
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+
+        /* Counted loop: one iteration per 16 K positions, also bounded by the
+         * packed words available. A single induction variable keeps the test
+         * to one compare instead of two. */
+        const uint32_t by_k = (k_elems + 15u) / 16u;
+        const uint32_t by_w = (n_words_row + words_per_iter - 1u) / words_per_iter;
+        const uint32_t n_iters = (by_k < by_w) ? by_k : by_w;
+
+#if CB_SIZE == 4
+        /* CB4/I2 already uses one word per 16 K values in the baseline.
+         * Separate complete 16-K iterations from the guarded final tail;
+         * this does not introduce tiling or eliminate a second I4 word. */
+        const uint32_t full_k = k_elems / 16u;
+        const uint32_t full_w = n_words_row;
+        const uint32_t full_iters = words_per_iter == 1u
+            ? ((full_k < full_w) ? full_k : full_w) : 0u;
+        const svbool_t pg16 = svwhilelt_b8((uint64_t)0, (uint64_t)16);
+        for (uint32_t it = 0; it < full_iters; ++it) {
+            const uint32_t cw = it;
+            const uint32_t packed = packed_row[cw];
+            const svuint8_t spread = svtbl_u8(
+                svreinterpret_u8_u32(svdup_n_u32(packed)), byte_sel);
+            const svuint8_t ix = svand_n_u8_x(pg16,
+                svlsr_u8_x(pg16, spread, shifts8), idx_mask8);
+            const svint8x2_t a = svld2_s8(pg16, &row_in[input_idx * 2u]);
+            acc_v0 = svdot_s32(acc_v0, svget2_s8(a, 0), svtbl_s8(cb0_b, ix));
+            acc_v1 = svdot_s32(acc_v1, svget2_s8(a, 1), svtbl_s8(cb1_b, ix));
+            input_idx += 16u;
+        }
+#else
+        const uint32_t full_iters = 0u;
+#endif
+        for (uint32_t it = full_iters; it < n_iters; it++) {
+            const uint32_t cw = it * words_per_iter;
+            const uint32_t missing_total = k_elems - input_idx;
+            const uint32_t active = (missing_total < 16u) ? missing_total : 16u;
+            svbool_t pg8 = svwhilelt_b8((uint64_t)0, (uint64_t)active);
+
+            svuint8_t cb_idxs8 = gemm_sdot_decode_idxs(
+                pg8, packed_row, cw, n_words_row, words_per_iter,
+                byte_sel, shifts8, idx_mask8);
+
+            svint8_t weights0 = svtbl_s8(cb0_b, cb_idxs8);
+            svint8_t weights1 = svtbl_s8(cb1_b, cb_idxs8);
+
+            /*
+             * svdot_s32 has no predicated form, so the tail is handled on the
+             * activation side: this load is zeroing-predicated, and a zero
+             * activation byte contributes nothing whatever weight byte it is
+             * paired with.
+             */
+            svint8x2_t in_vals = svld2_s8(pg8, &row_in[input_idx * 2u]);
+
+            acc_v0 = svdot_s32(acc_v0, svget2_s8(in_vals, 0), weights0);
+            acc_v1 = svdot_s32(acc_v1, svget2_s8(in_vals, 1), weights1);
+
+            input_idx += active;
+        }
+
+        int32_t acc0 = svaddv_s32(svptrue_b32(), acc_v0);
+        int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
+        if (out_i8 != NULL) {
+            /* Full K has completed. Use modulo arithmetic for bias and keep
+             * exactly the low byte, matching the consumer's existing cast. */
+            const uint32_t b0 = add_bias && bias_interleaved ? (uint32_t)bias_interleaved[0] : 0u;
+            const uint32_t b1 = add_bias && bias_interleaved ? (uint32_t)bias_interleaved[1] : 0u;
+            int8_t *slot = out_i8 + row * ld_out_interleaved + out_col * 2u;
+            slot[0] = (int8_t)(uint8_t)((uint32_t)acc0 + b0);
+            slot[1] = (int8_t)(uint8_t)((uint32_t)acc1 + b1);
+            continue;
+        }
+        if (add_bias && (bias_interleaved != NULL)) {
+            acc0 += bias_interleaved[0];
+            acc1 += bias_interleaved[1];
+        }
+        int32_t *out_slot =
+            &out_mat_interleaved[row * ld_out_interleaved + out_col * 2u];
+        if (accumulate) { out_slot[0] += acc0; out_slot[1] += acc1; }
+        else            { out_slot[0] = acc0;  out_slot[1] = acc1;  }
+    }
+}
+
+int sve_gemm_cb4_2l_row_i8(
+    const uint32_t *indices, uint32_t n_words_row, uint32_t K,
+    const int8_t *input, uint32_t M, uint32_t ld_in,
+    const int32_t *codebook, const int32_t *bias,
+    int8_t *output, uint32_t n, uint32_t ld_out) {
+    if (!gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
+    int8_t cb_bytes0[256] = {0};
+    int8_t cb_bytes1[256] = {0};
+    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
+    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
+    svuint8_t byte_sel, shifts8;
+    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+    gemm_sdot_rows_2l(indices, n_words_row, K, input, M, ld_in, NULL,
+        n, ld_out, bias, 1, 0, cb0, cb1, byte_sel, shifts8, 3u, 1u, output);
+    return 1;
+}
+
+/* Both output sinks share the prepared traversal. The always-inline helper
+ * lets each public entry remove the unused sink at compile time. */
+__attribute__((always_inline))
+static inline int gemm_cb4_2l_full(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias,
+    int32_t *output, int8_t *output_i8) {
+    if (n_words_row < (K + 15u) / 16u ||
+        !gemm_sdot_decode_usable(codebook, 4u, 2u, 2u)) return 0;
+    int8_t cb_bytes0[256] = {0};
+    int8_t cb_bytes1[256] = {0};
+    const svint8_t cb0 = gemm_sdot_cb_table(codebook, 4u, 2u, 0u, cb_bytes0);
+    const svint8_t cb1 = gemm_sdot_cb_table(codebook, 4u, 2u, 1u, cb_bytes1);
+    svuint8_t byte_sel, shifts8;
+    gemm_sdot_lane_patterns(2u, &byte_sel, &shifts8);
+    /* N -> M -> K; only invariant setup is hoisted at this stage. */
+    /* M -> N -> K, one output per learner at a time. No cache blocks,
+     * cross-row reuse, packing or partial-K accumulation is introduced. */
+    for (uint32_t m = 0; m < M; ++m) {
+        for (uint32_t n = 0; n < N; ++n) {
+            gemm_sdot_rows_2l(indices + n * n_words_row, n_words_row, K,
+                input + m * K * 2u, 1u, K * 2u,
+                output ? output + m * N * 2u : NULL, n, N * 2u,
+                bias ? bias + n * 2u : NULL, 1, 0,
+                cb0, cb1, byte_sel, shifts8, 3u, 1u,
+                output_i8 ? output_i8 + m * N * 2u : NULL);
+        }
+    }
+    return 1;
+}
+
+#include "gemm_cb4_cache.h"
+
+int sve_gemm_cb4_2l_full_i32(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int32_t *output) {
+    return gemm_cb4_2l_full(indices, n_words_row, M, N, K, input,
+                           codebook, bias, output, NULL);
+}
+
+int sve_gemm_cb4_2l_full_i8(
+    const uint32_t *indices, uint32_t n_words_row,
+    uint32_t M, uint32_t N, uint32_t K, const int8_t *input,
+    const int32_t *codebook, const int32_t *bias, int8_t *output) {
+    // Materialize all modulo accumulations before the low-byte output pass.
+    const size_t count = (size_t)M * N * 2u;
+    if (count > SIZE_MAX / sizeof(int32_t)) return 0;
+    int32_t *temporary = (int32_t *)malloc(count * sizeof(int32_t));
+    if (!temporary && count) return 0;
+    const int accepted = gemm_cb4_2l_full(indices, n_words_row, M, N, K,
+                                        input, codebook, bias, temporary, NULL);
+    if (accepted)
+        for (size_t i = 0; i < count; ++i)
+            output[i] = (int8_t)(uint8_t)temporary[i];
+    free(temporary);
+    return accepted;
+}
+
+/* Four interleaved streams. All four share one index row in the same_seq
+ * layout, so one decoded byte vector drives four table lookups. */
+__attribute__((always_inline))
+static inline void gemm_sdot_rows_4l(
+    const uint32_t *packed_row, uint32_t n_words_row, uint32_t k_elems,
+    const int8_t *in_mat_interleaved, uint32_t seq_tile,
+    uint32_t ld_in_interleaved, int32_t *out_mat_interleaved,
+    uint32_t out_col, uint32_t ld_out_interleaved,
+    const int32_t *bias_interleaved, int add_bias, int accumulate,
+    svint8_t cb0_b, svint8_t cb1_b, svint8_t cb2_b, svint8_t cb3_b,
+    svuint8_t byte_sel, svuint8_t shifts8,
+    uint8_t idx_mask8, const uint32_t words_per_iter) {
+    for (uint32_t row = 0; row < seq_tile; row++) {
+        svint32_t acc_v0 = svdup_s32(0);
+        svint32_t acc_v1 = svdup_s32(0);
+        svint32_t acc_v2 = svdup_s32(0);
+        svint32_t acc_v3 = svdup_s32(0);
+        uint32_t input_idx = 0;
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+
+        /* Counted loop: one iteration per 16 K positions, also bounded by the
+         * packed words available. A single induction variable keeps the test
+         * to one compare instead of two. */
+        const uint32_t by_k = (k_elems + 15u) / 16u;
+        const uint32_t by_w = (n_words_row + words_per_iter - 1u) / words_per_iter;
+        const uint32_t n_iters = (by_k < by_w) ? by_k : by_w;
+
+        for (uint32_t it = 0; it < n_iters; it++) {
+            const uint32_t cw = it * words_per_iter;
+            const uint32_t missing_total = k_elems - input_idx;
+            const uint32_t active = (missing_total < 16u) ? missing_total : 16u;
+            svbool_t pg8 = svwhilelt_b8((uint64_t)0, (uint64_t)active);
+
+            svuint8_t cb_idxs8 = gemm_sdot_decode_idxs(
+                pg8, packed_row, cw, n_words_row, words_per_iter,
+                byte_sel, shifts8, idx_mask8);
+
+            svint8_t weights0 = svtbl_s8(cb0_b, cb_idxs8);
+            svint8_t weights1 = svtbl_s8(cb1_b, cb_idxs8);
+            svint8_t weights2 = svtbl_s8(cb2_b, cb_idxs8);
+            svint8_t weights3 = svtbl_s8(cb3_b, cb_idxs8);
+
+            svint8x4_t in_vals = svld4_s8(pg8, &row_in[input_idx * 4u]);
+
+            acc_v0 = svdot_s32(acc_v0, svget4_s8(in_vals, 0), weights0);
+            acc_v1 = svdot_s32(acc_v1, svget4_s8(in_vals, 1), weights1);
+            acc_v2 = svdot_s32(acc_v2, svget4_s8(in_vals, 2), weights2);
+            acc_v3 = svdot_s32(acc_v3, svget4_s8(in_vals, 3), weights3);
+
+            input_idx += active;
+        }
+
+        int32_t acc0 = svaddv_s32(svptrue_b32(), acc_v0);
+        int32_t acc1 = svaddv_s32(svptrue_b32(), acc_v1);
+        int32_t acc2 = svaddv_s32(svptrue_b32(), acc_v2);
+        int32_t acc3 = svaddv_s32(svptrue_b32(), acc_v3);
+        if (add_bias && (bias_interleaved != NULL)) {
+            acc0 += bias_interleaved[0]; acc1 += bias_interleaved[1];
+            acc2 += bias_interleaved[2]; acc3 += bias_interleaved[3];
+        }
+        int32_t *out_slot =
+            &out_mat_interleaved[row * ld_out_interleaved + out_col * 4u];
+        if (accumulate) {
+            out_slot[0] += acc0; out_slot[1] += acc1;
+            out_slot[2] += acc2; out_slot[3] += acc3;
+        } else {
+            out_slot[0] = acc0; out_slot[1] = acc1;
+            out_slot[2] = acc2; out_slot[3] = acc3;
+        }
+    }
+}
+
+static svint32x2_t gemm_load_in2_s8(svbool_t pg, const int8_t *row_in_i8) {
+    const svint32_t packed =
+        svreinterpret_s32_u32(svld1uh_u32(pg, (const uint16_t *)(const void *)row_in_i8));
+    return svcreate2_s32(
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 24), 24),
+        svasr_n_s32_x(pg, svlsl_n_s32_x(pg, packed, 16), 24));
 }
 
 #if defined(N_SVE_REG_CB_2)
@@ -1087,7 +1483,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
     const uint32_t *packed_rows_interleaved,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1206,7 +1602,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
         svint32_t acc_v3 = svdup_s32(0);
         uint32_t input_idx = 0;
 
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         for (uint32_t cw = 0; (cw < n_words_row) && (input_idx < k_elems);
              cw += n_lanes) {
@@ -1253,7 +1649,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_diff_seq(
                     cb_idxs3 = svand_u32_z(bits_pg, cb_idxs3, idx_mask_v);
 
                     svint32x4_t in_vals =
-                        svld4_s32(bits_pg, &row_in[input_idx * 4u]);
+                        gemm_load_in4_s8(bits_pg, &row_in[input_idx * 4u]);
                     svint32_t in0 = svget4_s32(in_vals, 0);
                     svint32_t in1 = svget4_s32(in_vals, 1);
                     svint32_t in2 = svget4_s32(in_vals, 2);
@@ -1334,7 +1730,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1367,6 +1763,39 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                 out_slot[0] = bias0;
                 out_slot[1] = bias1;
             }
+        }
+        return;
+    }
+
+    /*
+     * svdot fast path. Each iteration decodes the 16 indexes one svdot
+     * accumulator consumes: one packed word at 2 bits per index, two at
+     * 4 bits. The svmla path below stays as the fallback for every width
+     * whose indexes straddle a byte boundary.
+     */
+    if (gemm_sdot_decode_usable(codebook_i32_interleaved, codebook_size, 2u,
+                                bits_per_cb)) {
+        const uint32_t words_per_iter = (uint32_t)bits_per_cb / 2u;
+        const uint8_t idx_mask8 = (uint8_t)gemm_sve_idx_mask(bits_per_cb);
+        int8_t cb_bytes0[256] = {0};
+        int8_t cb_bytes1[256] = {0};
+        const svint8_t cb0_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 2u, 0u, cb_bytes0);
+        const svint8_t cb1_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 2u, 1u, cb_bytes1);
+        svuint8_t byte_sel, shifts8;
+        gemm_sdot_lane_patterns(bits_per_cb, &byte_sel, &shifts8);
+
+        if (words_per_iter == 1u) {
+            gemm_sdot_rows_2l(packed_row, n_words_row, k_elems, in_mat_interleaved,
+                   seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
+                   ld_out_interleaved, bias_interleaved, add_bias, accumulate,
+                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 1u, NULL);
+        } else {
+            gemm_sdot_rows_2l(packed_row, n_words_row, k_elems, in_mat_interleaved,
+                   seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
+                   ld_out_interleaved, bias_interleaved, add_bias, accumulate,
+                   cb0_b, cb1_b, byte_sel, shifts8, idx_mask8, 2u, NULL);
         }
         return;
     }
@@ -1439,7 +1868,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
          * two interleaved streams, so row_in[input_idx * 2] addresses the next
          * logical K element.
          */
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         /*
          * cw walks the packed weight row in groups of SVE lanes. The final
@@ -1496,7 +1925,7 @@ void sve_gemm_row_compact_int8_interleaved_2Learners_same_seq(
                      *   in1 = stream 1 values
                      */
                     svint32x2_t in_vals =
-                        svld2_s32(bits_pg, &row_in[input_idx * 2u]);
+                        gemm_load_in2_s8(bits_pg, &row_in[input_idx * 2u]);
                     svint32_t in0 = svget2_s32(in_vals, 0);
                     svint32_t in1 = svget2_s32(in_vals, 1);
 
@@ -1575,7 +2004,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
     const uint32_t *packed_row,
     uint32_t n_words_row,
     uint32_t k_elems,
-    const int32_t *in_mat_interleaved,
+    const int8_t *in_mat_interleaved,
     uint32_t seq_tile,
     uint32_t ld_in_interleaved,
     const int32_t *codebook_i32_interleaved,
@@ -1616,6 +2045,45 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
                 out_slot[2] = bias2;
                 out_slot[3] = bias3;
             }
+        }
+        return;
+    }
+
+    /*
+     * svdot fast path, four streams. Identical decode to the two-stream
+     * kernel: all four learners share one index row in the same_seq layout,
+     * so one decoded byte vector drives four svtbl_s8 lookups and four
+     * accumulators. svld4_s8 de-interleaves the four activation streams.
+     */
+    if (gemm_sdot_decode_usable(codebook_i32_interleaved, codebook_size, 4u,
+                                bits_per_cb)) {
+        const uint32_t words_per_iter = (uint32_t)bits_per_cb / 2u;
+        const uint8_t idx_mask8 = (uint8_t)gemm_sve_idx_mask(bits_per_cb);
+        int8_t cb_bytes0[256] = {0};
+        int8_t cb_bytes1[256] = {0};
+        int8_t cb_bytes2[256] = {0};
+        int8_t cb_bytes3[256] = {0};
+        const svint8_t cb0_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 4u, 0u, cb_bytes0);
+        const svint8_t cb1_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 4u, 1u, cb_bytes1);
+        const svint8_t cb2_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 4u, 2u, cb_bytes2);
+        const svint8_t cb3_b =
+            gemm_sdot_cb_table(codebook_i32_interleaved, codebook_size, 4u, 3u, cb_bytes3);
+        svuint8_t byte_sel, shifts8;
+        gemm_sdot_lane_patterns(bits_per_cb, &byte_sel, &shifts8);
+
+        if (words_per_iter == 1u) {
+            gemm_sdot_rows_4l(packed_row, n_words_row, k_elems, in_mat_interleaved,
+                   seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
+                   ld_out_interleaved, bias_interleaved, add_bias, accumulate,
+                   cb0_b, cb1_b, cb2_b, cb3_b, byte_sel, shifts8, idx_mask8, 1u);
+        } else {
+            gemm_sdot_rows_4l(packed_row, n_words_row, k_elems, in_mat_interleaved,
+                   seq_tile, ld_in_interleaved, out_mat_interleaved, out_col,
+                   ld_out_interleaved, bias_interleaved, add_bias, accumulate,
+                   cb0_b, cb1_b, cb2_b, cb3_b, byte_sel, shifts8, idx_mask8, 2u);
         }
         return;
     }
@@ -1705,7 +2173,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
          * logical K element occupies four adjacent int32 values, one per
          * interleaved stream.
          */
-        const int32_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
+        const int8_t *row_in = &in_mat_interleaved[row * ld_in_interleaved];
 
         /*
          * Read packed index words in SVE-width chunks. The same packed row is
@@ -1759,7 +2227,7 @@ void sve_gemm_row_compact_int8_interleaved_4Learners_same_seq(
                      * [s0, s1, s2, s3] into four independent SVE vectors.
                      */
                     svint32x4_t in_vals =
-                        svld4_s32(bits_pg, &row_in[input_idx * 4u]);
+                        gemm_load_in4_s8(bits_pg, &row_in[input_idx * 4u]);
                     svint32_t in0 = svget4_s32(in_vals, 0);
                     svint32_t in1 = svget4_s32(in_vals, 1);
                     svint32_t in2 = svget4_s32(in_vals, 2);
