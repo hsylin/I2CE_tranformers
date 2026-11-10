@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Plot independently measured cache references with native gem5 observations.
+"""Provide native-traffic Roofline quantities and plots for the profiling report.
 
 No simulation or calibration is launched. Unsupported or incomplete experiments
 are listed with reasons; a missing counter is never replaced by an estimate.
 """
 
-import argparse
 from decimal import Decimal, InvalidOperation
 import hashlib
 import html
@@ -13,7 +12,6 @@ import json
 import math
 from pathlib import Path
 import re
-import tempfile
 
 import experiment_names
 import roofline_calibration
@@ -70,7 +68,7 @@ COLORS = {
     "Physical DRAM": "#666f7a",
     "Membus/controller": "#a166bd",
 }
-SCOPES = {"block": "Complete BLOCK", "codebook": "Codebook"}
+SCOPES = {"block": "Complete BLOCK", "codebook": "Codebook", "dense": "Dense QKᵀ / SV"}
 
 
 def require(condition, message):
@@ -311,7 +309,7 @@ def selected_intervals(model, roi, scope):
         model["kind"] == "transformer_gemm"
         and begin is None
         and end == len(labels) - 1,
-        "Codebook view requires a registered whole-transformer measurement",
+        "Derived views require a registered whole-transformer measurement",
     )
     head = ["MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV"]
     tail = [
@@ -325,13 +323,14 @@ def selected_intervals(model, roi, scope):
     heads, remainder = divmod(len(labels) - len(tail), len(head))
     require(
         heads > 0 and remainder == 0 and labels == head * heads + tail,
-        "Codebook view requires separate QKV, Projection, FF1 and FF2 markers",
+        "Derived views require separate QKV, QK, softmax, SV, Projection, FF1 and FF2 markers",
     )
-    return [
-        i
-        for i, label in enumerate(labels)
-        if label in {"MHA_QKV", "Projection", "FF1", "FF2"}
-    ]
+    selected_labels = (
+        {"MHA_QKV", "Projection", "FF1", "FF2"}
+        if scope == "codebook"
+        else {"MHA_QK", "MHA_SV"}
+    )
+    return [i for i, label in enumerate(labels) if label in selected_labels]
 
 
 def counter_terms(snapshots, indices, key):
@@ -349,7 +348,19 @@ def counter_terms(snapshots, indices, key):
     ]
 
 
-def analyze(root, run, calibration=None, scope="block"):
+def current_limitations(recorded, references):
+    """Keep workload caveats while describing the calibration actually applied."""
+    legacy = "Cache slopes are fixed independent write-pattern attainable measurements, not universal maxima."
+    if references.get("compute_source_type") != "measured":
+        return list(recorded)
+    notes = [note for note in recorded if note != legacy]
+    notes.append(
+        "Reference lines are stable streaming SDOT scan medians on matching hardware, not universal maxima."
+    )
+    return notes
+
+
+def analyze(root, run, calibration=None, scope="block", calibration_override=None):
     require(
         run["gem5_revision"] == MODEL_REVISION,
         "Unreviewed gem5 revision/model semantics",
@@ -462,19 +473,37 @@ def analyze(root, run, calibration=None, scope="block"):
     seconds = positive(delta["simTicks"], "ROI simTicks") / frequency
     config = json.loads(files["config"].read_text())
     limits = model_references(config, frequency)
+    theoretical = dict(limits)
     reference_issues = []
     try:
-        require(calibration is not None, "No compatible cache calibration registered")
-        calibration_path = read_artifact(root, calibration)
-        measured = roofline_calibration.references(
-            json.loads(calibration_path.read_text()),
-            config,
-            files["config_ini"],
-            frequency,
-            run["gem5_revision"],
-            limits["compute_ops_per_second"],
+        require(
+            calibration is not None or calibration_override is not None,
+            "No compatible cache calibration registered",
         )
-        limits["memory"] = measured + limits["memory"]
+        calibration_path = (
+            Path(calibration_override)
+            if calibration_override is not None
+            else read_artifact(root, calibration)
+        )
+        record = json.loads(calibration_path.read_text())
+        if record["schema_version"] == 2:
+            measured = roofline_calibration.scan_references(
+                record, config, files["config_ini"], frequency, run["gem5_revision"]
+            )
+            # Apply atomically, only after every reference and identity passes.
+            limits = dict(limits, **measured)
+            limits["theoretical"] = theoretical
+        else:
+            measured = roofline_calibration.references(
+                record,
+                config,
+                files["config_ini"],
+                frequency,
+                run["gem5_revision"],
+                limits["compute_ops_per_second"],
+            )
+            limits["memory"] = measured + limits["memory"]
+        limits["calibration_sha256"] = digest(calibration_path)
     except (
         ValueError,
         KeyError,
@@ -489,7 +518,7 @@ def analyze(root, run, calibration=None, scope="block"):
             selected[DRAM + ".peakBW"] * 10**6,
             next(
                 b["bytes_per_second"]
-                for b in limits["memory"]
+                for b in theoretical["memory"]
                 if b["level"] == "Physical DRAM"
             ),
             rel_tol=1e-9,
@@ -516,6 +545,8 @@ def analyze(root, run, calibration=None, scope="block"):
             * learners
             * (4 * sequence * dimension**2 + 2 * sequence * dimension * feedforward)
         )
+    elif scope == "dense":
+        work = 4 * op["learners"] * op["sequence"] ** 2 * op["dimension"]
     traffic, sources = {}, []
     for level, (read, write) in TRAFFIC.items():
         traffic[level] = dict(
@@ -626,12 +657,13 @@ def analyze(root, run, calibration=None, scope="block"):
         opclass_equivalent_ops=None if dot_count is None else dot_count * 32,
         opclass_to_useful_ratio=None if dot_count is None else dot_count * 32 / work,
         compute_fraction=performance / limits["compute_ops_per_second"],
-        limitations=run["limitations"],
+        limitations=current_limitations(run["limitations"], limits),
+        recorded_limitations=list(run["limitations"]),
         artifacts=run["artifacts"],
     )
 
 
-def load(path, scope="block"):
+def load(path, scope="block", calibration_override=None):
     path = Path(path)
     manifest = json.loads(path.read_text())
     require(
@@ -661,7 +693,13 @@ def load(path, scope="block"):
             continue
         try:
             supported.append(
-                analyze(path.parent, run, manifest.get("calibration"), scope)
+                analyze(
+                    path.parent,
+                    run,
+                    manifest.get("calibration"),
+                    scope,
+                    calibration_override,
+                )
             )
         except (
             ValueError,
@@ -677,6 +715,9 @@ def load(path, scope="block"):
     return dict(
         method=manifest["method"],
         manifest_sha256=digest(path),
+        calibration_override_sha256=(
+            digest(calibration_override) if calibration_override is not None else None
+        ),
         observations=supported,
         skipped=skipped,
         scope=scope,
@@ -829,10 +870,61 @@ def figure(observation):
     )
 
 
+def scope_description_html(scope):
+    """Explain the measured boundary before showing its Roofline plots."""
+    if scope == "codebook":
+        title = "Codebook coverage: every projection head and both feed-forward layers"
+        rows = [
+            ("Q = XW<sub>Q</sub>", "All heads", "Query projection"),
+            ("K = XW<sub>K</sub>", "All heads", "Key projection"),
+            ("V = XW<sub>V</sub>", "All heads", "Value projection"),
+            (
+                "Concat(SV<sub>1</sub>, …, SV<sub>H</sub>) W<sub>S</sub>",
+                "Output projection",
+                "Projects concatenated head outputs back to the model dimension",
+            ),
+            ("FF1", "D → F", "Expands the feature dimension"),
+            ("FF2", "F → D", "Returns to the model dimension"),
+        ]
+    elif scope == "dense":
+        title = "Dense matrix products: QKᵀ and SV across all heads"
+        rows = [
+            (
+                "QK<sup>T</sup>",
+                "All heads",
+                "Query–key product interval, including score-buffer setup",
+            ),
+            (
+                "SV",
+                "All heads",
+                "Softmax probability matrix S × V interval, including V transpose, rescaling and head-output copy",
+            ),
+        ]
+    else:
+        return (
+            "<p><strong>Complete BLOCK coverage:</strong> elapsed time and traffic span the "
+            "whole registered block, including non-GEMM work. The numerator counts useful "
+            "GEMM operations only.</p>"
+        )
+    table_rows = "".join(
+        "<tr>" + "".join("<td>" + cell + "</td>" for cell in row) + "</tr>"
+        for row in rows
+    )
+    return (
+        '<aside class="scope-coverage" style="border:1px solid #b6cce2;'
+        "border-left:5px solid #245d89;border-radius:6px;padding:16px 20px;"
+        'margin:18px 0;background:#f3f8fc;color:#233247">'
+        '<h2 style="margin:0 0 12px;font-size:20px">' + title + "</h2>"
+        '<table style="width:100%;border-collapse:collapse;text-align:left">'
+        "<thead><tr><th>Included operation</th><th>Coverage</th><th>Role</th></tr></thead>"
+        "<tbody>" + table_rows + "</tbody></table></aside>"
+    )
+
+
 def summary_html(result):
     """Show unavailable data; normal observations go straight to their plots."""
     esc = lambda value: html.escape(str(value))
-    parts = []
+    parts = [scope_description_html(result.get("scope", "block"))]
     issues = [
         o["id"] + ": " + issue
         for o in result["observations"]
@@ -872,137 +964,3 @@ def evidence_paths(path):
             for a in r.get("artifacts", {}).values()
         ]
     )
-
-
-def render(result, codebook=None):
-    from plotly.offline import get_plotlyjs
-    import plotly.io as pio
-
-    views = [codebook, result] if codebook is not None else [result]
-    sections, buttons = [], []
-    for view in views:
-        scope = view.get("scope", "block")
-        buttons.append(
-            '<button type="button" data-scope="'
-            + scope
-            + '">'
-            + SCOPES[scope]
-            + "</button>"
-        )
-        charts = "\n".join(
-            pio.to_html(
-                figure(o),
-                include_plotlyjs=False,
-                full_html=False,
-                config=dict(
-                    displaylogo=False,
-                    responsive=True,
-                    toImageButtonOptions=dict(format="svg"),
-                ),
-            )
-            for o in view["observations"]
-        )
-        sections.append(
-            '<section data-scope-view="'
-            + scope
-            + '">'
-            + summary_html(view)
-            + charts
-            + "</section>"
-        )
-    metadata = json.dumps({v["scope"]: v for v in views}, ensure_ascii=True).replace(
-        "<", "\\u003c"
-    )
-    return (
-        "<!doctype html><html lang='en'><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Roofline</title><style>"
-        "body{font:15px system-ui;max-width:1250px;margin:28px auto;padding:0 20px;color:#233247}"
-        "table{border-collapse:collapse;font-size:14px;width:100%}"
-        "th,td{padding:7px;border-bottom:1px solid #dae0e7;text-align:left}"
-        "details{margin:16px 0}li{margin:6px 0}button{font:inherit;padding:9px 16px;"
-        "border:1px solid #cbd5e1;background:white;border-radius:5px;cursor:pointer;margin-right:8px}"
-        "button[aria-pressed=true]{background:#234e75;color:white}"
-        "[hidden]{display:none!important}</style><script>"
-        + get_plotlyjs()
-        + '</script><body><h1>Roofline</h1><nav aria-label="Scope">'
-        + "".join(buttons)
-        + "</nav>"
-        + "".join(sections)
-        + '<script type="application/json" id="roofline-data">'
-        + metadata
-        + "</script><script>"
-        + """
-function selectScope(scope){
- document.querySelectorAll('[data-scope-view]').forEach(e=>e.hidden=e.dataset.scopeView!==scope);
- document.querySelectorAll('[data-scope]').forEach(e=>e.setAttribute('aria-pressed',e.dataset.scope===scope));
- document.querySelectorAll('section:not([hidden]) .plotly-graph-div').forEach(e=>Plotly.Plots.resize(e));
-}
-document.querySelectorAll('[data-scope]').forEach(e=>e.addEventListener('click',()=>selectScope(e.dataset.scope)));
-selectScope(document.querySelector('[data-scope]').dataset.scope);
-</script></body></html>"""
-    )
-
-
-def write_output(path, content, inputs):
-    path = Path(path).resolve()
-    require(
-        path not in {Path(p).resolve() for p in inputs},
-        "Output must not overwrite an input",
-    )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, delete=False
-    ) as stream:
-        stream.write(content)
-        temporary = Path(stream.name)
-    temporary.replace(path)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument(
-        "--output", type=Path, required=True, help="Offline HTML output"
-    )
-    parser.add_argument(
-        "--json-output",
-        type=Path,
-        help="Optional recomputed quantities and skip reasons",
-    )
-    parser.add_argument("--scope", choices=["both", *SCOPES], default="both")
-    args = parser.parse_args()
-    inputs = evidence_paths(args.input)
-    require(
-        args.json_output is None or args.output.resolve() != args.json_output.resolve(),
-        "Output paths must differ",
-    )
-    require(
-        all(
-            p.resolve() not in {v.resolve() for v in inputs}
-            for p in [args.output, args.json_output]
-            if p is not None
-        ),
-        "Output must not overwrite an input",
-    )
-    result = load(args.input, "block" if args.scope == "both" else args.scope)
-    codebook = load(args.input, "codebook") if args.scope == "both" else None
-    write_output(args.output, render(result, codebook), inputs)
-    if args.json_output:
-        write_output(
-            args.json_output,
-            json.dumps(
-                {"block": result, "codebook": codebook} if codebook else result,
-                indent=2,
-                ensure_ascii=False,
-            )
-            + "\n",
-            inputs,
-        )
-    print(
-        f"Roofline: {len(result['observations'])} supported, {len(result['skipped'])} skipped; {args.output}"
-    )
-
-
-if __name__ == "__main__":
-    main()

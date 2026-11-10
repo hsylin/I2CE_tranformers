@@ -112,7 +112,7 @@ class RooflineTest(unittest.TestCase):
             fig["layout"]["yaxis"]["title"]["text"], "Useful integer Gop/s"
         )
 
-    def test_registered_stage_name_is_shared_by_both_scopes_without_changing_values(
+    def test_registered_stage_name_is_shared_by_all_scopes_without_changing_values(
         self,
     ):
         before = {scope: roofline.load(self.path, scope) for scope in roofline.SCOPES}
@@ -264,6 +264,99 @@ class RooflineTest(unittest.TestCase):
         )
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir()})
 
+    def test_dense_uses_all_head_intervals_and_completes_gemm_work(self):
+        o = roofline.load(self.path, "dense")["observations"][0]
+        blocks = roofline.stats_blocks(self.root / "stats.txt")
+        selected = [1, 3, 5, 7, 9, 11, 13, 15]
+        self.assertEqual([i["end_block"] for i in o["selected_intervals"]], selected)
+        self.assertEqual(o["operations"], 4 * 2 * 512**2 * 256)
+        ticks = sum(
+            blocks[i][0]["simTicks"] - blocks[i - 1][0]["simTicks"] for i in selected
+        )
+        self.assertEqual(o["seconds"], ticks / 10**12)
+        for level, keys in roofline.TRAFFIC.items():
+            for direction, key in zip(("read", "write"), keys):
+                expected = sum(
+                    blocks[i][0][key] - blocks[i - 1][0][key] for i in selected
+                )
+                self.assertEqual(o["traffic"][level][direction], expected)
+        for point in o["points"]:
+            self.assertEqual(point["ai"], o["operations"] / point["bytes"])
+            self.assertEqual(point["performance"], o["operations"] / o["seconds"])
+        codebook = roofline.load(self.path, "codebook")["observations"][0]
+        block = roofline.load(self.path, "block")["observations"][0]
+        self.assertEqual(o["operations"] + codebook["operations"], block["operations"])
+        self.assertLess(o["seconds"] + codebook["seconds"], block["seconds"])
+
+    def test_dense_ignores_projection_time_and_traffic(self):
+        original = roofline.load(self.path, "dense")["observations"][0]
+        blocks = roofline.stats_blocks(self.root / "stats.txt")
+        for index, (values, _) in enumerate(blocks):
+            if index >= 17:  # Output projection; outside both dense matrix products.
+                values["simTicks"] += 10**12
+                values["finalTick"] += 10**12
+                values[roofline.TRAFFIC["Core–L1D"][0]] += 10**9
+            for level, (r, w, scale) in roofline.RATES.items():
+                for rate, counter in zip((r, w), roofline.TRAFFIC[level]):
+                    values[rate] = (
+                        values[counter]
+                        / (values["simTicks"] / values["simFreq"])
+                        / scale
+                    )
+        text = "\n".join(
+            "---------- Begin Simulation Statistics ----------\n"
+            + "\n".join(f"{k} {v}" for k, v in values.items())
+            + "\n---------- End Simulation Statistics ----------"
+            for values, _ in blocks
+        )
+        self.edit_artifact("stats", lambda _: text)
+        derived = roofline.load(self.path, "dense")["observations"][0]
+        self.assertEqual(derived["seconds"], original["seconds"])
+        self.assertEqual(derived["traffic"], original["traffic"])
+        self.assertGreater(roofline.load(self.path)["observations"][0]["seconds"], 1)
+
+    def test_dense_dimensions_and_partition_validation(self):
+        self.run["operation_model"].update(learners=3, sequence=128, dimension=512)
+        self.rebind_measurement()
+        self.save()
+        o = roofline.load(self.path, "dense")["observations"][0]
+        self.assertEqual(o["operations"], 4 * 3 * 128**2 * 512)
+        self.run["roi"]["labels"][2] = "fused_softmax"
+        self.edit_artifact(
+            "regions", lambda s: s.replace("\tMHA_softmax\n", "\tfused_softmax\n", 1)
+        )
+        self.rebind_measurement()
+        self.save()
+        self.assertEqual(len(roofline.load(self.path)["observations"]), 1)
+        result = roofline.load(self.path, "dense")
+        self.assertFalse(result["observations"])
+        self.assertIn("separate QKV", result["skipped"][-1]["reason"])
+
+    def test_scope_coverage_highlights_included_operations(self):
+        codebook = roofline.scope_description_html("codebook")
+        for text in (
+            "Q = XW",
+            "K = XW",
+            "V = XW",
+            "All heads",
+            "Concat(SV",
+            "FF1",
+            "FF2",
+            "D → F",
+            "F → D",
+        ):
+            self.assertIn(text, codebook)
+        self.assertNotIn("Includes every MHA_QKV interval", codebook)
+        dense = roofline.scope_description_html("dense")
+        self.assertIn("QK<sup>T</sup>", dense)
+        self.assertNotIn("Only the MHA_QK and MHA_SV intervals", dense)
+        self.assertIn("probability matrix S", dense)
+        self.assertIn("V transpose, rescaling and head-output copy", dense)
+        self.assertIn("score-buffer setup", dense)
+        self.assertNotIn("Attention Roofline", dense)
+        for description in (codebook, dense):
+            self.assertNotIn("Time and native traffic counters", description)
+
     def test_codebook_does_not_use_a_fraction_of_block_time_or_bytes(self):
         original = roofline.load(self.path, "codebook")["observations"][0]
         blocks = roofline.stats_blocks(self.root / "stats.txt")
@@ -328,7 +421,7 @@ class RooflineTest(unittest.TestCase):
                 s,
             ),
         )
-        for scope in ("block", "codebook"):
+        for scope in roofline.SCOPES:
             result = roofline.load(self.path, scope)
             self.assertFalse(result["observations"])
             self.assertIn("Controller bytes differ", result["skipped"][-1]["reason"])
@@ -479,25 +572,6 @@ class RooflineTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             roofline.load(self.path)
 
-    def test_cli_protects_raw_inputs(self):
-        stats = self.root / "stats.txt"
-        before = stats.read_bytes()
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(ROOT / "transformer_profiling/roofline.py"),
-                "--input",
-                str(self.path),
-                "--output",
-                str(stats),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(stats.read_bytes(), before)
-
     def test_report_tab_is_optional_and_keeps_run_provenance(self):
         output = self.root.parent / "report.html"
         command = [
@@ -523,7 +597,18 @@ class RooflineTest(unittest.TestCase):
         self.assertNotIn("Evidence manifest:", main)
         self.assertNotIn("Solid points: measured", main)
         self.assertIn("Unavailable data", main)
-        self.assertNotIn("<table", main)
+        self.assertIn('class="scope-coverage"', main)
+        self.assertIn('data-view="roofline-dense"', page)
+        self.assertNotIn('"sdot_scan_report"', page)
+        self.assertNotIn(str(self.root), page)
+        for text in (
+            "Reference lines use the stable SDOT scan medians",
+            "SDOT scan: measured references and all results",
+            "Only the MHA_QK and MHA_SV intervals",
+            "Includes every MHA_QKV interval",
+            "Time and native traffic counters",
+        ):
+            self.assertNotIn(text, main)
         self.assertIn("No matching native CommMonitor", page)
         before = (self.root / "stats.txt").read_bytes()
         command[-1] = str(self.root / "stats.txt")
@@ -531,7 +616,7 @@ class RooflineTest(unittest.TestCase):
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual((self.root / "stats.txt").read_bytes(), before)
 
-    def test_report_selection_matches_source_and_binary_in_both_scopes(self):
+    def test_report_selection_matches_source_and_binary_in_all_scopes(self):
         report.load_dependencies()
         frame, totals, stages = report.load_data(ROOT / "transformer_profiling/final")
         observation = roofline.load(self.path)["observations"][0]
@@ -560,7 +645,7 @@ class RooflineTest(unittest.TestCase):
         self.assertIn('data-tab="roofline-codebook"', page)
         self.assertIn('data-tab="roofline"', page)
         self.assertEqual(
-            page.count('"source_commit": "' + observation["source_commit"] + '"'), 2
+            page.count('"source_commit": "' + observation["source_commit"] + '"'), 3
         )
 
 
@@ -641,10 +726,10 @@ class ReportDiscoveryTest(unittest.TestCase):
             for f in specs.values()
             if f["layout"].get("meta", {}).get("method") == "measured_cache_references"
         ]
-        self.assertEqual(len(figures), 4)  # Two scopes for each distinct run.
+        self.assertEqual(len(figures), 6)  # Three scopes for each distinct run.
         self.assertEqual(
             sorted(f["layout"]["meta"]["scope"] for f in figures),
-            ["block", "block", "codebook", "codebook"],
+            ["block", "block", "codebook", "codebook", "dense", "dense"],
         )
         for figure in figures:
             actual = [
@@ -658,7 +743,12 @@ class ReportDiscoveryTest(unittest.TestCase):
         )
         self.assertEqual(
             {v["path"] for v in provenance["roofline_manifests"]},
-            {str(p.resolve()) for p in (a, b, broken / "roofline.json")},
+            {"roofline.json"},
+        )
+        self.assertEqual(len(provenance["roofline_manifests"]), 3)
+        self.assertEqual(
+            {v["sha256"] for v in provenance["roofline_manifests"]},
+            {roofline.digest(p) for p in (a, b, broken / "roofline.json")},
         )
 
     def test_discovered_raw_evidence_cannot_be_overwritten(self):

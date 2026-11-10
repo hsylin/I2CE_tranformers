@@ -1,5 +1,11 @@
 # TiC-SAT
 
+The [SDOT Roofline scan](transformer_profiling/roofline-method.md#sdot-scan-commands) measures single-core
+INT8/SVE128 throughput and memory traffic with 812 conditions repeated three
+times. The [scan results and Transformer reports](reports/README.md) include
+all measurements, stability checks and explicit source identities. Updating
+the calibration does not change historical model observations.
+
 TiC-SAT is an architecture and framework for tightly-coupled systolic arrays devoted to accelerating transformer applications. 
 It is a  model for systolic array acceleration in the gem5-X full system simulator and defined its interface with custom extensions to the ARMv8 instruction set. 
 

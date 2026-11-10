@@ -1419,6 +1419,7 @@ def build_report(
     interpretation_html="",
     marker_schemes=None,
     roofline_identities=None,
+    roofline_calibration=None,
 ):
     specs, sections = {}, []
     provenance = dict(provenance or {})
@@ -1464,13 +1465,14 @@ def build_report(
         provenance["roofline_results"] = []
         for scope, tab, title in [
             ("codebook", "roofline-codebook", "Codebook Roofline"),
+            ("dense", "roofline-dense", "Dense QKᵀ / SV Roofline"),
             ("block", "roofline", "Complete BLOCK Roofline"),
         ]:
             tabs.append((tab, title))
             for manifest in manifests:
                 manifest = Path(manifest)
                 try:
-                    result = roofline.load(manifest, scope)
+                    result = roofline.load(manifest, scope, roofline_calibration)
                     if roofline_identities is not None:
                         result["observations"] = [
                             observation
@@ -1507,7 +1509,8 @@ def build_report(
                 )
                 provenance["roofline_results"].append(
                     {
-                        "manifest": str(manifest),
+                        "manifest": manifest.name,
+                        "manifest_sha256": result.get("manifest_sha256"),
                         "scope": scope,
                         "observations": [
                             {
@@ -1606,7 +1609,7 @@ def build_report(
         + "</style><script>"
         + bundle
         + '</script></head><body><main><header class="report-header"><h1>Transformer Inference Performance</h1></header>'
-        '<div class="toolbar"><label'
+        + '<div class="toolbar"><label'
         + (' style="display:none"' if len(models) == 1 else "")
         + '>Model <select id="model">'
         + options
@@ -1632,7 +1635,7 @@ function refresh(){
  document.querySelectorAll('.model-view').forEach(e=>e.classList.toggle('hidden',e.dataset.model!==model.value));
  document.querySelectorAll('[data-tab]').forEach(e=>e.classList.toggle('hidden',e.dataset.tab!==activeTab));
  document.querySelectorAll('[data-view]').forEach(e=>{e.classList.toggle('active',e.dataset.view===activeTab);e.setAttribute('aria-pressed',e.dataset.view===activeTab);});
- model.disabled=['tiles','scaling','phases','cache','roofline','roofline-codebook'].includes(activeTab);
+ model.disabled=['tiles','scaling','phases','cache','roofline','roofline-codebook','roofline-dense'].includes(activeTab);
  document.querySelectorAll('.graph').forEach(e=>{if(e.offsetParent!==null){if(!e.dataset.drawn){e.dataset.drawn='1';const s=specs[e.id];Plotly.newPlot(e,s.data,s.layout,{responsive:true,displaylogo:false,locale:'en',toImageButtonOptions:{format:'svg',filename:e.id}});}else{Plotly.Plots.resize(e);}}});
 }
 model.addEventListener('change',refresh);document.querySelectorAll('[data-view]').forEach(e=>e.addEventListener('click',()=>{activeTab=e.dataset.view;refresh();}));refresh();
@@ -1658,9 +1661,14 @@ def atomic_write(path, text):
 
 def source_provenance(path):
     info = {
-        "input": str(path),
+        "input": Path(path).name,
         "inputs": [
-            {"path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+            {
+                "path": str(
+                    p.relative_to(path if Path(path).is_dir() else Path(path).parent)
+                ),
+                "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+            }
             for p in input_files(path)
         ],
         "pandas": pd.__version__,
@@ -1741,6 +1749,7 @@ def roofline_evidence_paths(manifests):
 
 def generate(args, get_plotlyjs):
     optional = optional_paths(args)
+    calibration = getattr(args, "calibration", None)
     manifests = roofline_manifests(args.input, args.roofline)
     if optional["roofline"] not in manifests:
         optional["roofline"] = None
@@ -1748,6 +1757,8 @@ def generate(args, get_plotlyjs):
         p.resolve() for p in optional.values() if p is not None
     }
     inputs.update(p.resolve() for p in roofline_evidence_paths(manifests))
+    if calibration:
+        inputs.add(calibration.resolve())
     saved_inputs = set(inputs)
     if args.interpretation:
         inputs.add(args.interpretation)
@@ -1775,6 +1786,11 @@ def generate(args, get_plotlyjs):
         args.marker_schemes, saved_inputs, set(totals.exp_id)
     )
     provenance = source_provenance(args.input)
+    if calibration:
+        provenance["roofline_calibration_override"] = dict(
+            path=calibration.name,
+            sha256=hashlib.sha256(calibration.read_bytes()).hexdigest(),
+        )
     if args.marker_schemes:
         provenance["marker_schemes_sha256"] = hashlib.sha256(
             args.marker_schemes.read_bytes()
@@ -1796,7 +1812,7 @@ def generate(args, get_plotlyjs):
         ).hexdigest()
         provenance["roofline_manifests"] = [
             {
-                "path": str(path),
+                "path": path.name,
                 "sha256": (
                     hashlib.sha256(path.read_bytes()).hexdigest()
                     if path.is_file()
@@ -1808,7 +1824,7 @@ def generate(args, get_plotlyjs):
     for key, path in optional.items():
         if path and (key != "roofline" or path.is_file()):
             provenance[key] = {
-                "path": str(path),
+                "path": path.name,
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
     import plotly
@@ -1825,6 +1841,7 @@ def generate(args, get_plotlyjs):
         phase_path=optional["phase_results"],
         cache_path=optional["cache_comparison"],
         roofline_path=manifests,
+        roofline_calibration=calibration,
         provenance=provenance,
         compact_labels=args.compact_labels,
         single_run_study=args.single_run_study,
@@ -1864,6 +1881,8 @@ def watched_state(args):
         getattr(args, key) or folder / name for key, name in OPTIONAL_RESULTS.items()
     )
     paths.update(roofline_evidence_paths(roofline_manifests(args.input, args.roofline)))
+    if getattr(args, "calibration", None):
+        paths.add(args.calibration)
     if args.interpretation:
         paths.add(args.interpretation)
     if args.marker_schemes:
@@ -1901,6 +1920,11 @@ def main(argv=None):
     )
     parser.add_argument("--tile-results", type=Path)
     parser.add_argument("--scaling-results", type=Path)
+    parser.add_argument(
+        "--calibration",
+        type=Path,
+        help="Explicit measured Roofline calibration; workload evidence is unchanged",
+    )
     parser.add_argument(
         "--roofline",
         type=Path,

@@ -20,7 +20,7 @@ LABELS = ["MHA_QKV", "MHA_QK", "MHA_softmax", "MHA_SV"] * 4 + [
 
 def bundle(folder):
     folder.mkdir(parents=True)
-    calibration = ROOT / "transformer_profiling/calibration/cache-a.json"
+    calibration = ROOT / "tests/fixtures/roofline/legacy-cache-calibration.json"
     shutil.copyfile(calibration, folder / "calibration.json")
     c = json.loads(calibration.read_text())
     config = dict(system=c["hardware"]["system"])
