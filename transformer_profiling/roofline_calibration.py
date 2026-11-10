@@ -5,6 +5,14 @@ import json
 import configparser
 import math
 import re
+import statistics
+
+
+QUALITY = {
+    "last_two_pass_delta_max": 0.05,
+    "repeat_range_fraction_max": 0.05,
+    "median_empty_overhead_max": 0.01,
+}
 
 
 HARDWARE_COMPONENTS = (
@@ -48,9 +56,9 @@ def ini_identity(path):
     return result
 
 
-def references(record, config, config_ini, frequency, revision, compute_peak):
-    """Reject incompatible calibration; never estimate a replacement cache roof."""
-    if record["schema_version"] != 1 or record["gem5_revision"] != revision:
+def validate_identity(record, config, config_ini, frequency, revision):
+    """Validate both complete hardware representations before accepting rates."""
+    if record["schema_version"] not in (1, 2) or record["gem5_revision"] != revision:
         raise ValueError("Unsupported calibration schema or gem5 revision")
     identity = hardware_identity(config, frequency)
     if identity_hash(identity) != record["hardware_sha256"]:
@@ -63,6 +71,100 @@ def references(record, config, config_ini, frequency, revision, compute_peak):
         re.fullmatch(r"[a-f0-9]{64}", sha) for sha in record["source_hashes"].values()
     ):
         raise ValueError("Calibration source hashes are incomplete")
+
+
+def stable_rate(sample, frequency, quality, source_hashes):
+    """Recompute the two-pass / three-repeat gates from exact saved counters."""
+    if quality != QUALITY:
+        raise ValueError("Calibration stability thresholds differ")
+    passes = sample["passes"]
+    if (
+        len(passes) != 2
+        or any(type(p) is not int or p <= 0 for p in passes)
+        or passes[0] >= passes[1]
+    ):
+        raise ValueError("Calibration needs two increasing pass counts")
+    rows = sample["samples"]
+    if sorted((r["passes"], r["experiment"]) for r in rows) != [
+        (p, ex) for p in passes for ex in range(3)
+    ]:
+        raise ValueError("Calibration needs exactly three repeats at each pass count")
+    rates, overheads = {p: [] for p in passes}, []
+    for row in rows:
+        for key in ("sim_ticks", "count", "empty_ticks"):
+            if type(row[key]) is not int or row[key] < 0:
+                raise ValueError("Calibration counters must be nonnegative integers")
+        if row["sim_ticks"] <= 0 or row["count"] <= 0 or row["empty_ticks"] <= 0:
+            raise ValueError("Calibration counters must be positive")
+        raw = "runs/exp%d/stats.txt" % row["experiment"]
+        if row["stats_sha256"] != source_hashes[raw]:
+            raise ValueError("Calibration sample is not bound to its raw statistics")
+        rates[row["passes"]].append(row["count"] * frequency / row["sim_ticks"])
+        if row["passes"] == passes[-1]:
+            overheads.append(row["empty_ticks"] / row["sim_ticks"])
+    a, z = (statistics.median(rates[p]) for p in passes)
+    delta = abs(z - a) / max(z, a)
+    spread = (max(rates[passes[-1]]) - min(rates[passes[-1]])) / z
+    if (
+        delta > quality["last_two_pass_delta_max"]
+        or spread > quality["repeat_range_fraction_max"]
+        or statistics.median(overheads) > quality["median_empty_overhead_max"]
+    ):
+        raise ValueError("Calibration selected an unstable condition")
+    if not math.isclose(sample["rate_per_second"], z, rel_tol=1e-12):
+        raise ValueError("Calibration counters do not reproduce its median rate")
+    return z
+
+
+def scan_references(record, config, config_ini, frequency, revision):
+    """One empirical compute reference and three boundary-specific slopes."""
+    validate_identity(record, config, config_ini, frequency, revision)
+    if (
+        record["schema_version"] != 2
+        or record["pattern"] != "streaming-int8-sve128-sdot"
+    ):
+        raise ValueError("Unsupported scan calibration pattern")
+    quality, hashes = record["quality"], record["source_hashes"]
+    compute = stable_rate(record["compute"], frequency, quality, hashes)
+    memory = []
+    for level in ("Core–L1D", "L1D–L2", "Physical DRAM"):
+        sample = record["references"][level]
+        if sample["direction"] != "total" or sample["source_type"] != "measured":
+            raise ValueError("Calibration must use measured combined traffic")
+        rate = stable_rate(sample, frequency, quality, hashes)
+        memory.append(
+            dict(
+                level=level,
+                direction="total",
+                bytes_per_second=rate,
+                ridge_ops_per_byte=compute / rate,
+                source_type="measured",
+                formula="Median of three native (read + write bytes) / gem5 ROI seconds",
+                config_fields={"hardware_sha256": record["hardware_sha256"]},
+                calibration_id=record["id"],
+                sample=sample,
+                source_hashes=hashes,
+                qualification="Best stable SDOT scan observation at this boundary; pattern-specific, not a universal maximum.",
+            )
+        )
+    return dict(
+        compute_ops_per_second=compute,
+        memory=memory,
+        compute_source_type="measured",
+        compute_sample=record["compute"],
+        compute_formula="Median of three integer operation counts / gem5 ROI seconds",
+        compute_fields={"hardware_sha256": record["hardware_sha256"]},
+        calibration_id=record["id"],
+        calibration_source_hashes=hashes,
+        qualification="The workload may exceed a pattern-specific reference; this is not an absolute hardware ceiling.",
+    )
+
+
+def references(record, config, config_ini, frequency, revision, compute_peak):
+    """Reject incompatible calibration; never estimate a replacement cache roof."""
+    validate_identity(record, config, config_ini, frequency, revision)
+    if record["schema_version"] != 1:
+        raise ValueError("Use scan_references for a complete scan calibration")
     result = []
     for level in ("Core–L1D", "L1D–L2"):
         sample = record["references"][level]

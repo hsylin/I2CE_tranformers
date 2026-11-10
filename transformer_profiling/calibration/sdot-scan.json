@@ -1,0 +1,4802 @@
+{
+  "schema_version": 2,
+  "id": "sdot-full-scan-90c100056d5f",
+  "pattern": "streaming-int8-sve128-sdot",
+  "gem5_revision": "ed752e78a2ddd5587c1954e2cda51f94cbbe554e",
+  "hardware": {
+    "sim_freq": 1000000000000,
+    "system": {
+      "cpu_cluster": [
+        {
+          "type": "CpuCluster",
+          "cxx_class": "gem5::CpuCluster",
+          "name": "cpu_cluster",
+          "path": "system.cpu_cluster",
+          "clk_domain": {
+            "type": "SrcClockDomain",
+            "cxx_class": "gem5::SrcClockDomain",
+            "name": "clk_domain",
+            "path": "system.cpu_cluster.clk_domain",
+            "clock": [
+              250
+            ],
+            "domain_id": -1,
+            "eventq_index": 0,
+            "init_perf_level": 0,
+            "voltage_domain": "system.cpu_cluster.voltage_domain"
+          },
+          "eventq_index": 0,
+          "thermal_domain": null,
+          "voltage_domain": {
+            "type": "VoltageDomain",
+            "cxx_class": "gem5::VoltageDomain",
+            "name": "voltage_domain",
+            "path": "system.cpu_cluster.voltage_domain",
+            "eventq_index": 0,
+            "voltage": [
+              1.0
+            ]
+          },
+          "cpus": [
+            {
+              "type": "BaseMinorCPU",
+              "cxx_class": "gem5::MinorCPU",
+              "name": "cpus",
+              "path": "system.cpu_cluster.cpus",
+              "branchPred": {
+                "type": "BranchPredictor",
+                "cxx_class": "gem5::branch_prediction::BPredUnit",
+                "name": "branchPred",
+                "path": "system.cpu_cluster.cpus.branchPred",
+                "btb": {
+                  "type": "SimpleBTB",
+                  "cxx_class": "gem5::branch_prediction::SimpleBTB",
+                  "name": "btb",
+                  "path": "system.cpu_cluster.cpus.branchPred.btb",
+                  "associativity": 1,
+                  "btbIndexingPolicy": {
+                    "type": "BTBSetAssociative",
+                    "cxx_class": "gem5::BTBSetAssociative",
+                    "name": "btbIndexingPolicy",
+                    "path": "system.cpu_cluster.cpus.branchPred.btb.btbIndexingPolicy",
+                    "assoc": 1,
+                    "eventq_index": 0,
+                    "numThreads": 1,
+                    "num_entries": 4096,
+                    "set_shift": 0,
+                    "tag_bits": 16
+                  },
+                  "btbReplPolicy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "btbReplPolicy",
+                    "path": "system.cpu_cluster.cpus.branchPred.btb.btbReplPolicy",
+                    "eventq_index": 0
+                  },
+                  "clk_domain": "system.cpu_cluster.clk_domain",
+                  "eventq_index": 0,
+                  "instShiftAmt": 0,
+                  "numEntries": 4096,
+                  "numThreads": 1,
+                  "power_model": [],
+                  "power_state": {
+                    "type": "PowerState",
+                    "cxx_class": "gem5::PowerState",
+                    "name": "power_state",
+                    "path": "system.cpu_cluster.cpus.branchPred.btb.power_state",
+                    "clk_gate_bins": 20,
+                    "clk_gate_max": 1000000000000,
+                    "clk_gate_min": 1000,
+                    "default_state": "UNDEFINED",
+                    "eventq_index": 0,
+                    "leaders": [],
+                    "possible_states": []
+                  },
+                  "tagBits": 16
+                },
+                "conditionalBranchPred": {
+                  "type": "TournamentBP",
+                  "cxx_class": "gem5::branch_prediction::TournamentBP",
+                  "name": "conditionalBranchPred",
+                  "path": "system.cpu_cluster.cpus.branchPred.conditionalBranchPred",
+                  "choiceCtrBits": 2,
+                  "choicePredictorSize": 8192,
+                  "eventq_index": 0,
+                  "globalCtrBits": 2,
+                  "globalPredictorSize": 8192,
+                  "instShiftAmt": 0,
+                  "localCtrBits": 2,
+                  "localHistoryTableSize": 2048,
+                  "localPredictorSize": 2048,
+                  "numThreads": 1,
+                  "speculativeHistUpdate": true
+                },
+                "eventq_index": 0,
+                "indirectBranchPred": {
+                  "type": "SimpleIndirectPredictor",
+                  "cxx_class": "gem5::branch_prediction::SimpleIndirectPredictor",
+                  "name": "indirectBranchPred",
+                  "path": "system.cpu_cluster.cpus.branchPred.indirectBranchPred",
+                  "eventq_index": 0,
+                  "indirectGHRBits": 13,
+                  "indirectHashGHR": true,
+                  "indirectHashTargets": true,
+                  "indirectPathLength": 3,
+                  "indirectSets": 256,
+                  "indirectTagSize": 16,
+                  "indirectWays": 2,
+                  "instShiftAmt": 0,
+                  "numThreads": 1,
+                  "speculativePathLength": 256
+                },
+                "instShiftAmt": 0,
+                "numThreads": 1,
+                "ras": {
+                  "type": "ReturnAddrStack",
+                  "cxx_class": "gem5::branch_prediction::ReturnAddrStack",
+                  "name": "ras",
+                  "path": "system.cpu_cluster.cpus.branchPred.ras",
+                  "eventq_index": 0,
+                  "numEntries": 16,
+                  "numThreads": 1
+                },
+                "requiresBTBHit": false,
+                "speculativeHistUpdate": true,
+                "takenOnlyHistory": false,
+                "updateBTBAtSquash": true
+              },
+              "checker": null,
+              "clk_domain": "system.cpu_cluster.clk_domain",
+              "cpu_id": 0,
+              "decodeCycleInput": true,
+              "decodeInputBufferSize": 3,
+              "decodeInputWidth": 2,
+              "decodeToExecuteForwardDelay": 1,
+              "decoder": [
+                {
+                  "type": "ArmDecoder",
+                  "cxx_class": "gem5::ArmISA::Decoder",
+                  "name": "decoder",
+                  "path": "system.cpu_cluster.cpus.decoder",
+                  "dvm_enabled": false,
+                  "eventq_index": 0,
+                  "isa": "system.cpu_cluster.cpus.isa"
+                }
+              ],
+              "do_checkpoint_insts": true,
+              "do_statistics_insts": true,
+              "enableIdling": true,
+              "eventq_index": 0,
+              "executeAllowEarlyMemoryIssue": true,
+              "executeBranchDelay": 1,
+              "executeCommitLimit": 2,
+              "executeCycleInput": true,
+              "executeFuncUnits": {
+                "type": "MinorFUPool",
+                "cxx_class": "gem5::MinorFUPool",
+                "name": "executeFuncUnits",
+                "path": "system.cpu_cluster.cpus.executeFuncUnits",
+                "eventq_index": 0,
+                "funcUnits": [
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits0",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses.opClasses",
+                          "eventq_index": 0,
+                          "opClass": "IntAlu"
+                        }
+                      ]
+                    },
+                    "opLat": 3,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings",
+                        "description": "Int",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 0,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          2
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits1",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses.opClasses",
+                          "eventq_index": 0,
+                          "opClass": "IntAlu"
+                        }
+                      ]
+                    },
+                    "opLat": 3,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings",
+                        "description": "Int",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 0,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          2
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits2",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses.opClasses",
+                          "eventq_index": 0,
+                          "opClass": "IntMult"
+                        }
+                      ]
+                    },
+                    "opLat": 3,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings",
+                        "description": "Mul",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 0,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          0
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits3",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 9,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses.opClasses",
+                          "eventq_index": 0,
+                          "opClass": "IntDiv"
+                        }
+                      ]
+                    },
+                    "opLat": 9,
+                    "timings": []
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits4",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses00",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses00",
+                          "eventq_index": 0,
+                          "opClass": "FloatAdd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses01",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses01",
+                          "eventq_index": 0,
+                          "opClass": "FloatCmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses02",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses02",
+                          "eventq_index": 0,
+                          "opClass": "FloatCvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses03",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses03",
+                          "eventq_index": 0,
+                          "opClass": "FloatMisc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses04",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses04",
+                          "eventq_index": 0,
+                          "opClass": "FloatMult"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses05",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses05",
+                          "eventq_index": 0,
+                          "opClass": "FloatMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses06",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses06",
+                          "eventq_index": 0,
+                          "opClass": "FloatDiv"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses07",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses07",
+                          "eventq_index": 0,
+                          "opClass": "FloatSqrt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses08",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses08",
+                          "eventq_index": 0,
+                          "opClass": "Bf16Cvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses09",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses09",
+                          "eventq_index": 0,
+                          "opClass": "SimdAdd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses10",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses10",
+                          "eventq_index": 0,
+                          "opClass": "SimdAddAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses11",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses11",
+                          "eventq_index": 0,
+                          "opClass": "SimdAlu"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses12",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses12",
+                          "eventq_index": 0,
+                          "opClass": "SimdCmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses13",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses13",
+                          "eventq_index": 0,
+                          "opClass": "SimdCvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses14",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses14",
+                          "eventq_index": 0,
+                          "opClass": "SimdMisc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses15",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses15",
+                          "eventq_index": 0,
+                          "opClass": "SimdMult"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses16",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses16",
+                          "eventq_index": 0,
+                          "opClass": "SimdMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses17",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses17",
+                          "eventq_index": 0,
+                          "opClass": "SimdMatMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses18",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses18",
+                          "eventq_index": 0,
+                          "opClass": "SimdShift"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses19",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses19",
+                          "eventq_index": 0,
+                          "opClass": "SimdShiftAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses20",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses20",
+                          "eventq_index": 0,
+                          "opClass": "SimdDiv"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses21",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses21",
+                          "eventq_index": 0,
+                          "opClass": "SimdSqrt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses22",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses22",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatAdd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses23",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses23",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatAlu"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses24",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses24",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatCmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses25",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses25",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatCvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses26",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses26",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatDiv"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses27",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses27",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatMisc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses28",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses28",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatMult"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses29",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses29",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses30",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses30",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatMatMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses31",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses31",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatSqrt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses32",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses32",
+                          "eventq_index": 0,
+                          "opClass": "SimdReduceAdd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses33",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses33",
+                          "eventq_index": 0,
+                          "opClass": "SimdReduceAlu"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses34",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses34",
+                          "eventq_index": 0,
+                          "opClass": "SimdReduceCmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses35",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses35",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatReduceAdd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses36",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses36",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatReduceCmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses37",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses37",
+                          "eventq_index": 0,
+                          "opClass": "SimdAes"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses38",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses38",
+                          "eventq_index": 0,
+                          "opClass": "SimdAesMix"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses39",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses39",
+                          "eventq_index": 0,
+                          "opClass": "SimdSha1Hash"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses40",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses40",
+                          "eventq_index": 0,
+                          "opClass": "SimdSha1Hash2"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses41",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses41",
+                          "eventq_index": 0,
+                          "opClass": "SimdSha256Hash"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses42",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses42",
+                          "eventq_index": 0,
+                          "opClass": "SimdSha256Hash2"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses43",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses43",
+                          "eventq_index": 0,
+                          "opClass": "SimdShaSigma2"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses44",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses44",
+                          "eventq_index": 0,
+                          "opClass": "SimdShaSigma3"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses45",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses45",
+                          "eventq_index": 0,
+                          "opClass": "SimdSha3"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses46",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses46",
+                          "eventq_index": 0,
+                          "opClass": "SimdSm4e"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses47",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses47",
+                          "eventq_index": 0,
+                          "opClass": "SimdCrc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses48",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses48",
+                          "eventq_index": 0,
+                          "opClass": "Matrix"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses49",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses49",
+                          "eventq_index": 0,
+                          "opClass": "MatrixMov"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses50",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses50",
+                          "eventq_index": 0,
+                          "opClass": "MatrixOP"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses51",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses51",
+                          "eventq_index": 0,
+                          "opClass": "SimdExt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses52",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses52",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatExt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses53",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses53",
+                          "eventq_index": 0,
+                          "opClass": "SimdFloatCvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses54",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses54",
+                          "eventq_index": 0,
+                          "opClass": "SimdConfig"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses55",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses55",
+                          "eventq_index": 0,
+                          "opClass": "SimdDotProd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses56",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses56",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16Add"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses57",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses57",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16Cmp"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses58",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses58",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16Cvt"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses59",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses59",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16DotProd"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses60",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses60",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16MatMultAcc"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses61",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses61",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16Mult"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses62",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses62",
+                          "eventq_index": 0,
+                          "opClass": "SimdBf16MultAcc"
+                        }
+                      ]
+                    },
+                    "opLat": 6,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings",
+                        "description": "FloatSimd",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 0,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          2
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits5",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses.opClasses",
+                          "eventq_index": 0,
+                          "opClass": "SimdPredAlu"
+                        }
+                      ]
+                    },
+                    "opLat": 3,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings",
+                        "description": "Pred",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 0,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          2
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits6",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses00",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses00",
+                          "eventq_index": 0,
+                          "opClass": "MemRead"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses01",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses01",
+                          "eventq_index": 0,
+                          "opClass": "MemWrite"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses02",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses02",
+                          "eventq_index": 0,
+                          "opClass": "FloatMemRead"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses03",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses03",
+                          "eventq_index": 0,
+                          "opClass": "FloatMemWrite"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses04",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses04",
+                          "eventq_index": 0,
+                          "opClass": "SimdUnitStrideLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses05",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses05",
+                          "eventq_index": 0,
+                          "opClass": "SimdUnitStrideStore"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses06",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses06",
+                          "eventq_index": 0,
+                          "opClass": "SimdUnitStrideMaskLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses07",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses07",
+                          "eventq_index": 0,
+                          "opClass": "SimdUnitStrideMaskStore"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses08",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses08",
+                          "eventq_index": 0,
+                          "opClass": "SimdStridedLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses09",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses09",
+                          "eventq_index": 0,
+                          "opClass": "SimdStridedStore"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses10",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses10",
+                          "eventq_index": 0,
+                          "opClass": "SimdIndexedLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses11",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses11",
+                          "eventq_index": 0,
+                          "opClass": "SimdIndexedStore"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses12",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses12",
+                          "eventq_index": 0,
+                          "opClass": "SimdUnitStrideFaultOnlyFirstLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses13",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses13",
+                          "eventq_index": 0,
+                          "opClass": "SimdWholeRegisterLoad"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses14",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses14",
+                          "eventq_index": 0,
+                          "opClass": "SimdWholeRegisterStore"
+                        }
+                      ]
+                    },
+                    "opLat": 1,
+                    "timings": [
+                      {
+                        "type": "MinorFUTiming",
+                        "cxx_class": "gem5::MinorFUTiming",
+                        "name": "timings",
+                        "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings",
+                        "description": "Mem",
+                        "eventq_index": 0,
+                        "extraAssumedLat": 2,
+                        "extraCommitLat": 0,
+                        "extraCommitLatExpr": null,
+                        "mask": 0,
+                        "match": 0,
+                        "opClasses": {
+                          "type": "MinorOpClassSet",
+                          "cxx_class": "gem5::MinorOpClassSet",
+                          "name": "opClasses",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings.opClasses",
+                          "eventq_index": 0,
+                          "opClasses": []
+                        },
+                        "srcRegsRelativeLats": [
+                          1
+                        ],
+                        "suppress": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MinorFU",
+                    "cxx_class": "gem5::MinorFU",
+                    "name": "funcUnits7",
+                    "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7",
+                    "cantForwardFromFUIndices": [],
+                    "eventq_index": 0,
+                    "issueLat": 1,
+                    "opClasses": {
+                      "type": "MinorOpClassSet",
+                      "cxx_class": "gem5::MinorOpClassSet",
+                      "name": "opClasses",
+                      "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses",
+                      "eventq_index": 0,
+                      "opClasses": [
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses0",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses0",
+                          "eventq_index": 0,
+                          "opClass": "InstPrefetch"
+                        },
+                        {
+                          "type": "MinorOpClass",
+                          "cxx_class": "gem5::MinorOpClass",
+                          "name": "opClasses1",
+                          "path": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses1",
+                          "eventq_index": 0,
+                          "opClass": "System"
+                        }
+                      ]
+                    },
+                    "opLat": 1,
+                    "timings": []
+                  }
+                ]
+              },
+              "executeInputBufferSize": 7,
+              "executeInputWidth": 2,
+              "executeIssueLimit": 2,
+              "executeLSQMaxStoreBufferStoresPerCycle": 2,
+              "executeLSQRequestsQueueSize": 1,
+              "executeLSQStoreBufferSize": 5,
+              "executeLSQTransfersQueueSize": 2,
+              "executeMaxAccessesInMemory": 2,
+              "executeMemoryCommitLimit": 1,
+              "executeMemoryIssueLimit": 1,
+              "executeMemoryWidth": 0,
+              "executeSetTraceTimeOnCommit": true,
+              "executeSetTraceTimeOnIssue": false,
+              "fetch1FetchLimit": 1,
+              "fetch1LineSnapWidth": 0,
+              "fetch1LineWidth": 0,
+              "fetch1ToFetch2BackwardDelay": 1,
+              "fetch1ToFetch2ForwardDelay": 1,
+              "fetch2CycleInput": true,
+              "fetch2InputBufferSize": 2,
+              "fetch2ToDecodeForwardDelay": 1,
+              "function_trace": false,
+              "function_trace_start": 0,
+              "interrupts": [
+                {
+                  "type": "ArmInterrupts",
+                  "cxx_class": "gem5::ArmISA::Interrupts",
+                  "name": "interrupts",
+                  "path": "system.cpu_cluster.cpus.interrupts",
+                  "eventq_index": 0
+                }
+              ],
+              "isa": [
+                {
+                  "type": "ArmISA",
+                  "cxx_class": "gem5::ArmISA::ISA",
+                  "name": "isa",
+                  "path": "system.cpu_cluster.cpus.isa",
+                  "decoderFlavor": "Generic",
+                  "eventq_index": 0,
+                  "fpsid": 1090793632,
+                  "id_aa64afr0_el1": 0,
+                  "id_aa64afr1_el1": 0,
+                  "id_aa64dfr0_el1": 15790086,
+                  "id_aa64dfr1_el1": 0,
+                  "id_aa64isar0_el1": 268435456,
+                  "id_aa64isar1_el1": 18944016,
+                  "id_aa64mmfr0_el1": 15728642,
+                  "id_aa64mmfr1_el1": 1052704,
+                  "id_aa64mmfr2_el1": 65552,
+                  "id_isar0": 34607377,
+                  "id_isar1": 34677009,
+                  "id_isar2": 555950401,
+                  "id_isar3": 17899825,
+                  "id_isar4": 268501314,
+                  "id_isar5": 285212672,
+                  "id_isar6": 1,
+                  "id_mmfr0": 270536963,
+                  "id_mmfr1": 0,
+                  "id_mmfr2": 19070976,
+                  "id_mmfr3": 34611729,
+                  "id_mmfr4": 0,
+                  "impdef_nop": false,
+                  "midr": 0,
+                  "mpamidr_el1": 3746995439730032896,
+                  "pmu": null,
+                  "release_se": {
+                    "type": "ArmRelease",
+                    "cxx_class": "gem5::ArmRelease",
+                    "name": "release_se",
+                    "path": "system.cpu_cluster.cpus.isa.release_se",
+                    "eventq_index": 0,
+                    "extensions": [
+                      "FEAT_AES",
+                      "FEAT_PMULL",
+                      "FEAT_SHA1",
+                      "FEAT_SHA256",
+                      "FEAT_CRC32",
+                      "FEAT_LSE",
+                      "FEAT_RDM",
+                      "FEAT_FHM",
+                      "FEAT_F32MM",
+                      "FEAT_F64MM",
+                      "FEAT_SVE",
+                      "FEAT_I8MM",
+                      "FEAT_DOTPROD",
+                      "FEAT_FP16",
+                      "FEAT_FCMA",
+                      "FEAT_JSCVT",
+                      "FEAT_PAuth",
+                      "FEAT_LRCPC",
+                      "FEAT_FLAGM",
+                      "FEAT_FRINTTS",
+                      "FEAT_LRCPC2",
+                      "FEAT_FLAGM2",
+                      "FEAT_SME",
+                      "TME"
+                    ]
+                  },
+                  "sme_vl_se": 1,
+                  "sve_vl_se": 1,
+                  "system": "system"
+                }
+              ],
+              "max_insts_all_threads": 0,
+              "max_insts_any_thread": 0,
+              "mmu": {
+                "type": "ArmMMU",
+                "cxx_class": "gem5::ArmISA::MMU",
+                "name": "mmu",
+                "path": "system.cpu_cluster.cpus.mmu",
+                "dtb": {
+                  "type": "ArmTLB",
+                  "cxx_class": "gem5::ArmISA::TLB",
+                  "name": "dtb",
+                  "path": "system.cpu_cluster.cpus.mmu.dtb",
+                  "assoc": 64,
+                  "entry_type": "data",
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TLBSetAssociative",
+                    "cxx_class": "gem5::ArmISA::TLBSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.dtb.indexing_policy",
+                    "assoc": 64,
+                    "eventq_index": 0,
+                    "num_entries": 64
+                  },
+                  "is_stage2": false,
+                  "next_level": "system.cpu_cluster.cpus.mmu.l2_shared",
+                  "partial_levels": [],
+                  "replacement_policy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "replacement_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.dtb.replacement_policy",
+                    "eventq_index": 0
+                  },
+                  "size": 64,
+                  "sys": "system"
+                },
+                "eventq_index": 0,
+                "itb": {
+                  "type": "ArmTLB",
+                  "cxx_class": "gem5::ArmISA::TLB",
+                  "name": "itb",
+                  "path": "system.cpu_cluster.cpus.mmu.itb",
+                  "assoc": 64,
+                  "entry_type": "instruction",
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TLBSetAssociative",
+                    "cxx_class": "gem5::ArmISA::TLBSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.itb.indexing_policy",
+                    "assoc": 64,
+                    "eventq_index": 0,
+                    "num_entries": 64
+                  },
+                  "is_stage2": false,
+                  "next_level": "system.cpu_cluster.cpus.mmu.l2_shared",
+                  "partial_levels": [],
+                  "replacement_policy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "replacement_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.itb.replacement_policy",
+                    "eventq_index": 0
+                  },
+                  "size": 64,
+                  "sys": "system"
+                },
+                "release_se": "system.cpu_cluster.cpus.isa.release_se",
+                "stage2_dtb": {
+                  "type": "ArmTLB",
+                  "cxx_class": "gem5::ArmISA::TLB",
+                  "name": "stage2_dtb",
+                  "path": "system.cpu_cluster.cpus.mmu.stage2_dtb",
+                  "assoc": 32,
+                  "entry_type": "data",
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TLBSetAssociative",
+                    "cxx_class": "gem5::ArmISA::TLBSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.stage2_dtb.indexing_policy",
+                    "assoc": 32,
+                    "eventq_index": 0,
+                    "num_entries": 32
+                  },
+                  "is_stage2": true,
+                  "next_level": null,
+                  "partial_levels": [],
+                  "replacement_policy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "replacement_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.stage2_dtb.replacement_policy",
+                    "eventq_index": 0
+                  },
+                  "size": 32,
+                  "sys": "system"
+                },
+                "stage2_itb": {
+                  "type": "ArmTLB",
+                  "cxx_class": "gem5::ArmISA::TLB",
+                  "name": "stage2_itb",
+                  "path": "system.cpu_cluster.cpus.mmu.stage2_itb",
+                  "assoc": 32,
+                  "entry_type": "instruction",
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TLBSetAssociative",
+                    "cxx_class": "gem5::ArmISA::TLBSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.stage2_itb.indexing_policy",
+                    "assoc": 32,
+                    "eventq_index": 0,
+                    "num_entries": 32
+                  },
+                  "is_stage2": true,
+                  "next_level": null,
+                  "partial_levels": [],
+                  "replacement_policy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "replacement_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.stage2_itb.replacement_policy",
+                    "eventq_index": 0
+                  },
+                  "size": 32,
+                  "sys": "system"
+                },
+                "sys": "system",
+                "walker": {
+                  "type": "ArmTableWalker",
+                  "cxx_class": "gem5::ArmISA::TableWalker",
+                  "name": "walker",
+                  "path": "system.cpu_cluster.cpus.mmu.walker",
+                  "clk_domain": "system.cpu_cluster.clk_domain",
+                  "eventq_index": 0,
+                  "power_model": [],
+                  "power_state": {
+                    "type": "PowerState",
+                    "cxx_class": "gem5::PowerState",
+                    "name": "power_state",
+                    "path": "system.cpu_cluster.cpus.mmu.walker.power_state",
+                    "clk_gate_bins": 20,
+                    "clk_gate_max": 1000000000000,
+                    "clk_gate_min": 1000,
+                    "default_state": "UNDEFINED",
+                    "eventq_index": 0,
+                    "leaders": [],
+                    "possible_states": []
+                  },
+                  "sys": "system",
+                  "walk_unit_func_s1": {
+                    "type": "ArmWalkUnit",
+                    "cxx_class": "gem5::ArmISA::WalkUnit",
+                    "name": "walk_unit_func_s1",
+                    "path": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1",
+                    "clk_domain": "system.cpu_cluster.clk_domain",
+                    "eventq_index": 0,
+                    "functional": true,
+                    "is_stage2": false,
+                    "power_model": [],
+                    "power_state": {
+                      "type": "PowerState",
+                      "cxx_class": "gem5::PowerState",
+                      "name": "power_state",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1.power_state",
+                      "clk_gate_bins": 20,
+                      "clk_gate_max": 1000000000000,
+                      "clk_gate_min": 1000,
+                      "default_state": "UNDEFINED",
+                      "eventq_index": 0,
+                      "leaders": [],
+                      "possible_states": []
+                    },
+                    "sys": "system",
+                    "walk_type": "unified"
+                  },
+                  "walk_unit_func_s2": {
+                    "type": "ArmWalkUnit",
+                    "cxx_class": "gem5::ArmISA::WalkUnit",
+                    "name": "walk_unit_func_s2",
+                    "path": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2",
+                    "clk_domain": "system.cpu_cluster.clk_domain",
+                    "eventq_index": 0,
+                    "functional": true,
+                    "is_stage2": true,
+                    "power_model": [],
+                    "power_state": {
+                      "type": "PowerState",
+                      "cxx_class": "gem5::PowerState",
+                      "name": "power_state",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2.power_state",
+                      "clk_gate_bins": 20,
+                      "clk_gate_max": 1000000000000,
+                      "clk_gate_min": 1000,
+                      "default_state": "UNDEFINED",
+                      "eventq_index": 0,
+                      "leaders": [],
+                      "possible_states": []
+                    },
+                    "sys": "system",
+                    "walk_type": "unified"
+                  },
+                  "walk_units": [
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units0",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units0",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": false,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units0.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "instruction"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units1",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units1",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": false,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units1.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "data"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units2",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units2",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": false,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units2.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "unified"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units3",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units3",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": false,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units3.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "unified"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units4",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units4",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": true,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units4.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "instruction"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units5",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units5",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": true,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units5.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "data"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units6",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units6",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": true,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units6.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "unified"
+                    },
+                    {
+                      "type": "ArmWalkUnit",
+                      "cxx_class": "gem5::ArmISA::WalkUnit",
+                      "name": "walk_units7",
+                      "path": "system.cpu_cluster.cpus.mmu.walker.walk_units7",
+                      "clk_domain": "system.cpu_cluster.clk_domain",
+                      "eventq_index": 0,
+                      "functional": false,
+                      "is_stage2": true,
+                      "power_model": [],
+                      "power_state": {
+                        "type": "PowerState",
+                        "cxx_class": "gem5::PowerState",
+                        "name": "power_state",
+                        "path": "system.cpu_cluster.cpus.mmu.walker.walk_units7.power_state",
+                        "clk_gate_bins": 20,
+                        "clk_gate_max": 1000000000000,
+                        "clk_gate_min": 1000,
+                        "default_state": "UNDEFINED",
+                        "eventq_index": 0,
+                        "leaders": [],
+                        "possible_states": []
+                      },
+                      "sys": "system",
+                      "walk_type": "unified"
+                    }
+                  ],
+                  "port": {
+                    "role": "GEM5 REQUESTOR",
+                    "peer": "system.cpu_cluster.toL2Bus.cpu_side_ports[2]",
+                    "is_source": "True"
+                  }
+                },
+                "l2_shared": {
+                  "type": "ArmTLB",
+                  "cxx_class": "gem5::ArmISA::TLB",
+                  "name": "l2_shared",
+                  "path": "system.cpu_cluster.cpus.mmu.l2_shared",
+                  "assoc": 5,
+                  "entry_type": "unified",
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TLBSetAssociative",
+                    "cxx_class": "gem5::ArmISA::TLBSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.l2_shared.indexing_policy",
+                    "assoc": 5,
+                    "eventq_index": 0,
+                    "num_entries": 1280
+                  },
+                  "is_stage2": false,
+                  "next_level": null,
+                  "partial_levels": [
+                    "L2"
+                  ],
+                  "replacement_policy": {
+                    "type": "LRURP",
+                    "cxx_class": "gem5::replacement_policy::LRU",
+                    "name": "replacement_policy",
+                    "path": "system.cpu_cluster.cpus.mmu.l2_shared.replacement_policy",
+                    "eventq_index": 0
+                  },
+                  "size": 1280,
+                  "sys": "system"
+                }
+              },
+              "numThreads": 1,
+              "power_gating_on_idle": false,
+              "power_model": [],
+              "power_state": {
+                "type": "PowerState",
+                "cxx_class": "gem5::PowerState",
+                "name": "power_state",
+                "path": "system.cpu_cluster.cpus.power_state",
+                "clk_gate_bins": 20,
+                "clk_gate_max": 1000000000000,
+                "clk_gate_min": 1000,
+                "default_state": "UNDEFINED",
+                "eventq_index": 0,
+                "leaders": [],
+                "possible_states": [
+                  "ON",
+                  "CLK_GATED",
+                  "OFF"
+                ]
+              },
+              "progress_interval": 0,
+              "pwr_gating_latency": 300,
+              "simpoint_start_insts": [],
+              "socket_id": 0,
+              "switched_out": false,
+              "syscallRetryLatency": 10000,
+              "system": "system",
+              "threadPolicy": "RoundRobin",
+              "tracer": {
+                "type": "ExeTracer",
+                "cxx_class": "gem5::trace::ExeTracer",
+                "name": "tracer",
+                "path": "system.cpu_cluster.cpus.tracer",
+                "disassembler": {
+                  "type": "InstDisassembler",
+                  "cxx_class": "gem5::trace::InstDisassembler",
+                  "name": "disassembler",
+                  "path": "system.cpu_cluster.cpus.tracer.disassembler",
+                  "eventq_index": 0
+                },
+                "eventq_index": 0
+              },
+              "workload": [],
+              "dcache": {
+                "type": "Cache",
+                "cxx_class": "gem5::Cache",
+                "name": "dcache",
+                "path": "system.cpu_cluster.cpus.dcache",
+                "addr_ranges": [
+                  "0:18446744073709551615"
+                ],
+                "assoc": 2,
+                "clk_domain": "system.cpu_cluster.clk_domain",
+                "clusivity": "mostly_incl",
+                "compressor": null,
+                "data_latency": 2,
+                "demand_mshr_reserve": 1,
+                "eventq_index": 0,
+                "is_read_only": false,
+                "max_miss_count": 0,
+                "move_contractions": true,
+                "mshrs": 16,
+                "partitioning_manager": null,
+                "power_model": [],
+                "power_state": {
+                  "type": "PowerState",
+                  "cxx_class": "gem5::PowerState",
+                  "name": "power_state",
+                  "path": "system.cpu_cluster.cpus.dcache.power_state",
+                  "clk_gate_bins": 20,
+                  "clk_gate_max": 1000000000000,
+                  "clk_gate_min": 1000,
+                  "default_state": "UNDEFINED",
+                  "eventq_index": 0,
+                  "leaders": [],
+                  "possible_states": []
+                },
+                "prefetcher": null,
+                "replace_expansions": true,
+                "replacement_policy": {
+                  "type": "LRURP",
+                  "cxx_class": "gem5::replacement_policy::LRU",
+                  "name": "replacement_policy",
+                  "path": "system.cpu_cluster.cpus.dcache.replacement_policy",
+                  "eventq_index": 0
+                },
+                "response_latency": 1,
+                "sequential_access": false,
+                "size": 32768,
+                "system": "system",
+                "tag_latency": 2,
+                "tags": {
+                  "type": "BaseSetAssoc",
+                  "cxx_class": "gem5::BaseSetAssoc",
+                  "name": "tags",
+                  "path": "system.cpu_cluster.cpus.dcache.tags",
+                  "assoc": 2,
+                  "block_size": 64,
+                  "clk_domain": "system.cpu_cluster.clk_domain",
+                  "entry_size": 64,
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TaggedSetAssociative",
+                    "cxx_class": "gem5::TaggedSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.dcache.tags.indexing_policy",
+                    "assoc": 2,
+                    "entry_size": 64,
+                    "eventq_index": 0,
+                    "size": 32768
+                  },
+                  "partitioning_manager": null,
+                  "power_model": [],
+                  "power_state": {
+                    "type": "PowerState",
+                    "cxx_class": "gem5::PowerState",
+                    "name": "power_state",
+                    "path": "system.cpu_cluster.cpus.dcache.tags.power_state",
+                    "clk_gate_bins": 20,
+                    "clk_gate_max": 1000000000000,
+                    "clk_gate_min": 1000,
+                    "default_state": "UNDEFINED",
+                    "eventq_index": 0,
+                    "leaders": [],
+                    "possible_states": []
+                  },
+                  "replacement_policy": "system.cpu_cluster.cpus.dcache.replacement_policy",
+                  "sequential_access": false,
+                  "size": 32768,
+                  "system": "system",
+                  "tag_latency": 2,
+                  "warmup_percentage": 0
+                },
+                "tgts_per_mshr": 16,
+                "warmup_percentage": 0,
+                "write_allocator": null,
+                "write_buffers": 16,
+                "writeback_clean": false,
+                "cpu_side": {
+                  "role": "GEM5 RESPONDER",
+                  "peer": "system.roofline_l1.mem_side_port",
+                  "is_source": "False"
+                },
+                "mem_side": {
+                  "role": "GEM5 REQUESTOR",
+                  "peer": "system.roofline_l2.cpu_side_port",
+                  "is_source": "True"
+                }
+              },
+              "icache": {
+                "type": "Cache",
+                "cxx_class": "gem5::Cache",
+                "name": "icache",
+                "path": "system.cpu_cluster.cpus.icache",
+                "addr_ranges": [
+                  "0:18446744073709551615"
+                ],
+                "assoc": 3,
+                "clk_domain": "system.cpu_cluster.clk_domain",
+                "clusivity": "mostly_incl",
+                "compressor": null,
+                "data_latency": 1,
+                "demand_mshr_reserve": 1,
+                "eventq_index": 0,
+                "is_read_only": true,
+                "max_miss_count": 0,
+                "move_contractions": true,
+                "mshrs": 4,
+                "partitioning_manager": null,
+                "power_model": [],
+                "power_state": {
+                  "type": "PowerState",
+                  "cxx_class": "gem5::PowerState",
+                  "name": "power_state",
+                  "path": "system.cpu_cluster.cpus.icache.power_state",
+                  "clk_gate_bins": 20,
+                  "clk_gate_max": 1000000000000,
+                  "clk_gate_min": 1000,
+                  "default_state": "UNDEFINED",
+                  "eventq_index": 0,
+                  "leaders": [],
+                  "possible_states": []
+                },
+                "prefetcher": null,
+                "replace_expansions": true,
+                "replacement_policy": {
+                  "type": "LRURP",
+                  "cxx_class": "gem5::replacement_policy::LRU",
+                  "name": "replacement_policy",
+                  "path": "system.cpu_cluster.cpus.icache.replacement_policy",
+                  "eventq_index": 0
+                },
+                "response_latency": 1,
+                "sequential_access": false,
+                "size": 49152,
+                "system": "system",
+                "tag_latency": 1,
+                "tags": {
+                  "type": "BaseSetAssoc",
+                  "cxx_class": "gem5::BaseSetAssoc",
+                  "name": "tags",
+                  "path": "system.cpu_cluster.cpus.icache.tags",
+                  "assoc": 3,
+                  "block_size": 64,
+                  "clk_domain": "system.cpu_cluster.clk_domain",
+                  "entry_size": 64,
+                  "eventq_index": 0,
+                  "indexing_policy": {
+                    "type": "TaggedSetAssociative",
+                    "cxx_class": "gem5::TaggedSetAssociative",
+                    "name": "indexing_policy",
+                    "path": "system.cpu_cluster.cpus.icache.tags.indexing_policy",
+                    "assoc": 3,
+                    "entry_size": 64,
+                    "eventq_index": 0,
+                    "size": 49152
+                  },
+                  "partitioning_manager": null,
+                  "power_model": [],
+                  "power_state": {
+                    "type": "PowerState",
+                    "cxx_class": "gem5::PowerState",
+                    "name": "power_state",
+                    "path": "system.cpu_cluster.cpus.icache.tags.power_state",
+                    "clk_gate_bins": 20,
+                    "clk_gate_max": 1000000000000,
+                    "clk_gate_min": 1000,
+                    "default_state": "UNDEFINED",
+                    "eventq_index": 0,
+                    "leaders": [],
+                    "possible_states": []
+                  },
+                  "replacement_policy": "system.cpu_cluster.cpus.icache.replacement_policy",
+                  "sequential_access": false,
+                  "size": 49152,
+                  "system": "system",
+                  "tag_latency": 1,
+                  "warmup_percentage": 0
+                },
+                "tgts_per_mshr": 8,
+                "warmup_percentage": 0,
+                "write_allocator": null,
+                "write_buffers": 8,
+                "writeback_clean": true,
+                "cpu_side": {
+                  "role": "GEM5 RESPONDER",
+                  "peer": "system.cpu_cluster.cpus.icache_port",
+                  "is_source": "False"
+                },
+                "mem_side": {
+                  "role": "GEM5 REQUESTOR",
+                  "peer": "system.cpu_cluster.toL2Bus.cpu_side_ports[0]",
+                  "is_source": "True"
+                }
+              },
+              "dcache_port": {
+                "role": "GEM5 REQUESTOR",
+                "peer": "system.roofline_l1.cpu_side_port",
+                "is_source": "True"
+              },
+              "icache_port": {
+                "role": "GEM5 REQUESTOR",
+                "peer": "system.cpu_cluster.cpus.icache.cpu_side",
+                "is_source": "True"
+              }
+            }
+          ],
+          "l2": {
+            "type": "Cache",
+            "cxx_class": "gem5::Cache",
+            "name": "l2",
+            "path": "system.cpu_cluster.l2",
+            "addr_ranges": [
+              "0:18446744073709551615"
+            ],
+            "assoc": 16,
+            "clk_domain": "system.cpu_cluster.clk_domain",
+            "clusivity": "mostly_excl",
+            "compressor": null,
+            "data_latency": 12,
+            "demand_mshr_reserve": 1,
+            "eventq_index": 0,
+            "is_read_only": false,
+            "max_miss_count": 0,
+            "move_contractions": true,
+            "mshrs": 32,
+            "partitioning_manager": null,
+            "power_model": [],
+            "power_state": {
+              "type": "PowerState",
+              "cxx_class": "gem5::PowerState",
+              "name": "power_state",
+              "path": "system.cpu_cluster.l2.power_state",
+              "clk_gate_bins": 20,
+              "clk_gate_max": 1000000000000,
+              "clk_gate_min": 1000,
+              "default_state": "UNDEFINED",
+              "eventq_index": 0,
+              "leaders": [],
+              "possible_states": []
+            },
+            "prefetcher": null,
+            "replace_expansions": true,
+            "replacement_policy": {
+              "type": "LRURP",
+              "cxx_class": "gem5::replacement_policy::LRU",
+              "name": "replacement_policy",
+              "path": "system.cpu_cluster.l2.replacement_policy",
+              "eventq_index": 0
+            },
+            "response_latency": 5,
+            "sequential_access": false,
+            "size": 1048576,
+            "system": "system",
+            "tag_latency": 12,
+            "tags": {
+              "type": "BaseSetAssoc",
+              "cxx_class": "gem5::BaseSetAssoc",
+              "name": "tags",
+              "path": "system.cpu_cluster.l2.tags",
+              "assoc": 16,
+              "block_size": 64,
+              "clk_domain": "system.cpu_cluster.clk_domain",
+              "entry_size": 64,
+              "eventq_index": 0,
+              "indexing_policy": {
+                "type": "TaggedSetAssociative",
+                "cxx_class": "gem5::TaggedSetAssociative",
+                "name": "indexing_policy",
+                "path": "system.cpu_cluster.l2.tags.indexing_policy",
+                "assoc": 16,
+                "entry_size": 64,
+                "eventq_index": 0,
+                "size": 1048576
+              },
+              "partitioning_manager": null,
+              "power_model": [],
+              "power_state": {
+                "type": "PowerState",
+                "cxx_class": "gem5::PowerState",
+                "name": "power_state",
+                "path": "system.cpu_cluster.l2.tags.power_state",
+                "clk_gate_bins": 20,
+                "clk_gate_max": 1000000000000,
+                "clk_gate_min": 1000,
+                "default_state": "UNDEFINED",
+                "eventq_index": 0,
+                "leaders": [],
+                "possible_states": []
+              },
+              "replacement_policy": "system.cpu_cluster.l2.replacement_policy",
+              "sequential_access": false,
+              "size": 1048576,
+              "system": "system",
+              "tag_latency": 12,
+              "warmup_percentage": 0
+            },
+            "tgts_per_mshr": 8,
+            "warmup_percentage": 0,
+            "write_allocator": null,
+            "write_buffers": 8,
+            "writeback_clean": false,
+            "cpu_side": {
+              "role": "GEM5 RESPONDER",
+              "peer": "system.cpu_cluster.toL2Bus.mem_side_ports[0]",
+              "is_source": "False"
+            },
+            "mem_side": {
+              "role": "GEM5 REQUESTOR",
+              "peer": "system.membus.cpu_side_ports[2]",
+              "is_source": "True"
+            }
+          },
+          "toL2Bus": {
+            "type": "CoherentXBar",
+            "cxx_class": "gem5::CoherentXBar",
+            "name": "toL2Bus",
+            "path": "system.cpu_cluster.toL2Bus",
+            "clk_domain": "system.cpu_cluster.clk_domain",
+            "eventq_index": 0,
+            "forward_latency": 0,
+            "frontend_latency": 1,
+            "header_latency": 1,
+            "max_outstanding_snoops": 512,
+            "max_routing_table_size": 512,
+            "point_of_coherency": false,
+            "point_of_unification": true,
+            "power_model": [],
+            "power_state": {
+              "type": "PowerState",
+              "cxx_class": "gem5::PowerState",
+              "name": "power_state",
+              "path": "system.cpu_cluster.toL2Bus.power_state",
+              "clk_gate_bins": 20,
+              "clk_gate_max": 1000000000000,
+              "clk_gate_min": 1000,
+              "default_state": "UNDEFINED",
+              "eventq_index": 0,
+              "leaders": [],
+              "possible_states": []
+            },
+            "response_latency": 1,
+            "snoop_filter": {
+              "type": "SnoopFilter",
+              "cxx_class": "gem5::SnoopFilter",
+              "name": "snoop_filter",
+              "path": "system.cpu_cluster.toL2Bus.snoop_filter",
+              "eventq_index": 0,
+              "lookup_latency": 0,
+              "max_capacity": 8388608,
+              "system": "system"
+            },
+            "snoop_response_latency": 1,
+            "system": "system",
+            "use_default_range": false,
+            "width": 64,
+            "cpu_side_ports": {
+              "role": "GEM5 RESPONDER",
+              "peer": [
+                "system.cpu_cluster.cpus.icache.mem_side",
+                "system.roofline_l2.mem_side_port",
+                "system.cpu_cluster.cpus.mmu.walker.port"
+              ],
+              "is_source": "False"
+            },
+            "mem_side_ports": {
+              "role": "GEM5 REQUESTOR",
+              "peer": [
+                "system.cpu_cluster.l2.cpu_side"
+              ],
+              "is_source": "True"
+            }
+          }
+        }
+      ],
+      "mem_ctrls": [
+        {
+          "type": "MemCtrl",
+          "cxx_class": "gem5::memory::MemCtrl",
+          "name": "mem_ctrls",
+          "path": "system.mem_ctrls",
+          "clk_domain": "system.clk_domain",
+          "command_window": 10000,
+          "disable_sanity_check": false,
+          "dram": {
+            "type": "DRAMInterface",
+            "cxx_class": "gem5::memory::DRAMInterface",
+            "name": "dram",
+            "path": "system.mem_ctrls.dram",
+            "IDD0": 0.055,
+            "IDD02": 0.0,
+            "IDD2N": 0.032,
+            "IDD2N2": 0.0,
+            "IDD2P0": 0.0,
+            "IDD2P02": 0.0,
+            "IDD2P1": 0.032,
+            "IDD2P12": 0.0,
+            "IDD3N": 0.038,
+            "IDD3N2": 0.0,
+            "IDD3P0": 0.0,
+            "IDD3P02": 0.0,
+            "IDD3P1": 0.038,
+            "IDD3P12": 0.0,
+            "IDD4R": 0.157,
+            "IDD4R2": 0.0,
+            "IDD4W": 0.125,
+            "IDD4W2": 0.0,
+            "IDD5": 0.23500000000000001,
+            "IDD52": 0.0,
+            "IDD6": 0.02,
+            "IDD62": 0.0,
+            "VDD": 1.5,
+            "VDD2": 0.0,
+            "activation_limit": 4,
+            "addr_mapping": "RoRaBaCoCh",
+            "bank_groups_per_rank": 0,
+            "banks_per_rank": 8,
+            "beats_per_clock": 2,
+            "burst_length": 8,
+            "clk_domain": "system.clk_domain",
+            "collect_stats": true,
+            "conf_table_reported": true,
+            "data_clock_sync": false,
+            "device_bus_width": 8,
+            "device_rowbuffer_size": 1024,
+            "device_size": 536870912,
+            "devices_per_rank": 8,
+            "dll": true,
+            "enable_dram_powerdown": false,
+            "eventq_index": 0,
+            "image_file": "",
+            "in_addr_map": true,
+            "kvm_map": true,
+            "max_accesses_per_row": 16,
+            "null": false,
+            "page_policy": "open_adaptive",
+            "power_model": [],
+            "power_state": {
+              "type": "PowerState",
+              "cxx_class": "gem5::PowerState",
+              "name": "power_state",
+              "path": "system.mem_ctrls.dram.power_state",
+              "clk_gate_bins": 20,
+              "clk_gate_max": 1000000000000,
+              "clk_gate_min": 1000,
+              "default_state": "UNDEFINED",
+              "eventq_index": 0,
+              "leaders": [],
+              "possible_states": []
+            },
+            "range": "2147483648:4294967296",
+            "ranks_per_channel": 2,
+            "read_buffer_size": 32,
+            "tAAD": 1250,
+            "tBURST": 5000,
+            "tBURST_MAX": 5000,
+            "tBURST_MIN": 5000,
+            "tCCD_L": 0,
+            "tCCD_L_WR": 0,
+            "tCK": 1250,
+            "tCL": 13750,
+            "tCS": 2500,
+            "tCWL": 13750,
+            "tPPD": 0,
+            "tRAS": 35000,
+            "tRCD": 13750,
+            "tRCD_WR": 13750,
+            "tREFI": 7800000,
+            "tRFC": 260000,
+            "tRP": 13750,
+            "tRRD": 6000,
+            "tRRD_L": 0,
+            "tRTP": 7500,
+            "tRTW": 2500,
+            "tWR": 15000,
+            "tWTR": 7500,
+            "tWTR_L": 7500,
+            "tXAW": 30000,
+            "tXP": 6000,
+            "tXPDLL": 0,
+            "tXS": 270000,
+            "tXSDLL": 0,
+            "two_cycle_activate": false,
+            "write_buffer_size": 64,
+            "writeable": true
+          },
+          "eventq_index": 0,
+          "mem_sched_policy": "frfcfs",
+          "min_reads_per_switch": 16,
+          "min_writes_per_switch": 16,
+          "power_model": [],
+          "power_state": {
+            "type": "PowerState",
+            "cxx_class": "gem5::PowerState",
+            "name": "power_state",
+            "path": "system.mem_ctrls.power_state",
+            "clk_gate_bins": 20,
+            "clk_gate_max": 1000000000000,
+            "clk_gate_min": 1000,
+            "default_state": "UNDEFINED",
+            "eventq_index": 0,
+            "leaders": [],
+            "possible_states": []
+          },
+          "qos_policy": null,
+          "qos_priorities": 1,
+          "qos_priority_escalation": false,
+          "qos_q_policy": "fifo",
+          "qos_requestors": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "qos_syncro_scheduler": false,
+          "qos_turnaround_policy": null,
+          "static_backend_latency": 10000,
+          "static_frontend_latency": 10000,
+          "system": "system",
+          "write_high_thresh_perc": 85,
+          "write_low_thresh_perc": 50,
+          "port": {
+            "role": "GEM5 RESPONDER",
+            "peer": "system.membus.mem_side_ports[0]",
+            "is_source": "False"
+          }
+        }
+      ],
+      "roofline_l1": {
+        "type": "CommMonitor",
+        "cxx_class": "gem5::CommMonitor",
+        "name": "roofline_l1",
+        "path": "system.roofline_l1",
+        "bandwidth_bins": 20,
+        "burst_length_bins": 20,
+        "disable_addr_dists": true,
+        "disable_bandwidth_hists": false,
+        "disable_burst_length_hists": true,
+        "disable_itt_dists": true,
+        "disable_latency_hists": true,
+        "disable_outstanding_hists": true,
+        "disable_transaction_hists": true,
+        "eventq_index": 0,
+        "itt_bins": 20,
+        "itt_max_bin": 100000,
+        "latency_bins": 20,
+        "outstanding_bins": 20,
+        "read_addr_mask": 18446744073709551615,
+        "sample_period": 1000000000000,
+        "system": "system",
+        "transaction_bins": 20,
+        "write_addr_mask": 18446744073709551615,
+        "cpu_side_port": {
+          "role": "GEM5 RESPONDER",
+          "peer": "system.cpu_cluster.cpus.dcache_port",
+          "is_source": "False"
+        },
+        "mem_side_port": {
+          "role": "GEM5 REQUESTOR",
+          "peer": "system.cpu_cluster.cpus.dcache.cpu_side",
+          "is_source": "True"
+        }
+      },
+      "roofline_l2": {
+        "type": "CommMonitor",
+        "cxx_class": "gem5::CommMonitor",
+        "name": "roofline_l2",
+        "path": "system.roofline_l2",
+        "bandwidth_bins": 20,
+        "burst_length_bins": 20,
+        "disable_addr_dists": true,
+        "disable_bandwidth_hists": false,
+        "disable_burst_length_hists": true,
+        "disable_itt_dists": true,
+        "disable_latency_hists": true,
+        "disable_outstanding_hists": true,
+        "disable_transaction_hists": true,
+        "eventq_index": 0,
+        "itt_bins": 20,
+        "itt_max_bin": 100000,
+        "latency_bins": 20,
+        "outstanding_bins": 20,
+        "read_addr_mask": 18446744073709551615,
+        "sample_period": 1000000000000,
+        "system": "system",
+        "transaction_bins": 20,
+        "write_addr_mask": 18446744073709551615,
+        "cpu_side_port": {
+          "role": "GEM5 RESPONDER",
+          "peer": "system.cpu_cluster.cpus.dcache.mem_side",
+          "is_source": "False"
+        },
+        "mem_side_port": {
+          "role": "GEM5 REQUESTOR",
+          "peer": "system.cpu_cluster.toL2Bus.cpu_side_ports[1]",
+          "is_source": "True"
+        }
+      },
+      "clk_domain": {
+        "type": "SrcClockDomain",
+        "cxx_class": "gem5::SrcClockDomain",
+        "name": "clk_domain",
+        "path": "system.clk_domain",
+        "clock": [
+          1000
+        ],
+        "domain_id": -1,
+        "eventq_index": 0,
+        "init_perf_level": 0,
+        "voltage_domain": "system.voltage_domain"
+      },
+      "membus": {
+        "type": "CoherentXBar",
+        "cxx_class": "gem5::CoherentXBar",
+        "name": "membus",
+        "path": "system.membus",
+        "clk_domain": "system.clk_domain",
+        "eventq_index": 0,
+        "forward_latency": 4,
+        "frontend_latency": 3,
+        "header_latency": 1,
+        "max_outstanding_snoops": 512,
+        "max_routing_table_size": 512,
+        "point_of_coherency": true,
+        "point_of_unification": true,
+        "power_model": [],
+        "power_state": {
+          "type": "PowerState",
+          "cxx_class": "gem5::PowerState",
+          "name": "power_state",
+          "path": "system.membus.power_state",
+          "clk_gate_bins": 20,
+          "clk_gate_max": 1000000000000,
+          "clk_gate_min": 1000,
+          "default_state": "UNDEFINED",
+          "eventq_index": 0,
+          "leaders": [],
+          "possible_states": []
+        },
+        "response_latency": 2,
+        "snoop_filter": {
+          "type": "SnoopFilter",
+          "cxx_class": "gem5::SnoopFilter",
+          "name": "snoop_filter",
+          "path": "system.membus.snoop_filter",
+          "eventq_index": 0,
+          "lookup_latency": 1,
+          "max_capacity": 8388608,
+          "system": "system"
+        },
+        "snoop_response_latency": 4,
+        "system": "system",
+        "use_default_range": false,
+        "width": 16,
+        "badaddr_responder": {
+          "type": "IsaFake",
+          "cxx_class": "gem5::IsaFake",
+          "name": "badaddr_responder",
+          "path": "system.membus.badaddr_responder",
+          "clk_domain": "system.clk_domain",
+          "eventq_index": 0,
+          "fake_mem": false,
+          "pio_addr": 0,
+          "pio_latency": 100000,
+          "pio_size": 8,
+          "power_model": [],
+          "power_state": {
+            "type": "PowerState",
+            "cxx_class": "gem5::PowerState",
+            "name": "power_state",
+            "path": "system.membus.badaddr_responder.power_state",
+            "clk_gate_bins": 20,
+            "clk_gate_max": 1000000000000,
+            "clk_gate_min": 1000,
+            "default_state": "UNDEFINED",
+            "eventq_index": 0,
+            "leaders": [],
+            "possible_states": []
+          },
+          "ret_bad_addr": true,
+          "ret_data16": 65535,
+          "ret_data32": 4294967295,
+          "ret_data64": 18446744073709551615,
+          "ret_data8": 255,
+          "system": "system",
+          "update_data": false,
+          "warn_access": "warn",
+          "pio": {
+            "role": "GEM5 RESPONDER",
+            "peer": "system.membus.default",
+            "is_source": "False"
+          }
+        },
+        "cpu_side_ports": {
+          "role": "GEM5 RESPONDER",
+          "peer": [
+            "system.iocache.mem_side",
+            "system.system_port",
+            "system.cpu_cluster.l2.mem_side"
+          ],
+          "is_source": "False"
+        },
+        "default": {
+          "role": "GEM5 REQUESTOR",
+          "peer": "system.membus.badaddr_responder.pio",
+          "is_source": "True"
+        },
+        "mem_side_ports": {
+          "role": "GEM5 REQUESTOR",
+          "peer": [
+            "system.mem_ctrls.port",
+            "system.iobridge.cpu_side_port",
+            "system.realview.bootmem.port",
+            "system.realview.trusted_sram.port",
+            "system.realview.trusted_dram.port",
+            "system.realview.non_trusted_sram.port",
+            "system.realview.flash0.port",
+            "system.realview.generic_timer_mem.pio",
+            "system.realview.el2_watchdog.pio",
+            "system.realview.trusted_watchdog.pio",
+            "system.realview.system_watchdog.pio",
+            "system.realview.generic_timer_mem.frames0.pio",
+            "system.realview.generic_timer_mem.frames1.pio",
+            "system.realview.gic.pio",
+            "system.realview.vgic.pio",
+            "system.realview.gicv2m.pio"
+          ],
+          "is_source": "True"
+        }
+      },
+      "voltage_domain": {
+        "type": "VoltageDomain",
+        "cxx_class": "gem5::VoltageDomain",
+        "name": "voltage_domain",
+        "path": "system.voltage_domain",
+        "eventq_index": 0,
+        "voltage": [
+          1.0
+        ]
+      },
+      "cache_line_size": 64,
+      "sve_vl": 1,
+      "sme_vl": 1,
+      "mem_mode": "timing",
+      "mem_ranges": [
+        "2147483648:4294967296"
+      ]
+    }
+  },
+  "hardware_sha256": "23b1fee908029ef7cac9cef28cc0373ef368e26328300ad4b2e90dfbecd03d8d",
+  "hardware_ini": {
+    "system.clk_domain": {
+      "type": "SrcClockDomain",
+      "clock": "1000",
+      "domain_id": "-1",
+      "eventq_index": "0",
+      "init_perf_level": "0",
+      "voltage_domain": "system.voltage_domain"
+    },
+    "system.cpu_cluster": {
+      "type": "CpuCluster",
+      "children": "clk_domain cpus l2 toL2Bus voltage_domain",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "thermal_domain": "Null",
+      "voltage_domain": "system.cpu_cluster.voltage_domain"
+    },
+    "system.cpu_cluster.clk_domain": {
+      "type": "SrcClockDomain",
+      "clock": "250",
+      "domain_id": "-1",
+      "eventq_index": "0",
+      "init_perf_level": "0",
+      "voltage_domain": "system.cpu_cluster.voltage_domain"
+    },
+    "system.cpu_cluster.cpus": {
+      "type": "BaseMinorCPU",
+      "children": "branchPred dcache decoder executeFuncUnits icache interrupts isa mmu power_state tracer",
+      "branchPred": "system.cpu_cluster.cpus.branchPred",
+      "checker": "Null",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "cpu_id": "0",
+      "decodeCycleInput": "true",
+      "decodeInputBufferSize": "3",
+      "decodeInputWidth": "2",
+      "decodeToExecuteForwardDelay": "1",
+      "decoder": "system.cpu_cluster.cpus.decoder",
+      "do_checkpoint_insts": "true",
+      "do_statistics_insts": "true",
+      "enableIdling": "true",
+      "eventq_index": "0",
+      "executeAllowEarlyMemoryIssue": "true",
+      "executeBranchDelay": "1",
+      "executeCommitLimit": "2",
+      "executeCycleInput": "true",
+      "executeFuncUnits": "system.cpu_cluster.cpus.executeFuncUnits",
+      "executeInputBufferSize": "7",
+      "executeInputWidth": "2",
+      "executeIssueLimit": "2",
+      "executeLSQMaxStoreBufferStoresPerCycle": "2",
+      "executeLSQRequestsQueueSize": "1",
+      "executeLSQStoreBufferSize": "5",
+      "executeLSQTransfersQueueSize": "2",
+      "executeMaxAccessesInMemory": "2",
+      "executeMemoryCommitLimit": "1",
+      "executeMemoryIssueLimit": "1",
+      "executeMemoryWidth": "0",
+      "executeSetTraceTimeOnCommit": "true",
+      "executeSetTraceTimeOnIssue": "false",
+      "fetch1FetchLimit": "1",
+      "fetch1LineSnapWidth": "0",
+      "fetch1LineWidth": "0",
+      "fetch1ToFetch2BackwardDelay": "1",
+      "fetch1ToFetch2ForwardDelay": "1",
+      "fetch2CycleInput": "true",
+      "fetch2InputBufferSize": "2",
+      "fetch2ToDecodeForwardDelay": "1",
+      "function_trace": "false",
+      "function_trace_start": "0",
+      "interrupts": "system.cpu_cluster.cpus.interrupts",
+      "isa": "system.cpu_cluster.cpus.isa",
+      "max_insts_all_threads": "0",
+      "max_insts_any_thread": "0",
+      "mmu": "system.cpu_cluster.cpus.mmu",
+      "numThreads": "1",
+      "power_gating_on_idle": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.power_state",
+      "progress_interval": "0",
+      "pwr_gating_latency": "300",
+      "simpoint_start_insts": "",
+      "socket_id": "0",
+      "switched_out": "false",
+      "syscallRetryLatency": "10000",
+      "system": "system",
+      "threadPolicy": "RoundRobin",
+      "tracer": "system.cpu_cluster.cpus.tracer",
+      "workload": "",
+      "dcache_port": "system.roofline_l1.cpu_side_port",
+      "icache_port": "system.cpu_cluster.cpus.icache.cpu_side"
+    },
+    "system.cpu_cluster.cpus.branchPred": {
+      "type": "BranchPredictor",
+      "children": "btb conditionalBranchPred indirectBranchPred ras",
+      "btb": "system.cpu_cluster.cpus.branchPred.btb",
+      "conditionalBranchPred": "system.cpu_cluster.cpus.branchPred.conditionalBranchPred",
+      "eventq_index": "0",
+      "indirectBranchPred": "system.cpu_cluster.cpus.branchPred.indirectBranchPred",
+      "instShiftAmt": "0",
+      "numThreads": "1",
+      "ras": "system.cpu_cluster.cpus.branchPred.ras",
+      "requiresBTBHit": "false",
+      "speculativeHistUpdate": "true",
+      "takenOnlyHistory": "false",
+      "updateBTBAtSquash": "true"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb": {
+      "type": "SimpleBTB",
+      "children": "btbIndexingPolicy btbReplPolicy power_state",
+      "associativity": "1",
+      "btbIndexingPolicy": "system.cpu_cluster.cpus.branchPred.btb.btbIndexingPolicy",
+      "btbReplPolicy": "system.cpu_cluster.cpus.branchPred.btb.btbReplPolicy",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "instShiftAmt": "0",
+      "numEntries": "4096",
+      "numThreads": "1",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.branchPred.btb.power_state",
+      "tagBits": "16"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.btbIndexingPolicy": {
+      "type": "BTBSetAssociative",
+      "assoc": "1",
+      "eventq_index": "0",
+      "numThreads": "1",
+      "num_entries": "4096",
+      "set_shift": "0",
+      "tag_bits": "16"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.btbReplPolicy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.branchPred.btb.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.branchPred.conditionalBranchPred": {
+      "type": "TournamentBP",
+      "choiceCtrBits": "2",
+      "choicePredictorSize": "8192",
+      "eventq_index": "0",
+      "globalCtrBits": "2",
+      "globalPredictorSize": "8192",
+      "instShiftAmt": "0",
+      "localCtrBits": "2",
+      "localHistoryTableSize": "2048",
+      "localPredictorSize": "2048",
+      "numThreads": "1",
+      "speculativeHistUpdate": "true"
+    },
+    "system.cpu_cluster.cpus.branchPred.indirectBranchPred": {
+      "type": "SimpleIndirectPredictor",
+      "eventq_index": "0",
+      "indirectGHRBits": "13",
+      "indirectHashGHR": "true",
+      "indirectHashTargets": "true",
+      "indirectPathLength": "3",
+      "indirectSets": "256",
+      "indirectTagSize": "16",
+      "indirectWays": "2",
+      "instShiftAmt": "0",
+      "numThreads": "1",
+      "speculativePathLength": "256"
+    },
+    "system.cpu_cluster.cpus.branchPred.ras": {
+      "type": "ReturnAddrStack",
+      "eventq_index": "0",
+      "numEntries": "16",
+      "numThreads": "1"
+    },
+    "system.cpu_cluster.cpus.dcache": {
+      "type": "Cache",
+      "children": "power_state replacement_policy tags",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "2",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "clusivity": "mostly_incl",
+      "compressor": "Null",
+      "data_latency": "2",
+      "demand_mshr_reserve": "1",
+      "eventq_index": "0",
+      "is_read_only": "false",
+      "max_miss_count": "0",
+      "move_contractions": "true",
+      "mshrs": "16",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.dcache.power_state",
+      "prefetcher": "Null",
+      "replace_expansions": "true",
+      "replacement_policy": "system.cpu_cluster.cpus.dcache.replacement_policy",
+      "response_latency": "1",
+      "sequential_access": "false",
+      "size": "32768",
+      "system": "system",
+      "tag_latency": "2",
+      "tags": "system.cpu_cluster.cpus.dcache.tags",
+      "tgts_per_mshr": "16",
+      "warmup_percentage": "0",
+      "write_allocator": "Null",
+      "write_buffers": "16",
+      "writeback_clean": "false",
+      "cpu_side": "system.roofline_l1.mem_side_port",
+      "mem_side": "system.roofline_l2.cpu_side_port"
+    },
+    "system.cpu_cluster.cpus.dcache.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.dcache.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.dcache.tags": {
+      "type": "BaseSetAssoc",
+      "children": "indexing_policy power_state",
+      "assoc": "2",
+      "block_size": "64",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.dcache.tags.indexing_policy",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.dcache.tags.power_state",
+      "replacement_policy": "system.cpu_cluster.cpus.dcache.replacement_policy",
+      "sequential_access": "false",
+      "size": "32768",
+      "system": "system",
+      "tag_latency": "2",
+      "warmup_percentage": "0"
+    },
+    "system.cpu_cluster.cpus.dcache.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "2",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "size": "32768"
+    },
+    "system.cpu_cluster.cpus.dcache.tags.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.decoder": {
+      "type": "ArmDecoder",
+      "dvm_enabled": "false",
+      "eventq_index": "0",
+      "isa": "system.cpu_cluster.cpus.isa"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits": {
+      "type": "MinorFUPool",
+      "children": "funcUnits0 funcUnits1 funcUnits2 funcUnits3 funcUnits4 funcUnits5 funcUnits6 funcUnits7",
+      "eventq_index": "0",
+      "funcUnits": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0 system.cpu_cluster.cpus.executeFuncUnits.funcUnits1 system.cpu_cluster.cpus.executeFuncUnits.funcUnits2 system.cpu_cluster.cpus.executeFuncUnits.funcUnits3 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4 system.cpu_cluster.cpus.executeFuncUnits.funcUnits5 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6 system.cpu_cluster.cpus.executeFuncUnits.funcUnits7"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses",
+      "opLat": "3",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses.opClasses"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.opClasses.opClasses": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "IntAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "Int",
+      "eventq_index": "0",
+      "extraAssumedLat": "0",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings.opClasses",
+      "srcRegsRelativeLats": "2",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits0.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses",
+      "opLat": "3",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses.opClasses"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.opClasses.opClasses": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "IntAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "Int",
+      "eventq_index": "0",
+      "extraAssumedLat": "0",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings.opClasses",
+      "srcRegsRelativeLats": "2",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits1.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses",
+      "opLat": "3",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses.opClasses"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.opClasses.opClasses": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "IntMult"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "Mul",
+      "eventq_index": "0",
+      "extraAssumedLat": "0",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings.opClasses",
+      "srcRegsRelativeLats": "0",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits2.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3": {
+      "type": "MinorFU",
+      "children": "opClasses",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "9",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses",
+      "opLat": "9",
+      "timings": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses.opClasses"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits3.opClasses.opClasses": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "IntDiv"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses",
+      "opLat": "6",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses00 opClasses01 opClasses02 opClasses03 opClasses04 opClasses05 opClasses06 opClasses07 opClasses08 opClasses09 opClasses10 opClasses11 opClasses12 opClasses13 opClasses14 opClasses15 opClasses16 opClasses17 opClasses18 opClasses19 opClasses20 opClasses21 opClasses22 opClasses23 opClasses24 opClasses25 opClasses26 opClasses27 opClasses28 opClasses29 opClasses30 opClasses31 opClasses32 opClasses33 opClasses34 opClasses35 opClasses36 opClasses37 opClasses38 opClasses39 opClasses40 opClasses41 opClasses42 opClasses43 opClasses44 opClasses45 opClasses46 opClasses47 opClasses48 opClasses49 opClasses50 opClasses51 opClasses52 opClasses53 opClasses54 opClasses55 opClasses56 opClasses57 opClasses58 opClasses59 opClasses60 opClasses61 opClasses62",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses00 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses01 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses02 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses03 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses04 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses05 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses06 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses07 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses08 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses09 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses10 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses11 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses12 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses13 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses14 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses15 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses16 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses17 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses18 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses19 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses20 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses21 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses22 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses23 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses24 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses25 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses26 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses27 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses28 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses29 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses30 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses31 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses32 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses33 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses34 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses35 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses36 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses37 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses38 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses39 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses40 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses41 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses42 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses43 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses44 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses45 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses46 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses47 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses48 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses49 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses50 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses51 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses52 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses53 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses54 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses55 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses56 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses57 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses58 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses59 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses60 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses61 system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses62"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses00": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatAdd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses01": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatCmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses02": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatCvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses03": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatMisc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses04": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatMult"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses05": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses06": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatDiv"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses07": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatSqrt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses08": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "Bf16Cvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses09": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdAdd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses10": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdAddAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses11": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses12": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdCmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses13": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdCvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses14": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdMisc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses15": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdMult"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses16": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses17": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdMatMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses18": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdShift"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses19": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdShiftAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses20": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdDiv"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses21": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSqrt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses22": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatAdd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses23": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses24": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatCmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses25": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatCvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses26": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatDiv"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses27": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatMisc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses28": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatMult"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses29": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses30": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatMatMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses31": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatSqrt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses32": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdReduceAdd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses33": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdReduceAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses34": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdReduceCmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses35": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatReduceAdd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses36": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatReduceCmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses37": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdAes"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses38": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdAesMix"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses39": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSha1Hash"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses40": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSha1Hash2"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses41": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSha256Hash"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses42": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSha256Hash2"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses43": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdShaSigma2"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses44": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdShaSigma3"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses45": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSha3"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses46": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdSm4e"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses47": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdCrc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses48": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "Matrix"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses49": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "MatrixMov"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses50": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "MatrixOP"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses51": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdExt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses52": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatExt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses53": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdFloatCvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses54": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdConfig"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses55": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdDotProd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses56": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16Add"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses57": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16Cmp"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses58": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16Cvt"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses59": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16DotProd"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses60": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16MatMultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses61": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16Mult"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.opClasses.opClasses62": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdBf16MultAcc"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "FloatSimd",
+      "eventq_index": "0",
+      "extraAssumedLat": "0",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings.opClasses",
+      "srcRegsRelativeLats": "2",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits4.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses",
+      "opLat": "3",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses.opClasses"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.opClasses.opClasses": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdPredAlu"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "Pred",
+      "eventq_index": "0",
+      "extraAssumedLat": "0",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings.opClasses",
+      "srcRegsRelativeLats": "2",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits5.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6": {
+      "type": "MinorFU",
+      "children": "opClasses timings",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses",
+      "opLat": "1",
+      "timings": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses00 opClasses01 opClasses02 opClasses03 opClasses04 opClasses05 opClasses06 opClasses07 opClasses08 opClasses09 opClasses10 opClasses11 opClasses12 opClasses13 opClasses14",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses00 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses01 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses02 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses03 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses04 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses05 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses06 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses07 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses08 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses09 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses10 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses11 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses12 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses13 system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses14"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses00": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "MemRead"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses01": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "MemWrite"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses02": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatMemRead"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses03": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "FloatMemWrite"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses04": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdUnitStrideLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses05": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdUnitStrideStore"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses06": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdUnitStrideMaskLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses07": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdUnitStrideMaskStore"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses08": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdStridedLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses09": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdStridedStore"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses10": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdIndexedLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses11": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdIndexedStore"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses12": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdUnitStrideFaultOnlyFirstLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses13": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdWholeRegisterLoad"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.opClasses.opClasses14": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "SimdWholeRegisterStore"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings": {
+      "type": "MinorFUTiming",
+      "children": "opClasses",
+      "description": "Mem",
+      "eventq_index": "0",
+      "extraAssumedLat": "2",
+      "extraCommitLat": "0",
+      "extraCommitLatExpr": "Null",
+      "mask": "0",
+      "match": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings.opClasses",
+      "srcRegsRelativeLats": "1",
+      "suppress": "false"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits6.timings.opClasses": {
+      "type": "MinorOpClassSet",
+      "eventq_index": "0",
+      "opClasses": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7": {
+      "type": "MinorFU",
+      "children": "opClasses",
+      "cantForwardFromFUIndices": "",
+      "eventq_index": "0",
+      "issueLat": "1",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses",
+      "opLat": "1",
+      "timings": ""
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses": {
+      "type": "MinorOpClassSet",
+      "children": "opClasses0 opClasses1",
+      "eventq_index": "0",
+      "opClasses": "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses0 system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses1"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses0": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "InstPrefetch"
+    },
+    "system.cpu_cluster.cpus.executeFuncUnits.funcUnits7.opClasses.opClasses1": {
+      "type": "MinorOpClass",
+      "eventq_index": "0",
+      "opClass": "System"
+    },
+    "system.cpu_cluster.cpus.icache": {
+      "type": "Cache",
+      "children": "power_state replacement_policy tags",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "3",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "clusivity": "mostly_incl",
+      "compressor": "Null",
+      "data_latency": "1",
+      "demand_mshr_reserve": "1",
+      "eventq_index": "0",
+      "is_read_only": "true",
+      "max_miss_count": "0",
+      "move_contractions": "true",
+      "mshrs": "4",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.icache.power_state",
+      "prefetcher": "Null",
+      "replace_expansions": "true",
+      "replacement_policy": "system.cpu_cluster.cpus.icache.replacement_policy",
+      "response_latency": "1",
+      "sequential_access": "false",
+      "size": "49152",
+      "system": "system",
+      "tag_latency": "1",
+      "tags": "system.cpu_cluster.cpus.icache.tags",
+      "tgts_per_mshr": "8",
+      "warmup_percentage": "0",
+      "write_allocator": "Null",
+      "write_buffers": "8",
+      "writeback_clean": "true",
+      "cpu_side": "system.cpu_cluster.cpus.icache_port",
+      "mem_side": "system.cpu_cluster.toL2Bus.cpu_side_ports[0]"
+    },
+    "system.cpu_cluster.cpus.icache.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.icache.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.icache.tags": {
+      "type": "BaseSetAssoc",
+      "children": "indexing_policy power_state",
+      "assoc": "3",
+      "block_size": "64",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.icache.tags.indexing_policy",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.icache.tags.power_state",
+      "replacement_policy": "system.cpu_cluster.cpus.icache.replacement_policy",
+      "sequential_access": "false",
+      "size": "49152",
+      "system": "system",
+      "tag_latency": "1",
+      "warmup_percentage": "0"
+    },
+    "system.cpu_cluster.cpus.icache.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "3",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "size": "49152"
+    },
+    "system.cpu_cluster.cpus.icache.tags.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.interrupts": {
+      "type": "ArmInterrupts",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.isa": {
+      "type": "ArmISA",
+      "children": "release_se",
+      "decoderFlavor": "Generic",
+      "eventq_index": "0",
+      "fpsid": "1090793632",
+      "id_aa64afr0_el1": "0",
+      "id_aa64afr1_el1": "0",
+      "id_aa64dfr0_el1": "15790086",
+      "id_aa64dfr1_el1": "0",
+      "id_aa64isar0_el1": "268435456",
+      "id_aa64isar1_el1": "18944016",
+      "id_aa64mmfr0_el1": "15728642",
+      "id_aa64mmfr1_el1": "1052704",
+      "id_aa64mmfr2_el1": "65552",
+      "id_isar0": "34607377",
+      "id_isar1": "34677009",
+      "id_isar2": "555950401",
+      "id_isar3": "17899825",
+      "id_isar4": "268501314",
+      "id_isar5": "285212672",
+      "id_isar6": "1",
+      "id_mmfr0": "270536963",
+      "id_mmfr1": "0",
+      "id_mmfr2": "19070976",
+      "id_mmfr3": "34611729",
+      "id_mmfr4": "0",
+      "impdef_nop": "false",
+      "midr": "0",
+      "mpamidr_el1": "3746995439730032896",
+      "pmu": "Null",
+      "release_se": "system.cpu_cluster.cpus.isa.release_se",
+      "sme_vl_se": "1",
+      "sve_vl_se": "1",
+      "system": "system"
+    },
+    "system.cpu_cluster.cpus.isa.release_se": {
+      "type": "ArmRelease",
+      "eventq_index": "0",
+      "extensions": "FEAT_AES FEAT_PMULL FEAT_SHA1 FEAT_SHA256 FEAT_CRC32 FEAT_LSE FEAT_RDM FEAT_FHM FEAT_F32MM FEAT_F64MM FEAT_SVE FEAT_I8MM FEAT_DOTPROD FEAT_FP16 FEAT_FCMA FEAT_JSCVT FEAT_PAuth FEAT_LRCPC FEAT_FLAGM FEAT_FRINTTS FEAT_LRCPC2 FEAT_FLAGM2 FEAT_SME TME"
+    },
+    "system.cpu_cluster.cpus.mmu": {
+      "type": "ArmMMU",
+      "children": "dtb itb l2_shared stage2_dtb stage2_itb walker",
+      "dtb": "system.cpu_cluster.cpus.mmu.dtb",
+      "eventq_index": "0",
+      "itb": "system.cpu_cluster.cpus.mmu.itb",
+      "release_se": "system.cpu_cluster.cpus.isa.release_se",
+      "stage2_dtb": "system.cpu_cluster.cpus.mmu.stage2_dtb",
+      "stage2_itb": "system.cpu_cluster.cpus.mmu.stage2_itb",
+      "sys": "system",
+      "walker": "system.cpu_cluster.cpus.mmu.walker"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb": {
+      "type": "ArmTLB",
+      "children": "indexing_policy replacement_policy",
+      "assoc": "64",
+      "entry_type": "data",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.mmu.dtb.indexing_policy",
+      "is_stage2": "false",
+      "next_level": "system.cpu_cluster.cpus.mmu.l2_shared",
+      "partial_levels": "",
+      "replacement_policy": "system.cpu_cluster.cpus.mmu.dtb.replacement_policy",
+      "size": "64",
+      "sys": "system"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "64",
+      "eventq_index": "0",
+      "num_entries": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.dtb.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.mmu.itb": {
+      "type": "ArmTLB",
+      "children": "indexing_policy replacement_policy",
+      "assoc": "64",
+      "entry_type": "instruction",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.mmu.itb.indexing_policy",
+      "is_stage2": "false",
+      "next_level": "system.cpu_cluster.cpus.mmu.l2_shared",
+      "partial_levels": "",
+      "replacement_policy": "system.cpu_cluster.cpus.mmu.itb.replacement_policy",
+      "size": "64",
+      "sys": "system"
+    },
+    "system.cpu_cluster.cpus.mmu.itb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "64",
+      "eventq_index": "0",
+      "num_entries": "64"
+    },
+    "system.cpu_cluster.cpus.mmu.itb.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared": {
+      "type": "ArmTLB",
+      "children": "indexing_policy replacement_policy",
+      "assoc": "5",
+      "entry_type": "unified",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.mmu.l2_shared.indexing_policy",
+      "is_stage2": "false",
+      "next_level": "Null",
+      "partial_levels": "L2",
+      "replacement_policy": "system.cpu_cluster.cpus.mmu.l2_shared.replacement_policy",
+      "size": "1280",
+      "sys": "system"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "5",
+      "eventq_index": "0",
+      "num_entries": "1280"
+    },
+    "system.cpu_cluster.cpus.mmu.l2_shared.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb": {
+      "type": "ArmTLB",
+      "children": "indexing_policy replacement_policy",
+      "assoc": "32",
+      "entry_type": "data",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.mmu.stage2_dtb.indexing_policy",
+      "is_stage2": "true",
+      "next_level": "Null",
+      "partial_levels": "",
+      "replacement_policy": "system.cpu_cluster.cpus.mmu.stage2_dtb.replacement_policy",
+      "size": "32",
+      "sys": "system"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "32",
+      "eventq_index": "0",
+      "num_entries": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_dtb.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb": {
+      "type": "ArmTLB",
+      "children": "indexing_policy replacement_policy",
+      "assoc": "32",
+      "entry_type": "instruction",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.cpus.mmu.stage2_itb.indexing_policy",
+      "is_stage2": "true",
+      "next_level": "Null",
+      "partial_levels": "",
+      "replacement_policy": "system.cpu_cluster.cpus.mmu.stage2_itb.replacement_policy",
+      "size": "32",
+      "sys": "system"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb.indexing_policy": {
+      "type": "TLBSetAssociative",
+      "assoc": "32",
+      "eventq_index": "0",
+      "num_entries": "32"
+    },
+    "system.cpu_cluster.cpus.mmu.stage2_itb.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.mmu.walker": {
+      "type": "ArmTableWalker",
+      "children": "power_state walk_unit_func_s1 walk_unit_func_s2 walk_units0 walk_units1 walk_units2 walk_units3 walk_units4 walk_units5 walk_units6 walk_units7",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.power_state",
+      "sys": "system",
+      "walk_unit_func_s1": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1",
+      "walk_unit_func_s2": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2",
+      "walk_units": "system.cpu_cluster.cpus.mmu.walker.walk_units0 system.cpu_cluster.cpus.mmu.walker.walk_units1 system.cpu_cluster.cpus.mmu.walker.walk_units2 system.cpu_cluster.cpus.mmu.walker.walk_units3 system.cpu_cluster.cpus.mmu.walker.walk_units4 system.cpu_cluster.cpus.mmu.walker.walk_units5 system.cpu_cluster.cpus.mmu.walker.walk_units6 system.cpu_cluster.cpus.mmu.walker.walk_units7",
+      "port": "system.cpu_cluster.toL2Bus.cpu_side_ports[2]"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "true",
+      "is_stage2": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s1.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "true",
+      "is_stage2": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_unit_func_s2.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units0": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units0.power_state",
+      "sys": "system",
+      "walk_type": "instruction"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units0.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units1": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units1.power_state",
+      "sys": "system",
+      "walk_type": "data"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units1.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units2": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units2.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units2.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units3": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "false",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units3.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units3.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units4": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units4.power_state",
+      "sys": "system",
+      "walk_type": "instruction"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units4.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units5": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units5.power_state",
+      "sys": "system",
+      "walk_type": "data"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units5.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units6": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units6.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units6.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units7": {
+      "type": "ArmWalkUnit",
+      "children": "power_state",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "functional": "false",
+      "is_stage2": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.cpus.mmu.walker.walk_units7.power_state",
+      "sys": "system",
+      "walk_type": "unified"
+    },
+    "system.cpu_cluster.cpus.mmu.walker.walk_units7.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.cpus.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": "ON CLK_GATED OFF"
+    },
+    "system.cpu_cluster.cpus.tracer": {
+      "type": "ExeTracer",
+      "children": "disassembler",
+      "disassembler": "system.cpu_cluster.cpus.tracer.disassembler",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.cpus.tracer.disassembler": {
+      "type": "InstDisassembler",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.l2": {
+      "type": "Cache",
+      "children": "power_state replacement_policy tags",
+      "addr_ranges": "0:18446744073709551615",
+      "assoc": "16",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "clusivity": "mostly_excl",
+      "compressor": "Null",
+      "data_latency": "12",
+      "demand_mshr_reserve": "1",
+      "eventq_index": "0",
+      "is_read_only": "false",
+      "max_miss_count": "0",
+      "move_contractions": "true",
+      "mshrs": "32",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.l2.power_state",
+      "prefetcher": "Null",
+      "replace_expansions": "true",
+      "replacement_policy": "system.cpu_cluster.l2.replacement_policy",
+      "response_latency": "5",
+      "sequential_access": "false",
+      "size": "1048576",
+      "system": "system",
+      "tag_latency": "12",
+      "tags": "system.cpu_cluster.l2.tags",
+      "tgts_per_mshr": "8",
+      "warmup_percentage": "0",
+      "write_allocator": "Null",
+      "write_buffers": "8",
+      "writeback_clean": "false",
+      "cpu_side": "system.cpu_cluster.toL2Bus.mem_side_ports[0]",
+      "mem_side": "system.membus.cpu_side_ports[2]"
+    },
+    "system.cpu_cluster.l2.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.l2.replacement_policy": {
+      "type": "LRURP",
+      "eventq_index": "0"
+    },
+    "system.cpu_cluster.l2.tags": {
+      "type": "BaseSetAssoc",
+      "children": "indexing_policy power_state",
+      "assoc": "16",
+      "block_size": "64",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "indexing_policy": "system.cpu_cluster.l2.tags.indexing_policy",
+      "partitioning_manager": "Null",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.l2.tags.power_state",
+      "replacement_policy": "system.cpu_cluster.l2.replacement_policy",
+      "sequential_access": "false",
+      "size": "1048576",
+      "system": "system",
+      "tag_latency": "12",
+      "warmup_percentage": "0"
+    },
+    "system.cpu_cluster.l2.tags.indexing_policy": {
+      "type": "TaggedSetAssociative",
+      "assoc": "16",
+      "entry_size": "64",
+      "eventq_index": "0",
+      "size": "1048576"
+    },
+    "system.cpu_cluster.l2.tags.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.toL2Bus": {
+      "type": "CoherentXBar",
+      "children": "power_state snoop_filter",
+      "clk_domain": "system.cpu_cluster.clk_domain",
+      "eventq_index": "0",
+      "forward_latency": "0",
+      "frontend_latency": "1",
+      "header_latency": "1",
+      "max_outstanding_snoops": "512",
+      "max_routing_table_size": "512",
+      "point_of_coherency": "false",
+      "point_of_unification": "true",
+      "power_model": "",
+      "power_state": "system.cpu_cluster.toL2Bus.power_state",
+      "response_latency": "1",
+      "snoop_filter": "system.cpu_cluster.toL2Bus.snoop_filter",
+      "snoop_response_latency": "1",
+      "system": "system",
+      "use_default_range": "false",
+      "width": "64",
+      "cpu_side_ports": "system.cpu_cluster.cpus.icache.mem_side system.roofline_l2.mem_side_port system.cpu_cluster.cpus.mmu.walker.port",
+      "mem_side_ports": "system.cpu_cluster.l2.cpu_side"
+    },
+    "system.cpu_cluster.toL2Bus.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.cpu_cluster.toL2Bus.snoop_filter": {
+      "type": "SnoopFilter",
+      "eventq_index": "0",
+      "lookup_latency": "0",
+      "max_capacity": "8388608",
+      "system": "system"
+    },
+    "system.cpu_cluster.voltage_domain": {
+      "type": "VoltageDomain",
+      "eventq_index": "0",
+      "voltage": "1.0"
+    },
+    "system.mem_ctrls": {
+      "type": "MemCtrl",
+      "children": "dram power_state",
+      "clk_domain": "system.clk_domain",
+      "command_window": "10000",
+      "disable_sanity_check": "false",
+      "dram": "system.mem_ctrls.dram",
+      "eventq_index": "0",
+      "mem_sched_policy": "frfcfs",
+      "min_reads_per_switch": "16",
+      "min_writes_per_switch": "16",
+      "power_model": "",
+      "power_state": "system.mem_ctrls.power_state",
+      "qos_policy": "Null",
+      "qos_priorities": "1",
+      "qos_priority_escalation": "false",
+      "qos_q_policy": "fifo",
+      "qos_requestors": "",
+      "qos_syncro_scheduler": "false",
+      "qos_turnaround_policy": "Null",
+      "static_backend_latency": "10000",
+      "static_frontend_latency": "10000",
+      "system": "system",
+      "write_high_thresh_perc": "85",
+      "write_low_thresh_perc": "50",
+      "port": "system.membus.mem_side_ports[0]"
+    },
+    "system.mem_ctrls.dram": {
+      "type": "DRAMInterface",
+      "children": "power_state",
+      "IDD0": "0.055",
+      "IDD02": "0.0",
+      "IDD2N": "0.032",
+      "IDD2N2": "0.0",
+      "IDD2P0": "0.0",
+      "IDD2P02": "0.0",
+      "IDD2P1": "0.032",
+      "IDD2P12": "0.0",
+      "IDD3N": "0.038",
+      "IDD3N2": "0.0",
+      "IDD3P0": "0.0",
+      "IDD3P02": "0.0",
+      "IDD3P1": "0.038",
+      "IDD3P12": "0.0",
+      "IDD4R": "0.157",
+      "IDD4R2": "0.0",
+      "IDD4W": "0.125",
+      "IDD4W2": "0.0",
+      "IDD5": "0.23500000000000001",
+      "IDD52": "0.0",
+      "IDD6": "0.02",
+      "IDD62": "0.0",
+      "VDD": "1.5",
+      "VDD2": "0.0",
+      "activation_limit": "4",
+      "addr_mapping": "RoRaBaCoCh",
+      "bank_groups_per_rank": "0",
+      "banks_per_rank": "8",
+      "beats_per_clock": "2",
+      "burst_length": "8",
+      "clk_domain": "system.clk_domain",
+      "collect_stats": "true",
+      "conf_table_reported": "true",
+      "data_clock_sync": "false",
+      "device_bus_width": "8",
+      "device_rowbuffer_size": "1024",
+      "device_size": "536870912",
+      "devices_per_rank": "8",
+      "dll": "true",
+      "enable_dram_powerdown": "false",
+      "eventq_index": "0",
+      "image_file": "",
+      "in_addr_map": "true",
+      "kvm_map": "true",
+      "max_accesses_per_row": "16",
+      "null": "false",
+      "page_policy": "open_adaptive",
+      "power_model": "",
+      "power_state": "system.mem_ctrls.dram.power_state",
+      "range": "2147483648:4294967296",
+      "ranks_per_channel": "2",
+      "read_buffer_size": "32",
+      "tAAD": "1250",
+      "tBURST": "5000",
+      "tBURST_MAX": "5000",
+      "tBURST_MIN": "5000",
+      "tCCD_L": "0",
+      "tCCD_L_WR": "0",
+      "tCK": "1250",
+      "tCL": "13750",
+      "tCS": "2500",
+      "tCWL": "13750",
+      "tPPD": "0",
+      "tRAS": "35000",
+      "tRCD": "13750",
+      "tRCD_WR": "13750",
+      "tREFI": "7800000",
+      "tRFC": "260000",
+      "tRP": "13750",
+      "tRRD": "6000",
+      "tRRD_L": "0",
+      "tRTP": "7500",
+      "tRTW": "2500",
+      "tWR": "15000",
+      "tWTR": "7500",
+      "tWTR_L": "7500",
+      "tXAW": "30000",
+      "tXP": "6000",
+      "tXPDLL": "0",
+      "tXS": "270000",
+      "tXSDLL": "0",
+      "two_cycle_activate": "false",
+      "write_buffer_size": "64",
+      "writeable": "true"
+    },
+    "system.mem_ctrls.dram.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.mem_ctrls.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.membus": {
+      "type": "CoherentXBar",
+      "children": "badaddr_responder power_state snoop_filter",
+      "clk_domain": "system.clk_domain",
+      "eventq_index": "0",
+      "forward_latency": "4",
+      "frontend_latency": "3",
+      "header_latency": "1",
+      "max_outstanding_snoops": "512",
+      "max_routing_table_size": "512",
+      "point_of_coherency": "true",
+      "point_of_unification": "true",
+      "power_model": "",
+      "power_state": "system.membus.power_state",
+      "response_latency": "2",
+      "snoop_filter": "system.membus.snoop_filter",
+      "snoop_response_latency": "4",
+      "system": "system",
+      "use_default_range": "false",
+      "width": "16",
+      "cpu_side_ports": "system.iocache.mem_side system.system_port system.cpu_cluster.l2.mem_side",
+      "default": "system.membus.badaddr_responder.pio",
+      "mem_side_ports": "system.mem_ctrls.port system.iobridge.cpu_side_port system.realview.bootmem.port system.realview.trusted_sram.port system.realview.trusted_dram.port system.realview.non_trusted_sram.port system.realview.flash0.port system.realview.generic_timer_mem.pio system.realview.el2_watchdog.pio system.realview.trusted_watchdog.pio system.realview.system_watchdog.pio system.realview.generic_timer_mem.frames0.pio system.realview.generic_timer_mem.frames1.pio system.realview.gic.pio system.realview.vgic.pio system.realview.gicv2m.pio"
+    },
+    "system.membus.badaddr_responder": {
+      "type": "IsaFake",
+      "children": "power_state",
+      "clk_domain": "system.clk_domain",
+      "eventq_index": "0",
+      "fake_mem": "false",
+      "pio_addr": "0",
+      "pio_latency": "100000",
+      "pio_size": "8",
+      "power_model": "",
+      "power_state": "system.membus.badaddr_responder.power_state",
+      "ret_bad_addr": "true",
+      "ret_data16": "65535",
+      "ret_data32": "4294967295",
+      "ret_data64": "18446744073709551615",
+      "ret_data8": "255",
+      "system": "system",
+      "update_data": "false",
+      "warn_access": "warn",
+      "pio": "system.membus.default"
+    },
+    "system.membus.badaddr_responder.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.membus.power_state": {
+      "type": "PowerState",
+      "clk_gate_bins": "20",
+      "clk_gate_max": "1000000000000",
+      "clk_gate_min": "1000",
+      "default_state": "UNDEFINED",
+      "eventq_index": "0",
+      "leaders": "",
+      "possible_states": ""
+    },
+    "system.membus.snoop_filter": {
+      "type": "SnoopFilter",
+      "eventq_index": "0",
+      "lookup_latency": "1",
+      "max_capacity": "8388608",
+      "system": "system"
+    },
+    "system.roofline_l1": {
+      "type": "CommMonitor",
+      "bandwidth_bins": "20",
+      "burst_length_bins": "20",
+      "disable_addr_dists": "true",
+      "disable_bandwidth_hists": "false",
+      "disable_burst_length_hists": "true",
+      "disable_itt_dists": "true",
+      "disable_latency_hists": "true",
+      "disable_outstanding_hists": "true",
+      "disable_transaction_hists": "true",
+      "eventq_index": "0",
+      "itt_bins": "20",
+      "itt_max_bin": "100000",
+      "latency_bins": "20",
+      "outstanding_bins": "20",
+      "read_addr_mask": "18446744073709551615",
+      "sample_period": "1000000000000",
+      "system": "system",
+      "transaction_bins": "20",
+      "write_addr_mask": "18446744073709551615",
+      "cpu_side_port": "system.cpu_cluster.cpus.dcache_port",
+      "mem_side_port": "system.cpu_cluster.cpus.dcache.cpu_side"
+    },
+    "system.roofline_l2": {
+      "type": "CommMonitor",
+      "bandwidth_bins": "20",
+      "burst_length_bins": "20",
+      "disable_addr_dists": "true",
+      "disable_bandwidth_hists": "false",
+      "disable_burst_length_hists": "true",
+      "disable_itt_dists": "true",
+      "disable_latency_hists": "true",
+      "disable_outstanding_hists": "true",
+      "disable_transaction_hists": "true",
+      "eventq_index": "0",
+      "itt_bins": "20",
+      "itt_max_bin": "100000",
+      "latency_bins": "20",
+      "outstanding_bins": "20",
+      "read_addr_mask": "18446744073709551615",
+      "sample_period": "1000000000000",
+      "system": "system",
+      "transaction_bins": "20",
+      "write_addr_mask": "18446744073709551615",
+      "cpu_side_port": "system.cpu_cluster.cpus.dcache.mem_side",
+      "mem_side_port": "system.cpu_cluster.toL2Bus.cpu_side_ports[1]"
+    },
+    "system.voltage_domain": {
+      "type": "VoltageDomain",
+      "eventq_index": "0",
+      "voltage": "1.0"
+    },
+    "system": {
+      "cache_line_size": "64",
+      "sve_vl": "1",
+      "sme_vl": "1",
+      "mem_mode": "timing",
+      "mem_ranges": "2147483648:4294967296"
+    }
+  },
+  "source_hashes": {
+    "runs/exp0/stats.txt": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050",
+    "runs/exp0/system.terminal": "fbaf62d3089d42ee6066da2cc29065b1d9e0ff5cc694dc7e8ebd49d444e82663",
+    "runs/exp0/config.ini": "3a1fbef5ed14d8b78d7cb2ddc65a9d335f27225ebe61a82d9e24a3ec661f5208",
+    "runs/exp0/config.json": "d1d0e4742463a1624ee764c09850bb8dcc399bdd754f8cf2f2921a4c68f41ef1",
+    "runs/exp0/config-gate.json": "eb6116fba0f791e7ddbbe3f229dbcda7bce8d24b6ae7ec40576bbaec26054292",
+    "runs/exp0/simulation-exit.json": "3639bb140d7577668e08f830a9294c97e977bad18e8337c2b6877db30eef5b37",
+    "runs/exp1/stats.txt": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90",
+    "runs/exp1/system.terminal": "b9d5b923289358292d8365b657b7ad6bac587ecdce5ed4973bef871e96623075",
+    "runs/exp1/config.ini": "15ba5bc81656b0c03b07942dbf7b7c7b986c65de61d3d3897ba5656705b1c5f2",
+    "runs/exp1/config.json": "1b6e7e62f8672a1127fc509e97c73ed4411c7efed9dac40d9b6c5faefdd77a91",
+    "runs/exp1/config-gate.json": "eb6116fba0f791e7ddbbe3f229dbcda7bce8d24b6ae7ec40576bbaec26054292",
+    "runs/exp1/simulation-exit.json": "a0e3bc4da34945f1d4802645873bcf666981c6ea11a2c45253c1addd141a513c",
+    "runs/exp2/stats.txt": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c",
+    "runs/exp2/system.terminal": "d3e4945b3f1969dba4595145e36ac58354e0885fd58485f4122ea9ee621fed4f",
+    "runs/exp2/config.ini": "70dcc3ad48ae9e4fa3781832d227ab5c0c93d6fc2fd4f642d851eacec3a484db",
+    "runs/exp2/config.json": "e1b8531aa5807792eb45229e75a5e2967b70240e41548e99c641d40659305cd2",
+    "runs/exp2/config-gate.json": "eb6116fba0f791e7ddbbe3f229dbcda7bce8d24b6ae7ec40576bbaec26054292",
+    "runs/exp2/simulation-exit.json": "aa37c472918a0305c3642dea7cc8aa2d020f399f376544957b6d65d410b3ee10",
+    "freeze.json": "dbbe710cd32ef993e240c4ee697b0edac0c59ce8b5e8968308160ff8a5481f8f",
+    "plan.json": "90c100056d5fc5b7d59e2133657a0122aa1d4a6202095f2f4371fc5354b8588f",
+    "registration.json": "efcd013abdbe66dd8039c2d89416e017e7a69ae8aadf11a70f1fb9b3a293ba2f",
+    "build/ert_sdot": "79a2131d99b87a4d8df63fb5cdd6aa718e3381d923b6645d9fd7c0a2da5a69b5",
+    "analysis/summary.json": "df9de5b7a65f8918cab4c84f2717eb5d4f794d17feb54d342720f5184250ce1b",
+    "analysis/rows.json": "5a2fe309b97a030cbce33e5710c15651afc3ba46fbf233d12558e54daf1eb561",
+    "analysis/verification.json": "0d62fc4cfb3ad7bca35c21395d747955dbb9918416905dad595f98a8a414c5b3",
+    "execution/complete.json": "5be4c0bcd4903b1eeacf27713ac535ddbab3e0399cc01e39a9d813a58e9ddb3d",
+    "automated-qa.json": "c0504349baede2202d4f0b2f275a257b50b48f696657245b92e40470a86d8955",
+    "derived/summary.json": "994e745c26a037e47eaad7604d495e70e8e0c8beb1dc71560fc00fb780a7bc89",
+    "derived/rows.json": "9101c10ceb1a0da7c15be3e4fe1d2c4976b91c5cc44ffe8ee7d8248271f3e909",
+    "derived/verification.json": "75fc00b38302c739530f9c3a466b2fce4d405abafdcabc92109557631f5561b7"
+  },
+  "quality": {
+    "last_two_pass_delta_max": 0.05,
+    "repeat_range_fraction_max": 0.05,
+    "median_empty_overhead_max": 0.01
+  },
+  "coverage": {
+    "conditions": 812,
+    "measured_ROIs": 2436,
+    "empty_windows": 9
+  },
+  "compute": {
+    "condition": {
+      "kind": "compute",
+      "family": "stream",
+      "n": 256,
+      "footprint": 12288,
+      "d": 256,
+      "u": 8,
+      "passes": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64
+      ],
+      "block": 124,
+      "first_id": 757
+    },
+    "passes": [
+      32,
+      64
+    ],
+    "samples": [
+      {
+        "id": 762,
+        "passes": 32,
+        "experiment": 0,
+        "sim_ticks": 549908250,
+        "count": 67108864,
+        "empty_ticks": 4000,
+        "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+      },
+      {
+        "id": 763,
+        "passes": 64,
+        "experiment": 0,
+        "sim_ticks": 1068760000,
+        "count": 134217728,
+        "empty_ticks": 4000,
+        "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+      },
+      {
+        "id": 762,
+        "passes": 32,
+        "experiment": 1,
+        "sim_ticks": 534523000,
+        "count": 67108864,
+        "empty_ticks": 4000,
+        "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+      },
+      {
+        "id": 763,
+        "passes": 64,
+        "experiment": 1,
+        "sim_ticks": 1068894250,
+        "count": 134217728,
+        "empty_ticks": 4000,
+        "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+      },
+      {
+        "id": 762,
+        "passes": 32,
+        "experiment": 2,
+        "sim_ticks": 534391250,
+        "count": 67108864,
+        "empty_ticks": 4000,
+        "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+      },
+      {
+        "id": 763,
+        "passes": 64,
+        "experiment": 2,
+        "sim_ticks": 1068759250,
+        "count": 134217728,
+        "empty_ticks": 4000,
+        "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+      }
+    ],
+    "rate_per_second": 125582664021.8571,
+    "unit": "operations/second"
+  },
+  "references": {
+    "Core\u2013L1D": {
+      "condition": {
+        "kind": "bandwidth",
+        "family": "stream",
+        "n": 96,
+        "footprint": 4608,
+        "d": 1,
+        "u": 8,
+        "passes": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64
+        ],
+        "block": 8,
+        "first_id": 56
+      },
+      "passes": [
+        32,
+        64
+      ],
+      "samples": [
+        {
+          "id": 61,
+          "passes": 32,
+          "experiment": 0,
+          "sim_ticks": 4532250,
+          "count": 196640,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 62,
+          "passes": 64,
+          "experiment": 0,
+          "sim_ticks": 9052250,
+          "count": 393248,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 61,
+          "passes": 32,
+          "experiment": 1,
+          "sim_ticks": 4532250,
+          "count": 196640,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 62,
+          "passes": 64,
+          "experiment": 1,
+          "sim_ticks": 9052250,
+          "count": 393248,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 61,
+          "passes": 32,
+          "experiment": 2,
+          "sim_ticks": 4532250,
+          "count": 196640,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        },
+        {
+          "id": 62,
+          "passes": 64,
+          "experiment": 2,
+          "sim_ticks": 9052250,
+          "count": 393248,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        }
+      ],
+      "rate_per_second": 43442017178.04966,
+      "unit": "bytes/second",
+      "direction": "total",
+      "source_type": "measured"
+    },
+    "L1D\u2013L2": {
+      "condition": {
+        "kind": "bandwidth",
+        "family": "stream",
+        "n": 1656,
+        "footprint": 79488,
+        "d": 1,
+        "u": 8,
+        "passes": [
+          1,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64
+        ],
+        "block": 36,
+        "first_id": 252
+      },
+      "passes": [
+        32,
+        64
+      ],
+      "samples": [
+        {
+          "id": 257,
+          "passes": 32,
+          "experiment": 0,
+          "sim_ticks": 184136500,
+          "count": 5095744,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 258,
+          "passes": 64,
+          "experiment": 0,
+          "sim_ticks": 368120750,
+          "count": 10191168,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 257,
+          "passes": 32,
+          "experiment": 1,
+          "sim_ticks": 189761500,
+          "count": 5112012,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 258,
+          "passes": 64,
+          "experiment": 1,
+          "sim_ticks": 368120000,
+          "count": 10191168,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 257,
+          "passes": 32,
+          "experiment": 2,
+          "sim_ticks": 184136750,
+          "count": 5095744,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        },
+        {
+          "id": 258,
+          "passes": 64,
+          "experiment": 2,
+          "sim_ticks": 368120000,
+          "count": 10191168,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        }
+      ],
+      "rate_per_second": 27684363794.414864,
+      "unit": "bytes/second",
+      "direction": "total",
+      "source_type": "measured"
+    },
+    "Physical DRAM": {
+      "condition": {
+        "kind": "bandwidth",
+        "family": "stream",
+        "n": 101448,
+        "footprint": 4869504,
+        "d": 1,
+        "u": 8,
+        "passes": [
+          1,
+          2,
+          4,
+          8
+        ],
+        "block": 79,
+        "first_id": 475
+      },
+      "passes": [
+        4,
+        8
+      ],
+      "samples": [
+        {
+          "id": 477,
+          "passes": 4,
+          "experiment": 0,
+          "sim_ticks": 13234841250,
+          "count": 26303360,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 478,
+          "passes": 8,
+          "experiment": 0,
+          "sim_ticks": 26458031250,
+          "count": 52578432,
+          "empty_ticks": 4000,
+          "stats_sha256": "4a4ca6c18ddae0bada66dd6408c220d7d9ee210d9b79664c3eec79398cd0f050"
+        },
+        {
+          "id": 477,
+          "passes": 4,
+          "experiment": 1,
+          "sim_ticks": 13253702250,
+          "count": 26327424,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 478,
+          "passes": 8,
+          "experiment": 1,
+          "sim_ticks": 26457028250,
+          "count": 52577216,
+          "empty_ticks": 4000,
+          "stats_sha256": "49aed828aa073d9a20e053930e03185ced9185aa8c47c64a5a4075b5f88b2c90"
+        },
+        {
+          "id": 477,
+          "passes": 4,
+          "experiment": 2,
+          "sim_ticks": 13237760250,
+          "count": 26303552,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        },
+        {
+          "id": 478,
+          "passes": 8,
+          "experiment": 2,
+          "sim_ticks": 26455636250,
+          "count": 52578880,
+          "empty_ticks": 4000,
+          "stats_sha256": "2ed9ef2096ec3d3a769e6e2da76b57912ff362f8493ae6c0e6e149995ce7c71c"
+        }
+      ],
+      "rate_per_second": 1987268392.4733686,
+      "unit": "bytes/second",
+      "direction": "total",
+      "source_type": "measured"
+    }
+  }
+}

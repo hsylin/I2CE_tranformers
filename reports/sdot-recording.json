@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "id": "sdot-full-bandwidth-and-compute",
+  "description": "Full recorded single-core INT8/SVE128 SDOT bandwidth and compute scan",
+  "conditions": 812,
+  "repetitions": 3,
+  "measured_rois": 2436,
+  "empty_windows": 9,
+  "blocks_per_repetition": 137,
+  "stats_dumps_per_repetition": 816,
+  "archive": "sdot-roofline-recording.tar.gz",
+  "archive_sha256": "6159f13768427e13ffddea69c19ecd0a7d2f94560af322043b2ad123f0b27e66",
+  "manifest_sha256": "7855f5db8faf8c1cd0f7999b9ee52d17d2c772ca63df48d63f1f836086381eb5",
+  "freeze_sha256": "dbbe710cd32ef993e240c4ee697b0edac0c59ce8b5e8968308160ff8a5481f8f",
+  "recorded_plan_sha256": "90c100056d5fc5b7d59e2133657a0122aa1d4a6202095f2f4371fc5354b8588f",
+  "recorded_binary_sha256": "79a2131d99b87a4d8df63fb5cdd6aa718e3381d923b6645d9fd7c0a2da5a69b5",
+  "calibration_sha256": "85355b85c02260c6c7c0499f582e18a7a7680ccdb2801b535b8137a179398cc3",
+  "reprocessing": {
+    "status": "passed",
+    "compared_records": {
+      "rows.json": 2436,
+      "groups.json": 812,
+      "largest-pass.json": 137
+    },
+    "recorded_quantities_and_stability_flags_unchanged": true
+  },
+  "scope": "Published results were reprocessed from the preserved recording, not remeasured with the maintained source. Raw archive contents retain original names and bytes for hash-verifiable provenance. Model observations keep their original source/binary identities.",
+  "recorded_at_utc": {
+    "start": "2026-11-08T10:01:50.742050Z",
+    "end": "2026-11-09T17:02:03.426247Z"
+  },
+  "execution_receipts": {
+    "execution/launch.json": {
+      "epoch": 1794130528.284642,
+      "utc": "2026-11-08T09:35:28.284642Z",
+      "sha256": "46a84eab41c7daba59c9ac7087280a46ea7604add2c8e02cd773ec6ba6d3e27d"
+    },
+    "execution/exp0-start.json": {
+      "epoch": 1794132110.7420504,
+      "utc": "2026-11-08T10:01:50.742050Z",
+      "sha256": "06be1aaa0aec64c43b5a98ee79b2a5266fe01ae7ccd239c5ad8079bd409c7fe2"
+    },
+    "execution/exp0-exit.json": {
+      "epoch": 1794224743.5872731,
+      "utc": "2026-11-09T11:45:43.587273Z",
+      "sha256": "d08fa858243d125803ff7fce28bbf63f838f0a0373567d887962902b3b9ce43e"
+    },
+    "execution/exp1-start.json": {
+      "epoch": 1794224743.6048853,
+      "utc": "2026-11-09T11:45:43.604885Z",
+      "sha256": "8a562bd10ba0b32f6fc82bdcc858bec6c574e2a99e3133866c2909e2304346e1"
+    },
+    "execution/exp1-exit.json": {
+      "epoch": 1794234263.8786852,
+      "utc": "2026-11-09T14:24:23.878685Z",
+      "sha256": "01868f288bf2b562a09a91dcf144cfa0f46f8fda11f2e8af5c8332979a049251"
+    },
+    "execution/exp2-start.json": {
+      "epoch": 1794234263.896795,
+      "utc": "2026-11-09T14:24:23.896795Z",
+      "sha256": "7da6ebd933d55ff9cc0a7f6289ce008a30f5696e32997cbd22f68aae9add4ff8"
+    },
+    "execution/exp2-exit.json": {
+      "epoch": 1794243723.4262474,
+      "utc": "2026-11-09T17:02:03.426247Z",
+      "sha256": "35c51d2b8bc45f0a29656dc0966aebd61570221ccb37491ef0abca6e816fd6b9"
+    },
+    "execution/complete.json": {
+      "epoch": 1794243742.6540265,
+      "utc": "2026-11-09T17:02:22.654027Z",
+      "sha256": "5be4c0bcd4903b1eeacf27713ac535ddbab3e0399cc01e39a9d813a58e9ddb3d"
+    }
+  }
+}

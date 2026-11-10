@@ -1,0 +1,4 @@
+# Preserve hash-verified server exports, including bundled Plotly JavaScript.
+reports/*.html -text -whitespace
+# Published CSV files use LF consistently with the source tree.
+reports/sdot-scan-*.csv text eol=lf
