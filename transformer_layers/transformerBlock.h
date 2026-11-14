@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "../Full_NN/inc/codebook_tiles.h"
 #include <vector> // New
 
 #include "run_mode_config.h"
@@ -19,7 +20,8 @@ class TransformerBlock {
                      std::size_t head_hidden_size, std::size_t num_heads,
                      std::size_t ff_size, uint32_t **weightVector,
                      std::size_t kernelDim, std::size_t maxCol,
-                     std::size_t learner_idx = 0, std::string dump_dir = "");
+                     std::size_t learner_idx = 0, std::string dump_dir = "",
+                     const i2ce::RuntimeTiles &runtime_tiles = std::nullopt);
 
     virtual ~TransformerBlock();
 

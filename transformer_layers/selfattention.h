@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "../Full_NN/inc/codebook_tiles.h"
 
 #include "util.h"
 
@@ -18,7 +19,8 @@ class SingleHeadSelfAttn {
                        std::size_t input_dim, std::size_t head_hidden_size,
                        uint32_t **weightVector, std::size_t kernel_dim,
                        std::size_t max_col, std::size_t learner_idx = 0,
-                       std::string dump_dir = "");
+                       std::string dump_dir = "",
+                       const i2ce::RuntimeTiles &runtime_tiles = std::nullopt);
 
     ~SingleHeadSelfAttn();
 

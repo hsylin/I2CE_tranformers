@@ -1,5 +1,6 @@
 #ifdef SIMD
 #include "Full_NN/inc/gemm_SVE.h"
+#include <arm_sve.h>
 #endif
 #include "transformer_layers/transformerBlock.h"
 // #include"gtest/gtest.h"
@@ -10,6 +11,7 @@
 #include <fstream>
 #include <cstring>
 #include <vector>
+#include "Full_NN/inc/codebook_tiles.h"
 
 #include "transformer_layers/run_mode_config.h"
 #include <codebooks_def.h>
@@ -263,7 +265,7 @@ LearnerPaths preparePathsForLearner(std::size_t learner_idx,
 
 } // namespace
 
-void test() {
+void test(const i2ce::RuntimeTiles &runtime_tiles) {
     printRunBanner();
 
     std::string dir_name = resolveWeightsDir();
@@ -513,9 +515,16 @@ void test() {
         weightVec[NUM_HEAD * 3 + 1] = ff0_kernel;
         weightVec[NUM_HEAD * 3 + 2] = ff1_kernel;
 
+#if CFG_DENSE_NO_SIMD_BASELINE
+        // Dense baseline keeps its existing constructor and has no tile backend.
         return new ActiveTransformerBlock(D_SEQ, D_MODEL, D_Q, NUM_HEAD, D_FF,
                                           weightVec.data(), KERNEL_DIM, MAX_COL,
                                           learner_idx, learner_dump_dir);
+#else
+        return new ActiveTransformerBlock(D_SEQ, D_MODEL, D_Q, NUM_HEAD, D_FF,
+                                          weightVec.data(), KERNEL_DIM, MAX_COL,
+                                          learner_idx, learner_dump_dir, runtime_tiles);
+#endif
         // End of lambda function to build a transformer block for a given learner index
         // and its corresponding notebook weights directory and dump directory
     };
@@ -602,6 +611,12 @@ void test() {
         // transformer path, where each attention/FFN dense layer first tries the
         // 4-learner CodebookDense fast path and only then dispatches to either the
         // SVE or scalar interleaved GEMM backend.
+#ifdef SIMD
+        if (runtime_tiles.has_value()) {
+            sve_cb4_scratch_reset();
+            CodebookDense::reportCompressedIndexSetup();
+        }
+#endif
         TransformerBlock::computeGroup4(D_SEQ, grouped_blocks, grouped_inputs,
                                         grouped_outputs);
 
@@ -667,6 +682,12 @@ void test() {
         uint32_t *out = new uint32_t[D_SEQ * D_MODEL >> 2]();
         TransformerBlock *selfatten = buildTransformerBlockForLearner(
             learner_idx, paths.notebook_weights_dir, paths.dump_dir);
+#ifdef SIMD
+        if (runtime_tiles.has_value()) {
+            sve_cb4_scratch_reset();
+            CodebookDense::reportCompressedIndexSetup();
+        }
+#endif
         selfatten->compute(D_SEQ, tensor_in, out);
         delete selfatten;
 
@@ -674,8 +695,41 @@ void test() {
     }
 }
 
-int main() {
-    test();
+int main(int argc, char **argv) {
+    if (argc == 2 && !std::strcmp(argv[1], "--help")) {
+        i2ce::tiles_usage(stdout);
+        return 0;
+    }
+    i2ce::CodebookTiles parsed_tiles;
+    if (const char *error = i2ce::parse_tiles(argc, argv, parsed_tiles)) {
+        std::fprintf(stderr, "ERROR: %s\n", error);
+        i2ce::tiles_usage(stderr);
+        return 2;
+    }
+    const i2ce::RuntimeTiles runtime_tiles =
+        argc == 1 ? std::nullopt : i2ce::RuntimeTiles{parsed_tiles};
+#if !(CFG_USE_CODEBOOK_GEMM && CFG_SIMD && CFG_FULL_INTERLEAVED_PIPELINE &&            \
+      !CFG_USE_FP32_TRANSFORMER && I2CE_CODEBOOK_TILE_LAYOUT_SUPPORTED)
+    if (argc != 1) {
+        std::fputs("ERROR: runtime tiles require the CB4/8/16 1/2/4-learner SVE "
+                   "Codebook build\n",
+                   stderr);
+        return 2;
+    }
+#else
+    if (runtime_tiles.has_value() && svcntb() != 16u) {
+        std::fputs("ERROR: runtime tiles require SVE128 (16 bytes)\n", stderr);
+        return 2;
+    }
+    const auto &t = parsed_tiles;
+    std::fprintf(stderr,
+                 "[codebook-tiles] S1=%zu O1=%zu K1=%zu S2=%zu O2=%zu K2=%zu "
+                 "decoded_W_K=%zu compressed_index_K=128 A=retained_full_K "
+                 "W=outside_inner_S Attention=fixed explicit=%d\n",
+                 t.s1, t.o1, t.k1, t.s2, t.o2, t.k2, t.physical_k(),
+                 runtime_tiles.has_value());
+#endif
+    test(runtime_tiles);
     finalizeTransformerStatsWindow();
 
 #if CFG_USE_CODEBOOK_REFERENCE

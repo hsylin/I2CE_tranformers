@@ -131,7 +131,8 @@ SingleHeadSelfAttn::SingleHeadSelfAttn(std::size_t head_idx, std::size_t pre_seq
                                        std::size_t head_hidden_size,
                                        uint32_t **weightVector, std::size_t kernel_dim,
                                        std::size_t max_col, std::size_t learner_idx,
-                                       std::string dump_dir) {
+                                       std::string dump_dir,
+                                       const i2ce::RuntimeTiles &runtime_tiles) {
     head_idx_ = head_idx;
     pre_seq_len_ = pre_seq_len;
     head_hidden_size_ = head_hidden_size;
@@ -146,11 +147,11 @@ SingleHeadSelfAttn::SingleHeadSelfAttn(std::size_t head_idx, std::size_t pre_seq
     const std::string v_name = "v_h" + std::to_string(head_idx_);
 
     auto q_bundle = LayerFactory::create(q_name, input_dim, head_hidden_size,
-                                         weightVector[0], learner_idx_);
+                                         weightVector[0], learner_idx_, runtime_tiles);
     auto k_bundle = LayerFactory::create(k_name, input_dim, head_hidden_size,
-                                         weightVector[1], learner_idx_);
+                                         weightVector[1], learner_idx_, runtime_tiles);
     auto v_bundle = LayerFactory::create(v_name, input_dim, head_hidden_size,
-                                         weightVector[2], learner_idx_);
+                                         weightVector[2], learner_idx_, runtime_tiles);
 
     query_layer_ = q_bundle.main;
     key_layer_ = k_bundle.main;

@@ -7,20 +7,11 @@
 #include <gemm_exec.h>
 
 #ifdef __cplusplus
+#include "codebook_tiles.h"
 extern "C" {
 #endif
 
-/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
- * writes for unsupported geometry/configuration, aliasing, or allocation failure.
- * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
- * Callers must supply buffers of X[M*K*2], CI[index_bytes] in frozen I2CECI01 format,
- * CB[8], bias[N*2], Y[M*N*2]. */
-int sve_gemm_ci_cb4_cache_i8(const uint8_t *indices, size_t index_bytes, size_t nw,
-                             size_t M, size_t N, size_t K, const int8_t *input,
-                             const int32_t *cb, const int32_t *bias, int8_t *output,
-                             uint8_t bits);
-
-/* Per-invocation runtime scratch accounting; metadata retains no backing storage. */
+/* Scratch counters contain metadata only; no pointers or retained storage. */
 typedef struct {
     uint64_t offline_allocations, runtime_allocations, frees;
     uint64_t max_request_bytes, requested_bytes, allocation_failures;
@@ -28,8 +19,51 @@ typedef struct {
     uint64_t W_assigned_bytes, W_useful_bytes, A_pack_calls, A_assigned_bytes,
         A_useful_bytes;
 } i2ce_cb4_scratch_stats;
+
+/* One invocation's counters. Independent executions must use distinct objects. */
+typedef struct {
+    i2ce_cb4_scratch_stats scratch;
+    uint64_t sdot_calls, sdot_full_calls, sdot_source, sdot_edges;
+} i2ce_codebook_execution_stats;
+
+/* Compatibility accounting is local to the calling thread. Reset clears scratch
+ * and SDOT counters. Reset/get do not
+ * inspect other threads. Parallel callers should collect explicit call results. */
 void sve_cb4_scratch_reset(void);
 i2ce_cb4_scratch_stats sve_cb4_scratch_get(void);
+
+/* Fixed CB4/shared-I2 cache path. Returns 1 after complete output, 0 without
+ * writes for unsupported geometry/configuration, aliasing, or allocation failure.
+ * M/N/K/nw are size_t so eligibility is checked before descriptor narrowing.
+ * Callers must supply buffers of X[M*K*2], CI[index_bytes] in I2CECI01 (2-bit) or
+ * I2CECI02 (3/4-bit) format, CB[2*CB_SIZE], bias[N*2], Y[M*N*2]. */
+int sve_gemm_ci_cb4_cache_i8(const uint8_t *indices, size_t index_bytes, size_t nw,
+                             size_t M, size_t N, size_t K, const int8_t *input,
+                             const int32_t *cb, const int32_t *bias, int8_t *output,
+                             uint8_t bits);
+
+#ifdef __cplusplus
+/* Runtime Codebook path: X[M*K*learners], Y[M*N*learners], int32
+ * CB[CB_SIZE*learners] and optional bias[N*learners]. CI is shared.
+ * Tiles apply to this call only. A zero return leaves output unchanged. */
+int sve_gemm_ci_cache_i8(const uint8_t *indices, size_t index_bytes, size_t nw,
+                         size_t M, size_t N, size_t K, const int8_t *input,
+                         const int32_t *cb, const int32_t *bias, int8_t *output,
+                         uint8_t bits, size_t learners,
+                         const i2ce::CodebookTiles &tiles);
+
+/* Reentrant execution with caller-owned statistics, overwritten for every call,
+ * including rejected calls. No thread-local accounting is changed by this API.
+ * Inputs may be shared read-only; output and statistics must be exclusive to the
+ * invocation. Scratch is allocated and freed within the call. A call remains
+ * single-threaded; this entry point does not create a thread pool. */
+int sve_gemm_ci_cache_i8_with_stats(const uint8_t *indices, size_t index_bytes,
+                                    size_t nw, size_t M, size_t N, size_t K,
+                                    const int8_t *input, const int32_t *cb,
+                                    const int32_t *bias, int8_t *output, uint8_t bits,
+                                    size_t learners, const i2ce::CodebookTiles &tiles,
+                                    i2ce_codebook_execution_stats &stats);
+#endif
 
 /**
  * @brief SVE row kernel for one int8 compact weight row and an input tile.

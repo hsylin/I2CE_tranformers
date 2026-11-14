@@ -66,7 +66,8 @@ TransformerBlock::TransformerBlock(std::size_t pre_seq_len, std::size_t input_di
                                    std::size_t head_hidden_size, std::size_t num_heads,
                                    std::size_t ff_size, uint32_t **weightVector,
                                    std::size_t kernelDim, std::size_t maxCol,
-                                   std::size_t learner_idx, std::string dump_dir) {
+                                   std::size_t learner_idx, std::string dump_dir,
+                                   const i2ce::RuntimeTiles &runtime_tiles) {
     num_heads_ = num_heads;
     head_hidden_size_ = head_hidden_size;
     input_dim_ = input_dim;
@@ -79,7 +80,7 @@ TransformerBlock::TransformerBlock(std::size_t pre_seq_len, std::size_t input_di
     for (std::size_t n = 0; n < num_heads_; ++n) {
         selfatten_.push_back(new SingleHeadSelfAttn(
             n, pre_seq_len, input_dim, head_hidden_size, weightVector + n * 3,
-            kernelDim, maxCol, learner_idx_, dump_dir_));
+            kernelDim, maxCol, learner_idx_, dump_dir_, runtime_tiles));
     }
 
     // Allocate intermediate buffers.
@@ -99,17 +100,19 @@ TransformerBlock::TransformerBlock(std::size_t pre_seq_len, std::size_t input_di
     // otherwise it falls back to Dense.
     auto condense_bundle =
         LayerFactory::create("condense", num_heads * head_hidden_size, input_dim,
-                             weightVector[num_heads * 3], learner_idx_);
+                             weightVector[num_heads * 3], learner_idx_, runtime_tiles);
 
     condense = condense_bundle.main;
 
-    auto ff0_bundle = LayerFactory::create(
-        "ff0", input_dim, ff_size, weightVector[num_heads * 3 + 1], learner_idx_);
+    auto ff0_bundle =
+        LayerFactory::create("ff0", input_dim, ff_size, weightVector[num_heads * 3 + 1],
+                             learner_idx_, runtime_tiles);
 
     feedForward0 = ff0_bundle.main;
 
-    auto ff1_bundle = LayerFactory::create(
-        "ff1", ff_size, input_dim, weightVector[num_heads * 3 + 2], learner_idx_);
+    auto ff1_bundle =
+        LayerFactory::create("ff1", ff_size, input_dim, weightVector[num_heads * 3 + 2],
+                             learner_idx_, runtime_tiles);
 
     feedForward1 = ff1_bundle.main;
 

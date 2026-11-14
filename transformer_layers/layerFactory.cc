@@ -6,6 +6,7 @@
 
 #include "dense.h"
 #include "run_mode_config.h"
+#include "../Full_NN/inc/codebook_tiles.h"
 
 #if CFG_USE_CODEBOOK_GEMM
 #include "registry_adapter.h"
@@ -40,9 +41,11 @@ namespace {
 CodebookDenseConfig makeCheckedCodebookConfig(const char *layer_name,
                                               std::size_t expected_input_size,
                                               std::size_t expected_output_size,
-                                              std::size_t learner) {
+                                              std::size_t learner,
+                                              const i2ce::RuntimeTiles &runtime_tiles) {
 
     CodebookDenseConfig cfg = makeCodebookDenseConfigFromRegistry(layer_name, learner);
+    cfg.runtime_tiles = runtime_tiles;
 
     if (cfg.input_size != expected_input_size ||
         cfg.output_size != expected_output_size) {
@@ -50,7 +53,9 @@ CodebookDenseConfig makeCheckedCodebookConfig(const char *layer_name,
                                     std::string(layer_name));
     }
 
-    if (cfg.bits_per_cb == 2u && cfg.n_learners == 2u && cfg.same_seq) {
+    const bool legacy_compressed_path =
+        cfg.bits_per_cb == 2u && cfg.n_learners == 2u && cfg.same_seq;
+    if (legacy_compressed_path || runtime_tiles.has_value()) {
         cfg.compressed_index_directory = "weights/compressed_indices";
     }
     return cfg;
@@ -82,15 +87,16 @@ CodebookDenseConfig makeCheckedCodebookConfig(const char *layer_name,
  */
 LinearLayerBundle LayerFactory::create(const std::string &layer_name,
                                        std::size_t input_size, std::size_t output_size,
-                                       uint32_t *fallback_weight, std::size_t learner) {
+                                       uint32_t *fallback_weight, std::size_t learner,
+                                       const i2ce::RuntimeTiles &runtime_tiles) {
 
     LinearLayerBundle bundle;
 
 #if CFG_USE_CODEBOOK_GEMM
     try {
         CodebookDenseConfig cfg = makeCheckedCodebookConfig(
-            layer_name.c_str(), input_size, output_size,
-            learner); // Get config from registry and validate shape
+            layer_name.c_str(), input_size, output_size, learner,
+            runtime_tiles); // Get config from registry and validate shape
 
         bundle.main = new CodebookDense(cfg);
 #if CFG_ENABLE_DEBUG_PRINT
@@ -98,6 +104,11 @@ LinearLayerBundle LayerFactory::create(const std::string &layer_name,
                   << std::endl;
 #endif
     } catch (const std::exception &ex) {
+        if (runtime_tiles.has_value()) {
+            throw std::runtime_error(
+                "Explicit runtime tiles require the Codebook backend for " +
+                layer_name + ": " + ex.what());
+        }
 #if CFG_PROFILE_GEMM_ONLY
         throw std::runtime_error(
             "PROFILE_GEMM_ONLY requires a matching CodebookDense registry entry for " +
@@ -117,6 +128,9 @@ LinearLayerBundle LayerFactory::create(const std::string &layer_name,
 #endif
     }
 #else
+    if (runtime_tiles.has_value()) {
+        throw std::invalid_argument("Runtime tiles require the Codebook backend");
+    }
     bundle.main = new Dense(input_size, output_size, fallback_weight);
 #endif
 

@@ -1,0 +1,95 @@
+{
+  "schema": "i2ce.runtime-tiles.v1",
+  "backend": "runtime",
+  "tile_order": [
+    "s1",
+    "o1",
+    "k1",
+    "s2",
+    "o2",
+    "k2"
+  ],
+  "learners": [
+    1,
+    2,
+    4
+  ],
+  "codebook_entries": [
+    4,
+    8,
+    16
+  ],
+  "sve_bits": 128,
+  "defaults": {
+    "s1": 16,
+    "o1": 32,
+    "k1": 256,
+    "s2": 128,
+    "o2": 128,
+    "k2": 512
+  },
+  "tiles": {
+    "s1": {
+      "min": 4,
+      "max": 32768,
+      "power_of_two": true
+    },
+    "o1": {
+      "values": [
+        32,
+        64
+      ]
+    },
+    "k1": {
+      "min": 16,
+      "max": 256,
+      "power_of_two": true
+    },
+    "s2": {
+      "min": 4,
+      "max": 65535,
+      "multiple_of": "s1"
+    },
+    "o2": {
+      "values": [
+        32,
+        64,
+        128
+      ],
+      "multiple_of": "o1"
+    },
+    "k2": {
+      "min": 16,
+      "max": 512,
+      "power_of_two": true,
+      "multiple_of": "k1"
+    }
+  },
+  "constraints": [
+    "k1<=k2",
+    "k1<128 or k2<128 implies k1=k2"
+  ],
+  "build_flags": {
+    "USE_CODEBOOK_GEMM_FLAG": "1",
+    "SIMD_FLAG": "1",
+    "FULL_INTERLEAVED_PIPELINE_FLAG": "1",
+    "USE_FP32_TRANSFORMER_FLAG": "0",
+    "RELOAD_WEIGHT_FLAG": "1",
+    "USE_NOTEBOOK_GENERATED_WEIGHTS_FLAG": "1"
+  },
+  "generated_defines": {
+    "TILE_L1_SIZE": 1,
+    "TILE_L2_SIZE": 1,
+    "SAME_SEQ": 1
+  },
+  "runtime_arguments": [
+    "--s1",
+    "--o1",
+    "--k1",
+    "--s2",
+    "--o2",
+    "--k2"
+  ],
+  "compressed_index_exporter": "tools/exp/export_compressed_indices.cc",
+  "new_code_performance": "unmeasured"
+}

@@ -6,8 +6,10 @@
 #include <string>
 
 #include "linearLayer.h"
+#include "../Full_NN/inc/codebook_tiles.h"
 
 struct CodebookDenseConfig {
+    i2ce::RuntimeTiles runtime_tiles;
     std::string compressed_index_directory;
     std::size_t input_size;
     std::size_t output_size;
@@ -52,6 +54,9 @@ class CodebookDense : public LinearLayer {
                                            int8_t *output_interleaved) const;
 
   private:
+    const i2ce::RuntimeTiles runtime_tiles_;
+    bool tryRuntimeTiles(std::size_t seq_len, const int8_t *input,
+                         int8_t *output) const;
     void loadCompressedIndices(const std::string &directory);
     std::vector<uint8_t> compressed_indices_;
     bool compressed_index_requested_;

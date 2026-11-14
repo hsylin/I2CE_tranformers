@@ -41,11 +41,15 @@ inline bool range(const void *data, size_t bytes) {
 }
 inline uint64_t identity(const uint32_t *indices, size_t words_per_column,
                          size_t columns, size_t features, const int32_t *codebook,
-                         const int32_t *bias) {
-    if (!ci_payload_bytes(columns, features) ||
-        words_per_column < (features + 15u) / 16u || words_per_column > UINT16_MAX ||
-        !range(indices, columns * words_per_column * 4u) || !range(codebook, 32u) ||
-        !range(bias, bias ? columns * 8u : 0u) ||
+                         const int32_t *bias, unsigned bits = 2u,
+                         unsigned learners = 2u) {
+    if ((learners != 1 && learners != 2 && learners != 4) ||
+        !ci_payload_bytes_bits(columns, features, bits) ||
+        words_per_column < (features + 32u / bits - 1u) / (32u / bits) ||
+        words_per_column > UINT16_MAX ||
+        !range(indices, columns * words_per_column * 4u) ||
+        !range(codebook, (size_t(1) << bits) * learners * sizeof(int32_t)) ||
+        !range(bias, bias ? columns * learners * sizeof(int32_t) : 0u) ||
         (reinterpret_cast<uintptr_t>(indices) & 3u) ||
         (reinterpret_cast<uintptr_t>(codebook) & 3u) ||
         (bias && (reinterpret_cast<uintptr_t>(bias) & 3u))) {
@@ -53,11 +57,17 @@ inline uint64_t identity(const uint32_t *indices, size_t words_per_column,
     }
     uint64_t hash = hu32(hu32(hu32(seed, uint32_t(columns)), uint32_t(features)),
                          uint32_t(words_per_column));
+    if (learners != 2u) {
+        hash = hu32(hash, learners);
+    }
+    if (bits != 2u) {
+        hash = hu32(hash, bits); // Preserve CI01 identities.
+    }
     // Source padding participates in the identity, even though it is not computed.
     for (size_t i = 0; i < columns * words_per_column; ++i) {
         hash = hu32(hash, indices[i]);
     }
-    for (size_t i = 0; i < 8u; ++i) {
+    for (size_t i = 0; i < (size_t(1) << bits) * learners; ++i) {
         if (codebook[i] < -128 || codebook[i] > 127) {
             throw std::invalid_argument("compressed codebook domain");
         }
@@ -65,28 +75,32 @@ inline uint64_t identity(const uint32_t *indices, size_t words_per_column,
     }
     hash = hu32(hash, bias ? 1u : 0u);
     if (bias) {
-        for (size_t i = 0; i < columns * 2u; ++i) {
+        for (size_t i = 0; i < columns * learners; ++i) {
             hash = hu32(hash, uint32_t(bias[i]));
         }
     }
     return hash;
 }
-inline std::string filename(uint64_t source_identity) {
+inline std::string filename(uint64_t source_identity, unsigned bits = 2u) {
     char name[40];
-    std::snprintf(name, sizeof(name), "%016llx.ci2",
-                  static_cast<unsigned long long>(source_identity));
+    std::snprintf(name, sizeof(name), "%016llx.ci%u",
+                  static_cast<unsigned long long>(source_identity), bits);
     return name;
 }
 inline uint8_t index(const uint8_t *data, size_t columns, size_t features,
-                     size_t column, size_t feature) {
+                     size_t column, size_t feature, unsigned bits = 2u) {
     (void)columns;
-    const size_t lane = (column % 2u) * 8u + feature % 8u;
-    return (data[ci_pair_k8_offset((features + 127u) / 128u, column, feature) +
-                 lane / 4u] >>
-            (2u * (lane % 4u))) &
-           3u;
+    const size_t bit = ((column % 2u) * 8u + feature % 8u) * bits;
+    const uint8_t *record =
+        data + ci_pair_k8_offset_bits((features + 127u) / 128u, column, feature, bits);
+    unsigned value = record[bit / 8u] >> (bit % 8u);
+    if (bit % 8u + bits > 8u) {
+        value |= unsigned(record[bit / 8u + 1u]) << (8u - bit % 8u);
+    }
+    return uint8_t(value & ((1u << bits) - 1u));
 }
-inline bool padding_zero(const uint8_t *data, size_t columns, size_t features) {
+inline bool padding_zero(const uint8_t *data, size_t columns, size_t features,
+                         unsigned bits = 2u) {
     const size_t padded_columns = (columns + 31u) / 32u * 32u,
                  padded_features = (features + 127u) / 128u * 128u;
     if (padded_columns == columns && padded_features == features) {
@@ -95,7 +109,7 @@ inline bool padding_zero(const uint8_t *data, size_t columns, size_t features) {
     for (size_t column = 0; column < padded_columns; ++column) {
         for (size_t feature = 0; feature < padded_features; ++feature) {
             if ((column >= columns || feature >= features) &&
-                index(data, columns, features, column, feature)) {
+                index(data, columns, features, column, feature, bits)) {
                 return false;
             }
         }
@@ -104,9 +118,11 @@ inline bool padding_zero(const uint8_t *data, size_t columns, size_t features) {
 }
 inline void load(const std::string &path, uint64_t source_identity,
                  size_t words_per_column, size_t columns, size_t features,
-                 uint8_t *destination, size_t size) {
-    const size_t payload_bytes = ci_payload_bytes(columns, features);
-    if (!payload_bytes || words_per_column < (features + 15u) / 16u ||
+                 uint8_t *destination, size_t size, unsigned bits = 2u,
+                 unsigned learners = 2u) {
+    const size_t payload_bytes = ci_payload_bytes_bits(columns, features, bits);
+    if ((learners != 1 && learners != 2 && learners != 4) || !payload_bytes ||
+        words_per_column < (features + 32u / bits - 1u) / (32u / bits) ||
         words_per_column > UINT16_MAX || size != payload_bytes ||
         !range(destination, size)) {
         throw std::invalid_argument("compressed destination extent");
@@ -122,16 +138,16 @@ inline void load(const std::string &path, uint64_t source_identity,
     }
     // Header size, version, N, K, source words, learners, layout, panel N/K, bits.
     const uint32_t expected[] = {96,
-                                 1,
+                                 bits == 2u ? 1u : 2u,
                                  uint32_t(columns),
                                  uint32_t(features),
                                  uint32_t(words_per_column),
-                                 2,
+                                 learners,
                                  1,
                                  32,
                                  128,
-                                 2};
-    if (std::memcmp(header, "I2CECI01", 8)) {
+                                 bits};
+    if (std::memcmp(header, bits == 2u ? "I2CECI01" : "I2CECI02", 8)) {
         throw std::runtime_error("compressed magic");
     }
     for (size_t i = 0; i < 10; ++i) {
@@ -154,7 +170,7 @@ inline void load(const std::string &path, uint64_t source_identity,
         throw std::runtime_error("compressed payload length/EOF");
     }
     if (hash_bytes(seed, destination, payload_bytes) != get(header + 64, 8) ||
-        !padding_zero(destination, columns, features)) {
+        !padding_zero(destination, columns, features, bits)) {
         throw std::runtime_error("compressed checksum/padding");
     }
     // On failure, the destination may be modified and must remain unpublished.

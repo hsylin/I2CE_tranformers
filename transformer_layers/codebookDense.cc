@@ -6,6 +6,7 @@
 #endif
 
 #include "../Full_NN/inc/gemm_exec.h"
+#include "../Full_NN/inc/codebook_tiles.h"
 #ifdef SIMD
 #include "../Full_NN/inc/gemm_exec_internal.h"
 #include "../Full_NN/inc/gemm_SVE.h"
@@ -107,7 +108,8 @@ int32_t clampToInt32(double value) {
  * @throws std::invalid_argument if configuration is invalid.
  */
 CodebookDense::CodebookDense(const CodebookDenseConfig &config)
-    : compressed_index_requested_(!config.compressed_index_directory.empty()),
+    : runtime_tiles_(config.runtime_tiles),
+      compressed_index_requested_(!config.compressed_index_directory.empty()),
       input_size_(config.input_size), output_size_(config.output_size),
       n_words_row_(config.n_words_row),
       n_learners_(config.n_learners == 0 ? 1 : config.n_learners),
@@ -122,6 +124,11 @@ CodebookDense::CodebookDense(const CodebookDenseConfig &config)
           config.input_dequant_scale == 0.0f ? 1.0f : config.input_dequant_scale),
       output_quant_scale_(
           config.output_quant_scale == 0.0f ? 1.0f : config.output_quant_scale) {
+    if (runtime_tiles_) {
+        if (const char *error = i2ce::validate_tiles(*runtime_tiles_)) {
+            throw std::invalid_argument(error);
+        }
+    }
     if (input_size_ == 0 || output_size_ == 0) {
         throw std::invalid_argument(
             "CodebookDense requires non-zero input and output sizes");
@@ -312,9 +319,38 @@ int8_t CodebookDense::clampInt32ToInt8(int32_t value) {
     return static_cast<int8_t>(value);
 }
 
+// Try the instance-owned runtime geometry; explicit requests never fall back.
+bool CodebookDense::tryRuntimeTiles(size_t seq_len, const int8_t *input,
+                                    int8_t *output) const {
+    if (seq_len > UINT16_MAX || input_size_ > UINT16_MAX || output_size_ > UINT16_MAX ||
+        n_words_row_ > UINT16_MAX || seq_len * input_size_ > UINT32_MAX / n_learners_ ||
+        seq_len * output_size_ > UINT32_MAX / n_learners_) {
+        throw std::length_error(
+            "Codebook dimensions exceed the supported descriptor domain");
+    }
+#ifdef SIMD
+    if (!compressed_indices_.empty() &&
+        sve_gemm_ci_cache_i8(compressed_indices_.data(), compressed_indices_.size(),
+                             n_words_row_, seq_len, output_size_, input_size_, input,
+                             codebook_widened_i32_interleaved_cache_.data(),
+                             bias_interleaved_q_.empty() ? nullptr
+                                                         : bias_interleaved_q_.data(),
+                             output, bits_per_cb_, n_learners_,
+                             runtime_tiles_.value_or(i2ce::CodebookTiles{}))) {
+        return true;
+    }
+#endif
+    if (runtime_tiles_.has_value()) {
+        throw std::runtime_error("Requested Codebook tiles could not execute on the "
+                                 "selected learner kernel");
+    }
+    return false;
+}
+
 /**
  * @brief Execute the dense layer using the compact GEMM backend.
  *
+ * Explicit tiles use the checked tiled backend for one learner. Otherwise:
  * Main workflow:
  * 1. Unpack the packed uint32_t input into a plain int8 vector.
  * 2. Fill a gemm_t descriptor with seq_len, input_size, output_size, and n_words_row.
@@ -337,6 +373,18 @@ int8_t CodebookDense::clampInt32ToInt8(int32_t value) {
  */
 void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input,
                                    uint32_t *output) const {
+    if (runtime_tiles_.has_value()) {
+        // On the AArch64 target four consecutive int8 features occupy one little-endian
+        // word.
+        if (n_learners_ != 1) {
+            throw std::runtime_error(
+                "Grouped tiled layers require interleaved activations");
+        }
+        if (tryRuntimeTiles(seq_len, reinterpret_cast<const int8_t *>(input),
+                            reinterpret_cast<int8_t *>(output))) {
+            return;
+        }
+    }
     std::vector<int8_t> input_unpacked(seq_len * input_size_, 0);
     for (std::size_t seq = 0; seq < seq_len; seq++) {
         const uint32_t *input_row =
@@ -409,6 +457,14 @@ void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input,
  *       member variables during construction.
  */
 void CodebookDense::buildInterleavedCachesIfNeeded() {
+    if (n_learners_ == 1 && compressed_index_requested_) {
+        codebook_widened_i32_interleaved_cache_.assign(codebook_q_.begin(),
+                                                       codebook_q_.end());
+        if (!bias_q_.empty()) {
+            bias_interleaved_q_ = bias_q_;
+        }
+        return;
+    }
     if (n_learners_ != 2u && n_learners_ != 4u) {
         return;
     }
@@ -416,8 +472,8 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
     const std::size_t learner_count = n_learners_;
     const std::size_t packed_idx_count = output_size_ * n_words_row_;
     if (weight_idx_interleaved_ == nullptr &&
-        !(compressed_index_requested_ && same_seq_ && n_learners_ == 2u &&
-          bits_per_cb_ == 2u)) {
+        !(compressed_index_requested_ && same_seq_ && bits_per_cb_ >= 2u &&
+          bits_per_cb_ <= 4u)) {
         weight_idx_interleaved_cache_.resize(packed_idx_count * learner_count);
         for (std::size_t idx = 0; idx < packed_idx_count; idx++) {
             for (std::size_t learner = 0; learner < learner_count; learner++) {
@@ -633,27 +689,9 @@ void CodebookDense::computeInterleaved2LearnersToInt8(
             "CodebookDense interleaved 2D pipeline path is not available");
     }
 
-    // Validate before the inherited uint16 descriptor or uint32 offset math.
-    // Reject unsupported large shapes instead of silently truncating them.
-    if (seq_len > UINT16_MAX || input_size_ > UINT16_MAX || output_size_ > UINT16_MAX ||
-        n_words_row_ > UINT16_MAX || seq_len * input_size_ > UINT32_MAX / 2u ||
-        seq_len * output_size_ > UINT32_MAX / 2u) {
-        throw std::length_error(
-            "CodebookDense 2D dimensions exceed the supported descriptor domain");
-    }
-#ifdef SIMD
-    if (!compressed_indices_.empty() &&
-        sve_gemm_ci_cb4_cache_i8(
-            compressed_indices_.data(), compressed_indices_.size(), n_words_row_,
-            seq_len, output_size_, input_size_, input_interleaved,
-            codebook_widened_i32_interleaved_cache_.empty()
-                ? nullptr
-                : codebook_widened_i32_interleaved_cache_.data(),
-            bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_interleaved, bits_per_cb_)) {
+    if (tryRuntimeTiles(seq_len, input_interleaved, output_interleaved)) {
         return;
     }
-#endif
 
     gemm_t layer;
     layer.seq_len = static_cast<uint16_t>(seq_len);
@@ -842,6 +880,11 @@ void CodebookDense::computeInterleaved4LearnersToInt8(
             "CodebookDense interleaved 4D pipeline path is not available");
     }
 
+    if (runtime_tiles_.has_value() &&
+        tryRuntimeTiles(seq_len, input_interleaved, output_interleaved)) {
+        return;
+    }
+
     std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 4u, 0);
 
     gemm_t layer;
@@ -910,7 +953,11 @@ void CodebookDense::compute(std::size_t seq_len, uint32_t *input, uint32_t *outp
 }
 
 namespace {
-uint64_t compressed_setup_ns = 0, compressed_objects = 0, compressed_payload = 0;
+// Setup accounting belongs to the constructing thread; publish prepared models
+// only after construction. Parallel execution does not modify these counters.
+thread_local uint64_t compressed_setup_ns = 0, compressed_objects = 0,
+                      compressed_payload = 0;
+thread_local uint64_t compressed_ci02_objects = 0;
 uint64_t compressed_clock_ns() {
 #if defined(I2CE_USE_LIBM5)
     return m5_rpns();
@@ -922,11 +969,13 @@ uint64_t compressed_clock_ns() {
 }
 } // namespace
 void CodebookDense::loadCompressedIndices(const std::string &directory) {
-    if (bits_per_cb_ != 2u || !supportsInterleaved2LearnersSameSeq()) {
-        throw std::invalid_argument("compressed CB4 shared two learners required");
+    if ((bits_per_cb_ < 2u || bits_per_cb_ > 4u) ||
+        !(n_learners_ == 1 || (same_seq_ && (n_learners_ == 2 || n_learners_ == 4)))) {
+        throw std::invalid_argument(
+            "compressed CB4/8/16 with 1, 2 or 4 shared-index learners required");
     }
     const uint64_t start = compressed_clock_ns();
-    const size_t bytes = ci_payload_bytes(output_size_, input_size_);
+    const size_t bytes = ci_payload_bytes_bits(output_size_, input_size_, bits_per_cb_);
     if (!bytes) {
         throw std::invalid_argument("compressed shape");
     }
@@ -935,9 +984,11 @@ void CodebookDense::loadCompressedIndices(const std::string &directory) {
     const uint64_t source_identity = i2ce_ci::identity(
         weight_idx_, n_words_row_, output_size_, input_size_,
         codebook_widened_i32_interleaved_cache_.data(),
-        bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data());
-    i2ce_ci::load(directory + "/" + i2ce_ci::filename(source_identity), source_identity,
-                  n_words_row_, output_size_, input_size_, owner.data(), owner.size());
+        bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
+        bits_per_cb_, n_learners_);
+    i2ce_ci::load(directory + "/" + i2ce_ci::filename(source_identity, bits_per_cb_),
+                  source_identity, n_words_row_, output_size_, input_size_,
+                  owner.data(), owner.size(), bits_per_cb_, n_learners_);
     const uint64_t end = compressed_clock_ns();
     if (end <= start) {
         throw std::runtime_error("compressed setup clock unavailable");
@@ -945,6 +996,7 @@ void CodebookDense::loadCompressedIndices(const std::string &directory) {
     compressed_indices_ = std::move(owner);
     compressed_setup_ns += end - start;
     ++compressed_objects;
+    compressed_ci02_objects += bits_per_cb_ != 2u;
     compressed_payload += bytes;
 }
 void CodebookDense::reportCompressedIndexSetup() {
@@ -953,10 +1005,15 @@ void CodebookDense::reportCompressedIndexSetup() {
 #else
     const char *clock = "host_or_qemu_not_formal";
 #endif
-    std::printf("[compressed-indices] format=I2CECI01 clock=%s objects=%llu "
+    std::printf("[compressed-indices] format=%s clock=%s objects=%llu "
                 "payload_bytes=%llu file_bytes=%llu setup_ns=%llu "
                 "scope=allocation_source_identity_file_load_validation "
                 "offline_W_bytes=0 shared_streams=1 original_registry_retained=1\n",
+                compressed_ci02_objects == 0
+                    ? "I2CECI01"
+                    : (compressed_ci02_objects == compressed_objects
+                           ? "I2CECI02"
+                           : "I2CECI01+I2CECI02"),
                 clock, (unsigned long long)compressed_objects,
                 (unsigned long long)compressed_payload,
                 (unsigned long long)(compressed_payload + 96u * compressed_objects),
