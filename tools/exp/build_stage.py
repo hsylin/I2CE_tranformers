@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -98,9 +99,14 @@ class Commands:
 
 
 def replace_once(path, original, replacement):
+    """Replace one literal or regex match; a callable preserves matched spelling."""
     text = path.read_text()
-    require(text.count(original) == 1, "Ambiguous validation anchor: " + str(path))
-    path.write_text(text.replace(original, replacement))
+    pattern = re.compile(re.escape(original)) if isinstance(original, str) else original
+    matches = list(pattern.finditer(text))
+    require(len(matches) == 1, "Ambiguous validation anchor: " + str(path))
+    match = matches[0]
+    value = replacement(match.group()) if callable(replacement) else replacement
+    path.write_text(text[: match.start()] + value + text[match.end() :])
 
 
 def instrument_copy(source, weights, compressed_indices):
@@ -112,9 +118,9 @@ def instrument_copy(source, weights, compressed_indices):
         input_anchor,
         "std::string dir_name = " + json.dumps(str(weights)) + ";",
     )
-    output_anchor = (
-        "        TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, "
-        "grouped_inputs, grouped_outputs);"
+    output_anchor = re.compile(
+        r"TransformerBlock::computeGroup2\(\s*D_SEQ,\s*grouped_blocks,"
+        r"\s*grouped_inputs,\s*grouped_outputs\s*\);"
     )
     capture = """
         for (std::size_t learner = 0; learner < 2; ++learner) {
@@ -125,7 +131,9 @@ def instrument_copy(source, weights, compressed_indices):
             if (std::fclose(file) != 0) std::abort();
         }
 """
-    replace_once(source / "transformer.cpp", output_anchor, output_anchor + capture)
+    replace_once(
+        main_source, output_anchor, lambda matched_call: matched_call + capture
+    )
     if compressed_indices:
         replace_once(
             source / "transformer_layers/layerFactory.cc",
