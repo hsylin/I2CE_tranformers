@@ -1420,6 +1420,7 @@ def build_report(
     marker_schemes=None,
     roofline_identities=None,
     roofline_calibration=None,
+    false_grid_path=None,
 ):
     specs, sections = {}, []
     provenance = dict(provenance or {})
@@ -1550,6 +1551,12 @@ def build_report(
             tabs.append((key, label))
             sections.extend(graph(figure, key) for figure in figures)
 
+    if false_grid_path:
+        from tile_evidence import render as render_tile_evidence
+
+        tabs.append(("false-grid", "Grid search result"))
+        sections.append(render_tile_evidence(false_grid_path))
+
     if compact_labels:
         labels = dict(zip(totals.label, totals.exp_id))
         implementations = set(totals.implementation)
@@ -1627,7 +1634,9 @@ def build_report(
         + payload
         + "</script><script>"
         "const specs=JSON.parse(document.getElementById('chart-specs').textContent);"
-        "let activeTab='stages';const model=document.getElementById('model');model.value="
+        "let activeTab="
+        + json.dumps("false-grid" if false_grid_path else "stages")
+        + ";const model=document.getElementById('model');model.value="
         + json.dumps(model_default)
         + ";"
         + """
@@ -1635,7 +1644,7 @@ function refresh(){
  document.querySelectorAll('.model-view').forEach(e=>e.classList.toggle('hidden',e.dataset.model!==model.value));
  document.querySelectorAll('[data-tab]').forEach(e=>e.classList.toggle('hidden',e.dataset.tab!==activeTab));
  document.querySelectorAll('[data-view]').forEach(e=>{e.classList.toggle('active',e.dataset.view===activeTab);e.setAttribute('aria-pressed',e.dataset.view===activeTab);});
- model.disabled=['tiles','scaling','phases','cache','roofline','roofline-codebook','roofline-dense'].includes(activeTab);
+ model.disabled=['tiles','scaling','phases','cache','roofline','roofline-codebook','roofline-dense','false-grid'].includes(activeTab);
  document.querySelectorAll('.graph').forEach(e=>{if(e.offsetParent!==null){if(!e.dataset.drawn){e.dataset.drawn='1';const s=specs[e.id];Plotly.newPlot(e,s.data,s.layout,{responsive:true,displaylogo:false,locale:'en',toImageButtonOptions:{format:'svg',filename:e.id}});}else{Plotly.Plots.resize(e);}}});
 }
 model.addEventListener('change',refresh);document.querySelectorAll('[data-view]').forEach(e=>e.addEventListener('click',()=>{activeTab=e.dataset.view;refresh();}));refresh();
@@ -1760,6 +1769,9 @@ def generate(args, get_plotlyjs):
     if calibration:
         inputs.add(calibration.resolve())
     saved_inputs = set(inputs)
+    if getattr(args, "false_grid", None):
+        inputs.add(args.false_grid)
+        inputs.add(args.false_grid.with_suffix(".manifest.json"))
     if args.interpretation:
         inputs.add(args.interpretation)
     if args.marker_schemes:
@@ -1830,6 +1842,14 @@ def generate(args, get_plotlyjs):
     import plotly
 
     provenance["plotly"] = plotly.__version__
+    if getattr(args, "false_grid", None):
+        provenance["false_grid"] = {
+            "file": args.false_grid.name,
+            "sha256": hashlib.sha256(args.false_grid.read_bytes()).hexdigest(),
+            "manifest_sha256": hashlib.sha256(
+                args.false_grid.with_suffix(".manifest.json").read_bytes()
+            ).hexdigest(),
+        }
     report = build_report(
         frame,
         totals,
@@ -1842,6 +1862,7 @@ def generate(args, get_plotlyjs):
         cache_path=optional["cache_comparison"],
         roofline_path=manifests,
         roofline_calibration=calibration,
+        false_grid_path=getattr(args, "false_grid", None),
         provenance=provenance,
         compact_labels=args.compact_labels,
         single_run_study=args.single_run_study,
@@ -1877,6 +1898,8 @@ def watched_state(args):
     """Poll result files only, including optional CSVs added after watching starts."""
     folder = args.input if args.input.is_dir() else args.input.parent
     paths = set(input_files(args.input))
+    if getattr(args, "false_grid", None):
+        paths.update((args.false_grid, args.false_grid.with_suffix(".manifest.json")))
     paths.update(
         getattr(args, key) or folder / name for key, name in OPTIONAL_RESULTS.items()
     )
@@ -1919,6 +1942,11 @@ def main(argv=None):
         help="Optional TSV with recomputed per-stage ratios",
     )
     parser.add_argument("--tile-results", type=Path)
+    parser.add_argument(
+        "--false-grid",
+        type=Path,
+        help="Verified compact False grid/v9 JSON; embeds all 36 profiles and its hash manifest",
+    )
     parser.add_argument("--scaling-results", type=Path)
     parser.add_argument(
         "--calibration",
@@ -1980,6 +2008,7 @@ def main(argv=None):
         "metrics_output",
         "interpretation",
         "marker_schemes",
+        "false_grid",
         *OPTIONAL_RESULTS,
     ]:
         value = getattr(args, key)
