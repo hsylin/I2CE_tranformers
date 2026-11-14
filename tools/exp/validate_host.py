@@ -53,6 +53,7 @@ def main():
             "tests",
             "transformer_profiling/add_experiment.py",
             "transformer_profiling/report.py",
+            "transformer_profiling/tile_evidence.py",
             "transformer_profiling/cache_comparison.py",
             "transformer_profiling/roofline.py",
             "transformer_profiling/roofline_calibration.py",

@@ -1,0 +1,62 @@
+<section class="plot-card hidden" data-tab="false-grid" id="false-grid">
+  <style>
+    #false-grid {padding:28px;color:#17212b;background:#fff}
+    #false-grid * {box-sizing:border-box}
+    #false-grid h2 {margin:0 0 8px;font:650 30px/1.2 system-ui,sans-serif;letter-spacing:-.02em}
+    #false-grid .grid-intro {color:#56616b;margin:0 0 20px;font-size:14px;line-height:1.6}
+    #false-grid .grid-controls {display:flex;align-items:center;gap:26px;flex-wrap:wrap;margin:20px 0 18px}
+    #false-grid label {font-weight:600;font-size:14px}
+    #false-grid select {margin-left:8px;padding:8px 32px 8px 12px;border:1px solid #bac2c9;border-radius:5px;background:#fff;color:#17212b;font:inherit}
+    #false-grid .grid-legend {display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:13px}
+    #false-grid .legend-item {display:inline-flex;gap:7px;align-items:center}
+    #false-grid .legend-key {display:inline-block;width:26px;height:18px;background:#ffffcc}
+    #false-grid .formula-key {border:3px solid #1865df}
+    #false-grid .best-key {border:3px solid #00a978}
+    #false-grid .missing-key {background:#ddd}
+    #false-grid .scale-wrap {display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:18px 0 26px}
+    #false-grid .scale-label {font-size:12px;color:#56616b;max-width:260px}
+    #false-grid .scale {width:300px;max-width:100%}
+    #false-grid .scale-bar {height:12px;background:linear-gradient(90deg,#ffffcc,#ffeda0,#fed976,#feb24c,#fd8d3c,#fc4e2a,#e31a1c,#bd0026,#800026);border:1px solid #899099}
+    #false-grid .scale-ticks {display:flex;justify-content:space-between;font-size:11px;margin-top:3px}
+    #false-grid .cache-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:30px 28px}
+    #false-grid .cache-panel {min-width:0;margin:0;border-top:2px solid #17212b;padding-top:14px;break-inside:avoid}
+    #false-grid .cache-panel h3 {font:600 19px/1.35 system-ui,sans-serif;margin:0 0 13px;color:#17212b}
+    #false-grid .heat-scroll {overflow-x:auto;padding-bottom:2px}
+    #false-grid .grid-heatmap {width:100%;min-width:430px;table-layout:fixed;border-collapse:separate;border-spacing:0;font:13px/1.4 system-ui,sans-serif;border:1px solid #92999e}
+    #false-grid .grid-heatmap col.axis-col {width:75px}
+    #false-grid .grid-heatmap th {font-weight:500;background:white;color:#35414a;text-align:center;padding:7px 4px;border:0}
+    #false-grid .grid-heatmap thead tr:last-child th {border-bottom:1px solid #92999e}
+    #false-grid .grid-heatmap .row-group {font-weight:650;vertical-align:middle;border-right:1px solid #ddd;border-bottom:1px solid #b2b7bb;background:#fafafa}
+    #false-grid .grid-heatmap .inner-label {font-size:11px}
+    #false-grid .grid-heatmap td {padding:0;text-align:center;border:0;white-space:nowrap;position:relative;font-variant-numeric:tabular-nums}
+    #false-grid .grid-heatmap tbody+tbody tr:first-child>* {border-top:1px solid #a9afb4}
+    #false-grid .cell {display:flex;align-items:center;justify-content:center;min-height:33px;position:relative;padding:7px 3px}
+    #false-grid .cell.best:after {content:"";position:absolute;inset:2px;border:3px solid #00a978;pointer-events:none}
+    #false-grid .cell.formula:before {content:"";position:absolute;inset:2px;border:3px solid #1865df;pointer-events:none}
+    #false-grid .cell.best.formula:before {inset:6px;border-width:2px}
+    #false-grid .cell:focus-visible {outline:3px solid #111;outline-offset:-3px;z-index:2}
+    #false-grid .missing {background:#ddd;color:#6b6b6b}
+    #false-grid .cell.invalid {font-size:10px;white-space:normal}
+    #false-grid .selection-note {font-size:12px;line-height:1.6;margin:10px 0 0;color:#35414a;}
+    #false-grid .selection-note code {font:11px ui-monospace,monospace;white-space:normal;background:#f2f4f5;padding:2px 4px}
+    @media(max-width:980px) {#false-grid .cache-grid {grid-template-columns:1fr} #false-grid {padding:20px}}
+    @media print {#false-grid .cache-grid {grid-template-columns:1fr 1fr} #false-grid .grid-controls{display:none} #false-grid{padding:0} #false-grid *{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style>
+  <h2>Grid search result</h2>
+  <p class="grid-intro">1,728 measured configurations · 4 cache settings · learners 1 / 2 / 4 · CB entries 4 / 8 / 16.<br>
+    BLOCK runtime in milliseconds. One observation per configuration.</p>
+  <div class="grid-controls">
+    <label for="tile-learners">Learners <select id="tile-learners"><option value="1">1</option><option value="2" selected>2</option><option value="4">4</option></select></label>
+    <label for="tile-entries">CB entries <select id="tile-entries"><option value="4">4</option><option value="8">8</option><option value="16">16</option></select></label>
+    <div class="grid-legend" aria-label="Cell outlines">
+      <span class="legend-item"><span class="legend-key formula-key"></span>Frozen formula</span>
+      <span class="legend-item"><span class="legend-key best-key"></span>Observed best</span>
+      <span class="legend-item"><span class="legend-key missing-key"></span>Invalid: O1 &gt; O2</span>
+    </div>
+  </div>
+  <div class="scale-wrap">
+    <div class="scale-label">Runtime above the observed best in the same cache (%)<br>Shared color scale across A–D</div>
+    <div class="scale" aria-label="Shared runtime gap color scale"><div class="scale-bar"></div><div id="grid-scale-ticks" class="scale-ticks"></div></div>
+  </div>
+  <div id="grid-cache-panels" class="cache-grid" aria-live="polite"></div>
+</section>

@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "data_sha256": "ef03da2cadda2917eefae2b3b3b6165ea7fcc09e453ede7f7d6ad636b347c14a",
+  "generator_sha256": "598e85e72c58395f86640dfa68f9978e6fe8f793ea3716a5e84d3f87e088fd29",
+  "sources": {
+    "grid_sha256": "8f44683013bdf0086d17c1505267a20cdee177de9d35b21172b3da1d6b31b64f",
+    "comparison_sha256": "401d6182bb63ff58d33259aeaaba02405a52617d271c282b1660bfb53e8062fa",
+    "frozen_scheduler_sha256": "2cba8531851ad94c7926a2cfd7cbb92e03f049f3d1b251df8602057199084db4"
+  },
+  "verified_result_config_pairs": 1770,
+  "formal_performance_runs": 0,
+  "counts": {
+    "grid": 1728,
+    "profiles": 36,
+    "new_selections": 15,
+    "reused_selections": 21,
+    "new_same_binary_controls": 12,
+    "new_measurements": 27
+  }
+}
