@@ -95,10 +95,16 @@ def exact_number(value):
     return int(value) if value == int(value) else float(value)
 
 
-def raw_blocks(path):
+def raw_blocks(path, expected_blocks=23):
+    """Read a stats file using the same parser as captured result bytes."""
+    return raw_blocks_text(path.read_text(), expected_blocks)
+
+
+def raw_blocks_text(text, expected_blocks=23):
+    """Parse already captured text without reopening its source file."""
     blocks = []
     current_block = None
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         if "Begin Simulation Statistics" in line:
             require(
                 current_block is None,
@@ -125,8 +131,9 @@ def raw_blocks(path):
                 )
                 current_block[fields[0]] = fields[1]
     require(
-        current_block is None and len(blocks) == 23,
-        "Expected 22 ROI dumps and one separate post-ROI dump",
+        current_block is None
+        and (expected_blocks is None or len(blocks) == expected_blocks),
+        "Incomplete statistics or unexpected ROI/post-ROI dump count",
     )
     return blocks
 
