@@ -55,10 +55,18 @@ def main():
             and args.l1i_size is None,
             "Study check failed: args.l1d_size == '32KiB' and args.l2_size == '1MiB' and args.l1i_size is None",
         )
-        return create(args)
+        system = create(args)
+        for cluster in system.cpu_cluster:
+            for cpu in cluster.cpus:
+                if hasattr(cpu, "dcache"):
+                    cpu.dcache.writeback_clean = False
+        return system
 
     def checked_run(args):
         output = Path(m5.options.outdir)
+        from false_cache_config import verify_configuration
+
+        verify_configuration(output / "config.ini")
         verify(root, row, inputs, output)
         require(
             int(m5.curTick()) == registration["restored_tick"],

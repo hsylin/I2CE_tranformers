@@ -9,6 +9,7 @@
 #   ./exp.sh run     <id>             launch one measurement run (background)
 #   ./exp.sh submit  <id...>          build+checkpoint+run several, throttled
 #   ./exp.sh smoke   [id]             end-to-end pipeline test WITHOUT the 10 h sim
+#   ./exp.sh experiment <action> ... structured per-SHA interface (see --help)
 #   ./exp.sh status                   running gem5 jobs + one row per live run
 #   ./exp.sh results <id>             where the logs/stats of the latest run are
 #   ./exp.sh collect <id> [--run <ts>] [args...]  a finished run -> the tables
@@ -53,6 +54,10 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SELF_DIR/../.." && pwd)}"
+# Help is available before machine-specific configuration is loaded.
+if [[ "${1:-}" == "--help" ]]; then
+  exec "${GEN_PYTHON:-python3}" -B "$SELF_DIR/lib/experiment_runner.py" --help
+fi
 CONF="$SELF_DIR/runner.conf"
 [[ -f "$CONF" ]] || CONF="$SELF_DIR/runner.conf.example"
 # Preserve an explicitly exported cap even when runner.conf assigns a default.
@@ -62,6 +67,40 @@ source "$CONF"
 [[ -z "$I2CE_ENV_MAX_PARALLEL" ]] || MAX_PARALLEL="$I2CE_ENV_MAX_PARALLEL"
 
 EXP_ROOT="${EXP_ROOT:-$HOME/i2ce/exp}"
+# gem5 SysPaths (bootloader etc.) need M5_PATH; export a sane default.
+M5_PATH="${M5_PATH:-$HOME/i2ce/gem5_resources}"
+export M5_PATH
+# Explicit mode: exp.sh experiment <action> [options]. The original documented
+# <action> --id/--manifest spelling remains an alias. A positional legacy ID
+# always stays in the legacy runner, including collect's forwarded options.
+if [[ "${1:-}" == experiment ]]; then
+  shift
+  STRUCTURED_REQUEST=1
+else
+  STRUCTURED_REQUEST=0
+  case "${1:-}" in
+    submit|dryrun|status|collect)
+      case "${2:-}" in --id|--id=*|--manifest|--manifest=*) STRUCTURED_REQUEST=1 ;; esac ;;
+  esac
+fi
+case "${1:-}" in
+  status|collect|results) : ;;
+  *)
+    # Policy is an invariant; reject exported and non-exported configuration aliases.
+    for _name in $(compgen -v); do
+      _normalized=$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]' | tr -d '_-')
+      case "$_normalized" in
+        *writebackclean*|*cleanwriteback*) echo "Cache policy override is not allowed: $_name" >&2; exit 1 ;;
+      esac
+    done
+    ;;
+esac
+if (( STRUCTURED_REQUEST )); then
+  export EXP_ROOT REPO_ROOT GEM5_BIN GEM5_CWD GEM5_CFG KERNEL DISK LIBM5_A M5_INC MAX_PARALLEL
+  export A64CXX HOST_CXX I2CE_CHECKPOINT RUN_CPU NUM_CORES GEM5_MACHINE_ARGS
+  export SLOT_RESERVE_CPUS SLOT_RESERVE_GIB SLOT_RSS_GIB PYTHONDONTWRITEBYTECODE=1
+  exec "${GEN_PYTHON:-python3}" -B "$SELF_DIR/lib/experiment_runner.py" "$@"
+fi
 GEM5_BIN="${GEM5_BIN:?runner.conf must set GEM5_BIN}"
 GEM5_CWD="${GEM5_CWD:?runner.conf must set GEM5_CWD}"
 GEM5_CFG="${GEM5_CFG:-configs/example/arm/starter_fs.py}"
@@ -89,11 +128,11 @@ USE_LIBM5="${USE_LIBM5:-1}"
 STOCK_L1I="${STOCK_L1I:-48KiB}"
 STOCK_L1D="${STOCK_L1D:-32KiB}"
 STOCK_L2="${STOCK_L2:-1MiB}"
-# gem5 SysPaths (bootloader etc.) need M5_PATH; export a sane default.
-M5_PATH="${M5_PATH:-$HOME/i2ce/gem5_resources}"
-export M5_PATH
 # Keep imported generator modules from producing bytecode in source trees.
 export PYTHONDONTWRITEBYTECODE=1
+export EXP_ROOT REPO_ROOT GEM5_BIN GEM5_CWD GEM5_CFG KERNEL DISK LIBM5_A M5_INC MAX_PARALLEL
+export A64CXX HOST_CXX I2CE_CHECKPOINT RUN_CPU NUM_CORES GEM5_MACHINE_ARGS
+export SLOT_RESERVE_CPUS SLOT_RESERVE_GIB SLOT_RSS_GIB
 TABLE="$SELF_DIR/experiments.tsv"
 # Same reasoning as $AE in collect_one: the tables belong to the checkout that
 # was invoked, never to a `--at <sha>` worktree.
@@ -154,6 +193,7 @@ run_using_share() { # $1 = build directory -> prints the pid of a live user
 
 # ---------------------------------------------------------------- table
 row_for() { # id -> tab row (id cb nl sve impl overrides [notes])
+  if [[ -n "${FROZEN_ROW:-}" ]]; then printf '%s\n' "$FROZEN_ROW"; return; fi
   awk -F'\t' -v id="$1" '!/^#/ && NF>=6 && $1==id {print; found=1} END{exit !found}' "$TABLE" \
     || die "experiment id '$1' not found in $TABLE (7 tab-separated columns required)"
 }
@@ -489,7 +529,7 @@ checkpoint_one() {
   echo "[cpt $KEY] booting ($BOOT_CPU CPU) to take a checkpoint (~10 min) ..."
   ( cd "$GEM5_CWD" && nohup setsid \
     "$GEM5_BIN" -d "$CPT_DIR" --stats-file=boot_stats.txt \
-      "$GEM5_CFG" --cpu="$BOOT_CPU" --kernel="$KERNEL" --disk-image="$DISK" \
+      "$SELF_DIR/lib/false_cache_config.py" --runner-starter="$GEM5_CWD/$GEM5_CFG" --cpu="$BOOT_CPU" --kernel="$KERNEL" --disk-image="$DISK" \
       --script="$BOOT_RCS" --vio-9p="$EXP_ROOT" --checkpoint \
       "${MACHINE_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"} \
       > "$CPT_DIR/boot_stdout.log" 2>&1 < /dev/null & echo $! > "$CPT_DIR/boot.pid" )
@@ -569,13 +609,29 @@ launch_one() { # $1=id  $2=rcS  $3=outdir-prefix  $4=cpu
   # against a build that is not its own.
   [[ -f "$SHARE/build_config.tsv" ]] && cp "$SHARE/build_config.tsv" "$OUT/build_config.tsv"
   printf '%s\n' "$SHARE" > "$OUT/build_dir"
+  row_for "$EID" > "$OUT/experiment-row.tsv"
+  "$GEN_PYTHON" -B "$SELF_DIR/lib/legacy_policy_gate.py" bind "$OUT"
   gem5_extra run
+  local STARTER="$GEM5_CWD/$GEM5_CFG"
+  local POLICY="$SELF_DIR/lib/false_cache_config.py"
+  local CHECK="$OUT/configuration-check"
+  mkdir "$CHECK"
+  "$GEN_PYTHON" -B "$SELF_DIR/lib/simulation_slots.py" --wait \
+    --limit "$MAX_PARALLEL" --cwd "$GEM5_CWD" --out "$CHECK" \
+    --reserve-cpus "${SLOT_RESERVE_CPUS:-4}" \
+    --reserve-gib "${SLOT_RESERVE_GIB:-16}" --rss-gib "${SLOT_RSS_GIB:-8}" -- \
+    "$GEM5_BIN" -d "$CHECK" --dump-config=config.ini \
+      "$POLICY" --runner-starter="$STARTER" --configuration-only \
+      --cpu="$CPU" --kernel="$KERNEL" --disk-image="$DISK" \
+      --restore="$CPT" --script="$RCS" --vio-9p="$SHARE" \
+      "${MACHINE_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
+  "$GEN_PYTHON" -B "$SELF_DIR/lib/legacy_policy_gate.py" check "$CHECK"
   "$GEN_PYTHON" "$SELF_DIR/lib/simulation_slots.py" \
     --limit "$MAX_PARALLEL" --cwd "$GEM5_CWD" --out "$OUT" \
     --reserve-cpus "${SLOT_RESERVE_CPUS:-4}" \
     --reserve-gib "${SLOT_RESERVE_GIB:-16}" --rss-gib "${SLOT_RSS_GIB:-8}" -- \
     "$GEM5_BIN" -d "$OUT" --stats-file=stats.txt --dump-config=config.ini \
-      "$GEM5_CFG" --cpu="$CPU" --kernel="$KERNEL" --disk-image="$DISK" \
+      "$POLICY" --runner-starter="$STARTER" --cpu="$CPU" --kernel="$KERNEL" --disk-image="$DISK" \
       --restore="$CPT" --script="$RCS" --vio-9p="$SHARE" \
       "${MACHINE_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
   # $! may be the setsid/nohup wrapper; resolve the real gem5 pid by its outdir
@@ -625,7 +681,8 @@ smoke_one() {
 # --------------------------------------------------------------- collect
 collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   local ID="$1"; shift
-  load_row "$ID"
+  [[ "$ID" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "Invalid experiment ID"
+  EID="$ID"; EDIR="$EXP_ROOT/$ID"; SHARE="$EDIR/share"
   # Parse routing arguments once; avoid duplicate --study/--exp-id options.
   local WANT_RUN="" STUDY="Runner" RESULT_ID="" OUTPUT_ROOT="$RESULTS_DIR" _PASS=()
   while [[ $# -gt 0 ]]; do
@@ -659,6 +716,19 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
     OUT="$(latest_output "$EDIR" out_)" || true
     [[ -n "${OUT:-}" ]] || die "no measurement runs recorded for exp $EID"
   fi
+  local POLICY_STATUS="legacy-unverified"
+  if [[ -e "$OUT/experiment-row.tsv" || -e "$OUT/frozen-labels.json" || -e "$OUT/cache-policy.json" ]]; then
+    [[ -s "$OUT/experiment-row.tsv" ]] || die "Incomplete frozen run: missing row snapshot."
+    FROZEN_ROW="$(cat "$OUT/experiment-row.tsv")"
+    load_row "$ID"
+    "$GEN_PYTHON" -B "$SELF_DIR/lib/legacy_policy_gate.py" collect "$OUT"
+    POLICY_STATUS="verified-writeback-false"
+  else
+    # Compatibility for pre-gate archives. This imports historical counters;
+    # it does not certify cache policy or make them comparable to new runs.
+    load_row "$ID"
+    echo "[collect $ID] Historical import: cache policy and labels are unverified." >&2
+  fi
   # Deliberately NOT $REPO_ROOT: with `--at <sha>` that points at a checkout of
   # some older commit. The code under test is the variable; the tool that
   # records results has to be the constant, or two runs are not comparable.
@@ -671,9 +741,8 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   # The run's own snapshot is authoritative; the share copy describes the most
   # recent build of this id, which may be a different commit entirely.
   local BC="$OUT/build_config.tsv"
-  if [[ ! -f "$BC" ]]; then
-    BC="$SHARE/build_config.tsv"
-    [[ -f "$BC" ]] && echo "[collect $EID] NOTE: this run predates per-run build_config.tsv; falling back to $SHARE/build_config.tsv, which describes the LATEST build of exp $EID and may not be this run's" >&2
+  if [[ "$POLICY_STATUS" == "verified-writeback-false" ]]; then
+    [[ -f "$BC" ]] || die "Missing immutable build_config.tsv"
   fi
   # Defaults matter: a run predating a field records "-", which is visibly
   # different from a field that was recorded empty.
@@ -726,6 +795,7 @@ collect_one() { # <id> [--run <ts|dir>] [extra add_experiment.py args...]
   if (( ! DRY_RUN )); then
     {
       [[ -f "$BC" ]] && cat "$BC"
+      printf 'cache_policy_status\t%s\n' "$POLICY_STATUS"
       printf 'collected_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'outdir\t%s\n'       "$OUT"
       printf 'gem5_args\t%s\n'    "${GEM5_ARGS:--}"
@@ -1074,8 +1144,8 @@ AT_COMMIT=""
 _ARGV=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --at)   AT_COMMIT="${2:?usage: --at <commit-ish>}"; shift 2 ;;
-    --at=*) AT_COMMIT="${1#--at=}"; shift ;;
+    --at)   [[ -z "$AT_COMMIT" ]] || die "Duplicate --at"; AT_COMMIT="${2:?usage: --at <commit-ish>}"; shift 2 ;;
+    --at=*) [[ -z "$AT_COMMIT" ]] || die "Duplicate --at"; AT_COMMIT="${1#--at=}"; shift ;;
     *)      _ARGV+=("$1"); shift ;;
   esac
 done
@@ -1086,6 +1156,9 @@ if [[ -n "$AT_COMMIT" ]]; then
     build|submit|dryrun|checkpoint|run) : ;;
     *) die "--at applies to build/submit/dryrun/checkpoint/run, not '${1:-}'. Results are always collected with the current tooling." ;;
   esac
+  if [[ "${1:-}" == dryrun ]]; then
+    exec "$GEN_PYTHON" -B "$SELF_DIR/lib/legacy_policy_gate.py" dryrun "$REPO_ROOT" "$AT_COMMIT" "$TABLE" "${2:?missing id}"
+  fi
   REPO_ROOT="$(src_tree_for "$AT_COMMIT")"
   echo "[--at] $AT_COMMIT -> building from $REPO_ROOT"
   echo "[--at] $(git -C "$REPO_ROOT" log -1 --format='%h %s')"
