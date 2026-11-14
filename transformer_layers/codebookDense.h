@@ -31,7 +31,7 @@ struct CodebookDenseConfig {
 };
 
 class CodebookDense : public LinearLayer {
-public:
+  public:
     static void reportCompressedIndexSetup();
     explicit CodebookDense(const CodebookDenseConfig &config);
     ~CodebookDense() override = default;
@@ -39,31 +39,30 @@ public:
     void compute(std::size_t seq_len, uint32_t *input, uint32_t *output) override;
     bool supportsInterleaved2LearnersSameSeq() const;
     void computeInterleaved2LearnersSameSeq(std::size_t seq_len,
-                                     uint32_t* const inputs[2],
-                                     uint32_t* const outputs[2]) const;
+                                            uint32_t *const inputs[2],
+                                            uint32_t *const outputs[2]) const;
     void computeInterleaved2LearnersToInt8(std::size_t seq_len,
-                                    const int8_t* input_interleaved,
-                                    int8_t* output_interleaved) const;
+                                           const int8_t *input_interleaved,
+                                           int8_t *output_interleaved) const;
     bool supportsInterleaved4Learners() const;
-    void computeInterleaved4Learners(std::size_t seq_len,
-                                     uint32_t* const inputs[4],
-                                     uint32_t* const outputs[4]) const;
+    void computeInterleaved4Learners(std::size_t seq_len, uint32_t *const inputs[4],
+                                     uint32_t *const outputs[4]) const;
     void computeInterleaved4LearnersToInt8(std::size_t seq_len,
-                                    const int8_t* input_interleaved,
-                                    int8_t* output_interleaved) const;
+                                           const int8_t *input_interleaved,
+                                           int8_t *output_interleaved) const;
 
-private:
-    void loadCompressedIndices(const std::string& directory);
+  private:
+    void loadCompressedIndices(const std::string &directory);
     std::vector<uint8_t> compressed_indices_;
     bool compressed_index_requested_;
-    static uint32_t getPackedIndex(const uint32_t *packed_row,
-                                   std::size_t elem_idx,
+    static uint32_t getPackedIndex(const uint32_t *packed_row, std::size_t elem_idx,
                                    uint8_t bits_per_cb);
     static int8_t unpackInt8(const uint32_t *packed, std::size_t elem_idx);
     static void packInt8(const std::vector<int8_t> &src, uint32_t *dst);
     static int8_t clampInt32ToInt8(int32_t value);
 
-    void runCompactGemm(std::size_t seq_len, const uint32_t *input, uint32_t *output) const;
+    void runCompactGemm(std::size_t seq_len, const uint32_t *input,
+                        uint32_t *output) const;
     void buildInterleavedCachesIfNeeded();
 
     std::size_t input_size_;
@@ -83,7 +82,8 @@ private:
     const float *biases_;
     const float *bias_interleaved_;
 
-    // Reserved for future mixed-scale path; currently compact int GEMM consumes int8 directly.
+    // Reserved for future mixed-scale path; currently compact int GEMM consumes int8
+    // directly.
     float input_dequant_scale_;
     float output_quant_scale_;
 

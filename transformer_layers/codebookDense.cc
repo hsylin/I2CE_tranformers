@@ -16,11 +16,11 @@
 #include <stdexcept>
 #include <vector>
 
-
 namespace {
 
 /**
- * @brief Round a floating-point value to the nearest int8_t and saturate if out of range.
+ * @brief Round a floating-point value to the nearest int8_t and saturate if out of
+ * range.
  *
  * This helper is used when the registry provides a floating-point codebook
  * instead of a pre-quantized int8 codebook. The caller applies the output
@@ -44,9 +44,9 @@ int8_t clampToInt8(float value) {
     return static_cast<int8_t>(rounded);
 }
 
-
 /**
- * @brief Round a floating-point-like value to the nearest int32_t and saturate if out of range.
+ * @brief Round a floating-point-like value to the nearest int32_t and saturate if out
+ * of range.
  *
  * Bias values are added in the GEMM accumulator domain, so they are stored as
  * int32 values rather than int8 values. This helper converts a floating-point
@@ -67,7 +67,7 @@ int32_t clampToInt32(double value) {
     }
     return static_cast<int32_t>(rounded);
 }
-}
+} // namespace
 
 /**
  * @brief Construct a CodebookDense layer from a configuration object.
@@ -108,41 +108,43 @@ int32_t clampToInt32(double value) {
  */
 CodebookDense::CodebookDense(const CodebookDenseConfig &config)
     : compressed_index_requested_(!config.compressed_index_directory.empty()),
-      input_size_(config.input_size),
-      output_size_(config.output_size),
+      input_size_(config.input_size), output_size_(config.output_size),
       n_words_row_(config.n_words_row),
       n_learners_(config.n_learners == 0 ? 1 : config.n_learners),
-      same_seq_(config.same_seq),
-      selected_learner_(config.selected_learner),
-      bits_per_cb_(config.bits_per_cb),
-      weight_idx_(config.weight_idx),
+      same_seq_(config.same_seq), selected_learner_(config.selected_learner),
+      bits_per_cb_(config.bits_per_cb), weight_idx_(config.weight_idx),
       weight_idx_by_learner_(config.weight_idx_by_learner),
       weight_idx_interleaved_(config.weight_idx_interleaved),
-      codebook_(config.codebook),
-      codebooks_int8_(config.codebooks_int8),
-      codebook_int8_interleaved_(config.codebook_int8_interleaved),
-      bias_(config.bias),
-      biases_(config.biases),
-      bias_interleaved_(config.bias_interleaved),
-      input_dequant_scale_(config.input_dequant_scale == 0.0f ? 1.0f : config.input_dequant_scale),
-      output_quant_scale_(config.output_quant_scale == 0.0f ? 1.0f : config.output_quant_scale) {
+      codebook_(config.codebook), codebooks_int8_(config.codebooks_int8),
+      codebook_int8_interleaved_(config.codebook_int8_interleaved), bias_(config.bias),
+      biases_(config.biases), bias_interleaved_(config.bias_interleaved),
+      input_dequant_scale_(
+          config.input_dequant_scale == 0.0f ? 1.0f : config.input_dequant_scale),
+      output_quant_scale_(
+          config.output_quant_scale == 0.0f ? 1.0f : config.output_quant_scale) {
     if (input_size_ == 0 || output_size_ == 0) {
-        throw std::invalid_argument("CodebookDense requires non-zero input and output sizes");
+        throw std::invalid_argument(
+            "CodebookDense requires non-zero input and output sizes");
     }
     if (bits_per_cb_ == 0 || bits_per_cb_ > 16) {
-        throw std::invalid_argument("CodebookDense bits_per_cb must be between 1 and 16");
+        throw std::invalid_argument(
+            "CodebookDense bits_per_cb must be between 1 and 16");
     }
     if ((input_size_ % 4) != 0 || (output_size_ % 4) != 0) {
-        throw std::invalid_argument("CodebookDense expects packed int8 tensors with dimensions divisible by 4");
+        throw std::invalid_argument(
+            "CodebookDense expects packed int8 tensors with dimensions divisible by 4");
     }
 
     std::size_t idxs_per_word = 32u / bits_per_cb_;
-    std::size_t required_n_words_row = (input_size_ + idxs_per_word - 1) / idxs_per_word;
+    std::size_t required_n_words_row =
+        (input_size_ + idxs_per_word - 1) / idxs_per_word;
     if (n_words_row_ < required_n_words_row) {
-        throw std::invalid_argument("CodebookDense n_words_row is too small for the provided input size and bits_per_cb");
+        throw std::invalid_argument("CodebookDense n_words_row is too small for the "
+                                    "provided input size and bits_per_cb");
     }
     if (weight_idx_ == nullptr) {
-        throw std::invalid_argument("CodebookDense requires a valid weight_idx pointer");
+        throw std::invalid_argument(
+            "CodebookDense requires a valid weight_idx pointer");
     }
 
     std::size_t codebook_size = static_cast<std::size_t>(1u) << bits_per_cb_;
@@ -154,39 +156,44 @@ CodebookDense::CodebookDense(const CodebookDenseConfig &config)
             codebook_q_.push_back(clampToInt8(codebook_[cb_idx] * output_quant_scale_));
         }
     } else {
-        throw std::invalid_argument("CodebookDense requires either float or int8 codebook data");
+        throw std::invalid_argument(
+            "CodebookDense requires either float or int8 codebook data");
     }
 
     if (codebooks_int8_ != nullptr && n_learners_ > 0) {
-        codebooks_q_.assign(codebooks_int8_, codebooks_int8_ + (n_learners_ * codebook_size));
+        codebooks_q_.assign(codebooks_int8_,
+                            codebooks_int8_ + (n_learners_ * codebook_size));
     } else if (n_learners_ == 1u) {
         codebooks_q_ = codebook_q_;
     }
 
     if (codebook_int8_interleaved_ != nullptr && n_learners_ > 0) {
-        codebook_interleaved_q_.assign(
-            codebook_int8_interleaved_,
-            codebook_int8_interleaved_ + (n_learners_ * codebook_size));
+        codebook_interleaved_q_.assign(codebook_int8_interleaved_,
+                                       codebook_int8_interleaved_ +
+                                           (n_learners_ * codebook_size));
     }
 
     if (bias_ != nullptr) {
         bias_q_.reserve(output_size_);
         for (std::size_t out_idx = 0; out_idx < output_size_; out_idx++) {
-            bias_q_.push_back(clampToInt32(static_cast<double>(bias_[out_idx]) * output_quant_scale_));
+            bias_q_.push_back(clampToInt32(static_cast<double>(bias_[out_idx]) *
+                                           output_quant_scale_));
         }
     }
 
     if (biases_ != nullptr && n_learners_ > 0) {
         biases_q_.reserve(n_learners_ * output_size_);
         for (std::size_t idx = 0; idx < n_learners_ * output_size_; idx++) {
-            biases_q_.push_back(clampToInt32(static_cast<double>(biases_[idx]) * output_quant_scale_));
+            biases_q_.push_back(
+                clampToInt32(static_cast<double>(biases_[idx]) * output_quant_scale_));
         }
     }
 
     if (bias_interleaved_ != nullptr && n_learners_ > 0) {
         bias_interleaved_q_.reserve(n_learners_ * output_size_);
         for (std::size_t idx = 0; idx < n_learners_ * output_size_; idx++) {
-            bias_interleaved_q_.push_back(clampToInt32(static_cast<double>(bias_interleaved_[idx]) * output_quant_scale_));
+            bias_interleaved_q_.push_back(clampToInt32(
+                static_cast<double>(bias_interleaved_[idx]) * output_quant_scale_));
         }
     }
 
@@ -200,7 +207,8 @@ CodebookDense::CodebookDense(const CodebookDenseConfig &config)
  * @brief Extract one packed codebook index from a row of packed index words.
  *
  * The weight matrix is not stored directly. Instead, each weight entry is represented
- * by a small integer index into the codebook. Multiple indexes are packed into a uint32_t.
+ * by a small integer index into the codebook. Multiple indexes are packed into a
+ * uint32_t.
  *
  * This function:
  * - determines which 32-bit word contains the requested index,
@@ -215,8 +223,7 @@ CodebookDense::CodebookDense(const CodebookDenseConfig &config)
  * @return Extracted integer codebook index, ready to index into the quantized
  *         codebook table.
  */
-uint32_t CodebookDense::getPackedIndex(const uint32_t *packed_row,
-                                       std::size_t elem_idx,
+uint32_t CodebookDense::getPackedIndex(const uint32_t *packed_row, std::size_t elem_idx,
                                        uint8_t bits_per_cb) {
     std::size_t idxs_per_word = 32u / bits_per_cb;
     uint32_t idx_mask = (1u << bits_per_cb) - 1u;
@@ -224,7 +231,6 @@ uint32_t CodebookDense::getPackedIndex(const uint32_t *packed_row,
     std::size_t offset = (elem_idx % idxs_per_word) * bits_per_cb;
     return (packed_row[word_idx] >> offset) & idx_mask;
 }
-
 
 /**
  * @brief Unpack one int8 value from a uint32_t-packed tensor.
@@ -250,7 +256,6 @@ int8_t CodebookDense::unpackInt8(const uint32_t *packed, std::size_t elem_idx) {
     return static_cast<int8_t>((word >> (byte_idx * 8)) & 0xFF);
 }
 
-
 /**
  * @brief Pack a vector of int8 values into uint32_t words.
  *
@@ -270,7 +275,8 @@ int8_t CodebookDense::unpackInt8(const uint32_t *packed, std::size_t elem_idx) {
  */
 void CodebookDense::packInt8(const std::vector<int8_t> &src, uint32_t *dst) {
     if ((src.size() % 4) != 0) {
-        throw std::invalid_argument("CodebookDense output size must be divisible by 4 for packed int8 storage");
+        throw std::invalid_argument(
+            "CodebookDense output size must be divisible by 4 for packed int8 storage");
     }
     std::size_t packed_size = src.size() / 4;
     for (std::size_t word_idx = 0; word_idx < packed_size; word_idx++) {
@@ -329,10 +335,12 @@ int8_t CodebookDense::clampInt32ToInt8(int32_t value) {
  * @param output Pointer to the packed output tensor. Layout is [seq][output_word],
  *               where each uint32_t word stores 4 int8 output features.
  */
-void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, uint32_t *output) const {
+void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input,
+                                   uint32_t *output) const {
     std::vector<int8_t> input_unpacked(seq_len * input_size_, 0);
     for (std::size_t seq = 0; seq < seq_len; seq++) {
-        const uint32_t *input_row = input + seq * (input_size_ / 4); // Input matrix from previous layer
+        const uint32_t *input_row =
+            input + seq * (input_size_ / 4); // Input matrix from previous layer
         for (std::size_t in_idx = 0; in_idx < input_size_; in_idx++) {
             input_unpacked[seq * input_size_ + in_idx] = unpackInt8(input_row, in_idx);
         }
@@ -352,15 +360,13 @@ void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, u
                               weight_idx_,
                               codebook_q_.data(), // quantized codebook
                               bias_q_.empty() ? nullptr : bias_q_.data(),
-                              output_acc.data(),
-                              bits_per_cb_);
+                              output_acc.data(), bits_per_cb_);
 #else
     gemm_exec_compact_int(layer,
                           input_unpacked.data(), // vector, take the head address
                           weight_idx_,
                           codebook_q_.data(), // quantized codebook
-                          bias_q_.empty() ? nullptr : bias_q_.data(),
-                          output_acc.data(),
+                          bias_q_.empty() ? nullptr : bias_q_.data(), output_acc.data(),
                           bits_per_cb_);
 #endif
 
@@ -391,7 +397,8 @@ void CodebookDense::runCompactGemm(std::size_t seq_len, const uint32_t *input, u
  * - bias_interleaved_q_: [output_channel][learner].
  *
  * Step-by-step:
- * 1. Return immediately for non-grouped layers; only 2 and 4 learners need these caches.
+ * 1. Return immediately for non-grouped layers; only 2 and 4 learners need these
+ * caches.
  * 2. Build an interleaved packed-index stream from either the shared weight_idx_
  *    stream or weight_idx_by_learner_ streams.
  * 3. Build an interleaved codebook from per-learner codebooks when available, or
@@ -408,12 +415,15 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
 
     const std::size_t learner_count = n_learners_;
     const std::size_t packed_idx_count = output_size_ * n_words_row_;
-    if (weight_idx_interleaved_ == nullptr && !(compressed_index_requested_ && same_seq_ && n_learners_==2u && bits_per_cb_==2u)) {
+    if (weight_idx_interleaved_ == nullptr &&
+        !(compressed_index_requested_ && same_seq_ && n_learners_ == 2u &&
+          bits_per_cb_ == 2u)) {
         weight_idx_interleaved_cache_.resize(packed_idx_count * learner_count);
         for (std::size_t idx = 0; idx < packed_idx_count; idx++) {
             for (std::size_t learner = 0; learner < learner_count; learner++) {
                 if (same_seq_ || weight_idx_by_learner_ == nullptr) {
-                    weight_idx_interleaved_cache_[idx * learner_count + learner] = weight_idx_[idx];
+                    weight_idx_interleaved_cache_[idx * learner_count + learner] =
+                        weight_idx_[idx];
                 } else {
                     weight_idx_interleaved_cache_[idx * learner_count + learner] =
                         weight_idx_by_learner_[learner * packed_idx_count + idx];
@@ -429,11 +439,13 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
         for (std::size_t cb_idx = 0; cb_idx < codebook_size; cb_idx++) {
             for (std::size_t learner = 0; learner < learner_count; learner++) {
                 const std::size_t src_base =
-                    (!codebooks_q_.empty() && codebooks_q_.size() >= (learner_count * codebook_size))
+                    (!codebooks_q_.empty() &&
+                     codebooks_q_.size() >= (learner_count * codebook_size))
                         ? (learner * codebook_size)
                         : 0u;
                 codebook_interleaved_q_[cb_idx * learner_count + learner] =
-                    (!codebooks_q_.empty() && codebooks_q_.size() >= (learner_count * codebook_size))
+                    (!codebooks_q_.empty() &&
+                     codebooks_q_.size() >= (learner_count * codebook_size))
                         ? codebooks_q_[src_base + cb_idx]
                         : codebook_q_[cb_idx];
             }
@@ -466,7 +478,8 @@ void CodebookDense::buildInterleavedCachesIfNeeded() {
 }
 
 /**
- * @brief Check whether this layer can run the 2-learner same-sequence grouped GEMM path.
+ * @brief Check whether this layer can run the 2-learner same-sequence grouped GEMM
+ * path.
  *
  * The 2D path is only valid when exactly two learners share the same sequence and
  * the constructor has prepared an interleaved codebook. The actual packed weight
@@ -492,7 +505,8 @@ bool CodebookDense::supportsInterleaved2LearnersSameSeq() const {
  *
  * @return true when the layer has exactly 4 learners, the interleaved codebook is
  *         available, and the required packed-index stream exists. For same_seq_
- *         this requires weight_idx_; for diff-seq this requires weight_idx_interleaved_.
+ *         this requires weight_idx_; for diff-seq this requires
+ * weight_idx_interleaved_.
  */
 bool CodebookDense::supportsInterleaved4Learners() const {
     if ((n_learners_ != 4u) || codebook_interleaved_q_.empty()) {
@@ -530,11 +544,11 @@ bool CodebookDense::supportsInterleaved4Learners() const {
  * @param outputs Array of two packed output buffers, one per learner.
  * @throws std::runtime_error if the layer is not configured for the 2D same-seq path.
  */
-void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
-                                                uint32_t* const inputs[2],
-                                                uint32_t* const outputs[2]) const {
+void CodebookDense::computeInterleaved2LearnersSameSeq(
+    std::size_t seq_len, uint32_t *const inputs[2], uint32_t *const outputs[2]) const {
     if (!supportsInterleaved2LearnersSameSeq()) {
-        throw std::runtime_error("CodebookDense interleaved 2D same-seq path is not available");
+        throw std::runtime_error(
+            "CodebookDense interleaved 2D same-seq path is not available");
     }
 
     std::vector<int8_t> input_interleaved(seq_len * input_size_ * 2u, 0);
@@ -557,27 +571,18 @@ void CodebookDense::computeInterleaved2LearnersSameSeq(std::size_t seq_len,
 
 #ifdef SIMD
     gemm_exec_compact_int_sve_interleaved_2Learners_same_seq_ex(
-        layer,
-        input_interleaved.data(),
-        weight_idx_,
-        codebook_interleaved_q_.data(),
+        layer, input_interleaved.data(), weight_idx_, codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-        output_acc_interleaved.data(),
-        bits_per_cb_,
+        output_acc_interleaved.data(), bits_per_cb_,
         codebook_widened_i32_interleaved_cache_.empty()
             ? nullptr
             : codebook_widened_i32_interleaved_cache_.data(),
-        nullptr,
-        0u);
+        nullptr, 0u);
 #else
     gemm_exec_compact_int_interleaved_2Learners_same_seq(
-        layer,
-        input_interleaved.data(),
-        weight_idx_,
-        codebook_interleaved_q_.data(),
+        layer, input_interleaved.data(), weight_idx_, codebook_interleaved_q_.data(),
         bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-        output_acc_interleaved.data(),
-        bits_per_cb_);
+        output_acc_interleaved.data(), bits_per_cb_);
 #endif
 
     std::vector<int8_t> output_int8(seq_len * output_size_ * 2u, 0);
@@ -718,10 +723,11 @@ void CodebookDense::computeInterleaved2LearnersToInt8(
  * @throws std::runtime_error if the layer is not configured for the 4D grouped path.
  */
 void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
-                                                uint32_t* const inputs[4],
-                                                uint32_t* const outputs[4]) const {
+                                                uint32_t *const inputs[4],
+                                                uint32_t *const outputs[4]) const {
     if (!supportsInterleaved4Learners()) {
-        throw std::runtime_error("CodebookDense interleaved 4D diff-seq path is not available");
+        throw std::runtime_error(
+            "CodebookDense interleaved 4D diff-seq path is not available");
     }
 
     std::vector<int8_t> input_interleaved(seq_len * input_size_ * 4u, 0);
@@ -746,53 +752,39 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
     if (same_seq_) {
         // Shared-index path: one packed index stream drives all 4 learners.
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
-            layer,
-            input_interleaved.data(),
-            weight_idx_,
+            layer, input_interleaved.data(), weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_,
+            output_acc_interleaved.data(), bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            nullptr,
-            0u);
+            nullptr, 0u);
     } else {
         // Per-learner index path: each learner has its own packed index stream.
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
-            layer,
-            input_interleaved.data(),
-            weight_idx_interleaved_,
+            layer, input_interleaved.data(), weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_,
+            output_acc_interleaved.data(), bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            nullptr,
-            0u);
+            nullptr, 0u);
     }
 #else
     if (same_seq_) {
         gemm_exec_compact_int_interleaved_4Learners_same_seq(
-            layer,
-            input_interleaved.data(),
-            weight_idx_,
+            layer, input_interleaved.data(), weight_idx_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_);
+            output_acc_interleaved.data(), bits_per_cb_);
     } else {
         gemm_exec_compact_int_interleaved_4Learners_diff_seq(
-            layer,
-            input_interleaved.data(),
-            weight_idx_interleaved_,
+            layer, input_interleaved.data(), weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_);
+            output_acc_interleaved.data(), bits_per_cb_);
     }
 #endif
 
@@ -823,7 +815,8 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
  * The function supports both 4D same-sequence and 4D different-sequence registry
  * layouts:
  * - same_seq_ == true: use weight_idx_ and the 4D same-sequence GEMM backend.
- * - same_seq_ == false: use weight_idx_interleaved_ and the 4D diff-sequence GEMM backend.
+ * - same_seq_ == false: use weight_idx_interleaved_ and the 4D diff-sequence GEMM
+ * backend.
  *
  * Step-by-step:
  * 1. Validate that the 4D grouped backend is available.
@@ -841,11 +834,12 @@ void CodebookDense::computeInterleaved4Learners(std::size_t seq_len,
  *                           4 learners.
  * @throws std::runtime_error if the layer is not configured for the 4D grouped path.
  */
-void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
-                                               const int8_t* input_interleaved,
-                                               int8_t* output_interleaved) const {
+void CodebookDense::computeInterleaved4LearnersToInt8(
+    std::size_t seq_len, const int8_t *input_interleaved,
+    int8_t *output_interleaved) const {
     if (!supportsInterleaved4Learners()) {
-        throw std::runtime_error("CodebookDense interleaved 4D pipeline path is not available");
+        throw std::runtime_error(
+            "CodebookDense interleaved 4D pipeline path is not available");
     }
 
     std::vector<int32_t> output_acc_interleaved(seq_len * output_size_ * 4u, 0);
@@ -859,52 +853,36 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
 #ifdef SIMD
     if (same_seq_) {
         gemm_exec_compact_int_sve_interleaved_4Learners_same_seq_ex(
-            layer,
-            input_interleaved,
-            weight_idx_,
-            codebook_interleaved_q_.data(),
+            layer, input_interleaved, weight_idx_, codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_,
+            output_acc_interleaved.data(), bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            nullptr,
-            0u);
+            nullptr, 0u);
     } else {
         gemm_exec_compact_int_sve_interleaved_4Learners_diff_seq_ex(
-            layer,
-            input_interleaved,
-            weight_idx_interleaved_,
+            layer, input_interleaved, weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_,
+            output_acc_interleaved.data(), bits_per_cb_,
             codebook_widened_i32_interleaved_cache_.empty()
                 ? nullptr
                 : codebook_widened_i32_interleaved_cache_.data(),
-            nullptr,
-            0u);
+            nullptr, 0u);
     }
 #else
     if (same_seq_) {
         gemm_exec_compact_int_interleaved_4Learners_same_seq(
-            layer,
-            input_interleaved,
-            weight_idx_,
-            codebook_interleaved_q_.data(),
+            layer, input_interleaved, weight_idx_, codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_);
+            output_acc_interleaved.data(), bits_per_cb_);
     } else {
         gemm_exec_compact_int_interleaved_4Learners_diff_seq(
-            layer,
-            input_interleaved,
-            weight_idx_interleaved_,
+            layer, input_interleaved, weight_idx_interleaved_,
             codebook_interleaved_q_.data(),
             bias_interleaved_q_.empty() ? nullptr : bias_interleaved_q_.data(),
-            output_acc_interleaved.data(),
-            bits_per_cb_);
+            output_acc_interleaved.data(), bits_per_cb_);
     }
 #endif
 
@@ -912,7 +890,6 @@ void CodebookDense::computeInterleaved4LearnersToInt8(std::size_t seq_len,
         output_interleaved[idx] = static_cast<int8_t>(output_acc_interleaved[idx]);
     }
 }
-
 
 /**
  * @brief Public inference entry point for the dense layer.

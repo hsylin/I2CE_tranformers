@@ -1,8 +1,8 @@
 #ifdef SIMD
 #include "Full_NN/inc/gemm_SVE.h"
 #endif
-#include"transformer_layers/transformerBlock.h"
-//#include"gtest/gtest.h"
+#include "transformer_layers/transformerBlock.h"
+// #include"gtest/gtest.h"
 #include "transformer.h"
 #include "accelerator/smm_gem.h"
 #include <algorithm>
@@ -31,14 +31,13 @@
 #endif
 
 #define KERNEL_DIM SA_SIZE
-#define MAX_COL (SA_SIZE/4)
-
+#define MAX_COL (SA_SIZE / 4)
 
 void fill_kernel(uint32_t *kernel, int kernel_size) {
     for (int i = 0; i < kernel_size; i++) {
         uint32_t result = 0;
         for (int j = 0; j < 4; j++) {
-            result |= ((uint8_t) (rand() % 5 - 2)) << (8 * j);
+            result |= ((uint8_t)(rand() % 5 - 2)) << (8 * j);
         }
         kernel[i] = result;
     }
@@ -52,7 +51,7 @@ void fill_weight(uint32_t *kernel, int n_row, int n_col) { // ？
                 for (int jj = 0; jj < MAX_COL; jj++) {
                     uint32_t result = 0;
                     for (int k = 0; k < 4; k++) {
-                        result |= ((uint8_t) (rand() % 5 - 2)) << (8 * k);
+                        result |= ((uint8_t)(rand() % 5 - 2)) << (8 * k);
                     }
                     *kernel_ptr = result;
                     kernel_ptr++;
@@ -62,10 +61,11 @@ void fill_weight(uint32_t *kernel, int n_row, int n_col) { // ？
     }
 }
 
-void saveWeight(int n_head, int qkv, int size, uint32_t *array, const std::string &dir_name) {
+void saveWeight(int n_head, int qkv, int size, uint32_t *array,
+                const std::string &dir_name) {
     // Write the kernel array to file
-    std::string filename = dir_name + "/H" + std::to_string(n_head) + "_L" +
-                           std::to_string(qkv) + ".bin";
+    std::string filename =
+        dir_name + "/H" + std::to_string(n_head) + "_L" + std::to_string(qkv) + ".bin";
     std::ofstream fout(filename);
     if (fout.is_open()) {
         for (int i = 0; i < size; i++) {
@@ -75,14 +75,13 @@ void saveWeight(int n_head, int qkv, int size, uint32_t *array, const std::strin
     }
 }
 
-
 std::size_t getTransformerLearnerCount() {
 #if CFG_DENSE_NO_SIMD_BASELINE
     return N_LEARNERS;
 #elif CFG_USE_CODEBOOK_GEMM
     try {
         return getCodebookDenseLearnerCount("q_h0");
-    } catch (const std::exception&) {
+    } catch (const std::exception &) {
         return 1;
     }
 #else
@@ -90,7 +89,7 @@ std::size_t getTransformerLearnerCount() {
 #endif
 }
 
-std::string getNotebookWeightsDirForLearner(const std::string& notebook_weights_dir,
+std::string getNotebookWeightsDirForLearner(const std::string &notebook_weights_dir,
                                             std::size_t learner_idx) {
     return notebook_weights_dir + "/learner" + std::to_string(learner_idx);
 }
@@ -101,7 +100,6 @@ using ActiveTransformerBlock = DenseNoSimdTransformerBlock;
 using ActiveTransformerBlock = TransformerBlock;
 #endif
 
-
 namespace {
 
 // Report build flags, generated dimensions and the required SVE layout.
@@ -111,7 +109,7 @@ void printRunBanner() {
 #ifdef BWMA
     std::cout << "BWMA method" << std::endl;
 #else
-    std::cout<<"RWMA method" << std::endl;
+    std::cout << "RWMA method" << std::endl;
 #endif
     std::cout << "SA_SIZE = " << SA_SIZE << std::endl;
     std::cout << "KERNEL_DIM = " << KERNEL_DIM << std::endl;
@@ -133,18 +131,14 @@ void printRunBanner() {
     if (runtime_sve_bytes != static_cast<uint64_t>(N_SVE_BYTE) ||
         runtime_sve_int32_lanes != static_cast<uint64_t>(N_SVE_LANES)) {
         std::cerr << "ERROR: SVE vector-length mismatch." << std::endl
-                  << "  expected: " << N_SVE_BYTE << " bytes ("
-                  << (N_SVE_BYTE * 8) << " bit), " << N_SVE_LANES
-                  << " int32 lanes"
-                  << " (from codebooks_def.h N_SVE_BYTE / N_SVE_LANES)"
-                  << std::endl
+                  << "  expected: " << N_SVE_BYTE << " bytes (" << (N_SVE_BYTE * 8)
+                  << " bit), " << N_SVE_LANES << " int32 lanes"
+                  << " (from codebooks_def.h N_SVE_BYTE / N_SVE_LANES)" << std::endl
                   << "  runtime : " << runtime_sve_bytes << " bytes ("
-                  << (runtime_sve_bytes * 8) << " bit), "
-                  << runtime_sve_int32_lanes << " int32 lanes"
-                  << std::endl
+                  << (runtime_sve_bytes * 8) << " bit), " << runtime_sve_int32_lanes
+                  << " int32 lanes" << std::endl
                   << "Regenerate the notebook artifacts for this SVE length"
-                  << " or run under a matching QEMU/gem5 configuration."
-                  << std::endl;
+                  << " or run under a matching QEMU/gem5 configuration." << std::endl;
         std::exit(EXIT_FAILURE);
     }
 #endif
@@ -162,16 +156,20 @@ void printRunBanner() {
     std::cout << "USE_F32 = " << USE_F32 << std::endl;
 
     std::cout << "CFG_RELOAD_WEIGHT = " << CFG_RELOAD_WEIGHT << std::endl;
-    std::cout << "CFG_USE_NOTEBOOK_GENERATED_WEIGHTS = " << CFG_USE_NOTEBOOK_GENERATED_WEIGHTS << std::endl;
+    std::cout << "CFG_USE_NOTEBOOK_GENERATED_WEIGHTS = "
+              << CFG_USE_NOTEBOOK_GENERATED_WEIGHTS << std::endl;
     std::cout << "CFG_USE_CODEBOOK_GEMM = " << CFG_USE_CODEBOOK_GEMM << std::endl;
-    std::cout << "CFG_USE_CODEBOOK_REFERENCE = " << CFG_USE_CODEBOOK_REFERENCE << std::endl;
+    std::cout << "CFG_USE_CODEBOOK_REFERENCE = " << CFG_USE_CODEBOOK_REFERENCE
+              << std::endl;
     std::cout << "CFG_ENABLE_DEBUG_PRINT = " << CFG_ENABLE_DEBUG_PRINT << std::endl;
     std::cout << "CFG_PROFILE_GEMM_ONLY = " << CFG_PROFILE_GEMM_ONLY << std::endl;
     std::cout << "CFG_GEM5_PROFILE_REGIONS = " << CFG_GEM5_PROFILE_REGIONS << std::endl;
-    std::cout << "CFG_FULL_INTERLEAVED_PIPELINE = " << CFG_FULL_INTERLEAVED_PIPELINE << std::endl;
+    std::cout << "CFG_FULL_INTERLEAVED_PIPELINE = " << CFG_FULL_INTERLEAVED_PIPELINE
+              << std::endl;
     std::cout << "CFG_USE_FP32_TRANSFORMER = " << CFG_USE_FP32_TRANSFORMER << std::endl;
     std::cout << "CFG_SIMD = " << CFG_SIMD << std::endl;
-    std::cout << "CFG_DENSE_NO_SIMD_BASELINE = " << CFG_DENSE_NO_SIMD_BASELINE << std::endl;
+    std::cout << "CFG_DENSE_NO_SIMD_BASELINE = " << CFG_DENSE_NO_SIMD_BASELINE
+              << std::endl;
 }
 
 // Return the runtime weights directory. Prefer the host-side project path;
@@ -188,20 +186,21 @@ std::string resolveWeightsDir() {
 // enabled, try the notebook-generated .bin first (if that source is enabled)
 // and fall back to the legacy loadWeight path; otherwise fill in place and
 // save. Ownership of the returned buffer is transferred to the caller.
-uint32_t* loadInputTensorHeap(const std::string& dir_name,
-                              const std::string& notebook_weights_dir) {
+uint32_t *loadInputTensorHeap(const std::string &dir_name,
+                              const std::string &notebook_weights_dir) {
     uint32_t *tensor_in = new uint32_t[D_SEQ * D_MODEL >> 2];
 #if CFG_RELOAD_WEIGHT
     // Load the tensor input from file
-    // We assign -1 and -1 to n_head and qkv to indicate that we are not loading the weight
+    // We assign -1 and -1 to n_head and qkv to indicate that we are not loading the
+    // weight
     bool input_loaded_from_notebook = false;
 
 #if CFG_USE_NOTEBOOK_GENERATED_WEIGHTS
 #if CFG_ENABLE_DEBUG_PRINT
     printf("Input matrix: trying notebook-generated input\n");
 #endif
-    input_loaded_from_notebook = tryLoadWeight(
-        -1, -1, D_SEQ * D_MODEL >> 2, tensor_in, notebook_weights_dir);
+    input_loaded_from_notebook =
+        tryLoadWeight(-1, -1, D_SEQ * D_MODEL >> 2, tensor_in, notebook_weights_dir);
 
 #if CFG_ENABLE_DEBUG_PRINT
     if (input_loaded_from_notebook) {
@@ -222,7 +221,8 @@ uint32_t* loadInputTensorHeap(const std::string& dir_name,
 #else
     fill_kernel(tensor_in, D_SEQ * D_MODEL >> 2);
     // Save the tensor input to file
-    // We assign -1 and -1 to n_head and qkv to indicate that we are not saving the weight
+    // We assign -1 and -1 to n_head and qkv to indicate that we are not saving the
+    // weight
     saveWeight(-1, -1, D_SEQ * D_MODEL >> 2, tensor_in, dir_name);
 #endif
     return tensor_in;
@@ -232,8 +232,8 @@ uint32_t* loadInputTensorHeap(const std::string& dir_name,
 // in the grouped and sequential paths. Callers that only want it in the
 // multi-learner case gate on learner_count > 1 themselves.
 void printLearnerHeader(std::size_t learner_idx) {
-    std::cout << "\n=============== LEARNER " << learner_idx
-              << " ===============\n" << std::endl;
+    std::cout << "\n=============== LEARNER " << learner_idx << " ===============\n"
+              << std::endl;
 }
 
 // Per-learner path bundle plus its side effect: when make_dump_dir is true,
@@ -247,22 +247,21 @@ struct LearnerPaths {
 };
 
 LearnerPaths preparePathsForLearner(std::size_t learner_idx,
-                                    const std::string& notebook_weights_dir,
-                                    const std::string& multiple_learner_output_root,
+                                    const std::string &notebook_weights_dir,
+                                    const std::string &multiple_learner_output_root,
                                     bool make_dump_dir) {
     LearnerPaths paths;
     paths.notebook_weights_dir =
         getNotebookWeightsDirForLearner(notebook_weights_dir, learner_idx);
     if (make_dump_dir) {
-        paths.dump_dir = multiple_learner_output_root + "/learner" +
-                         std::to_string(learner_idx);
+        paths.dump_dir =
+            multiple_learner_output_root + "/learner" + std::to_string(learner_idx);
         std::filesystem::create_directories(paths.dump_dir);
     }
     return paths;
 }
 
-}  // namespace
-
+} // namespace
 
 void test() {
     printRunBanner();
@@ -283,9 +282,9 @@ void test() {
 #endif
 
 #if CFG_USE_FP32_TRANSFORMER
-    TransformerFloat::run(
-        learner_count,
-        dump_outputs_enabled ? dir_name + "/multiple_learner_outputs/c" : std::string());
+    TransformerFloat::run(learner_count, dump_outputs_enabled
+                                             ? dir_name + "/multiple_learner_outputs/c"
+                                             : std::string());
     return;
 #endif
 
@@ -299,31 +298,33 @@ void test() {
     tensor_in = tensorInRowWise;
 #endif
 
-    const std::string multiple_learner_output_root = dir_name + "/multiple_learner_outputs/c";
+    const std::string multiple_learner_output_root =
+        dir_name + "/multiple_learner_outputs/c";
     if (dump_outputs_enabled && learner_count > 1) {
         std::filesystem::create_directories(multiple_learner_output_root);
     }
 
-    auto buildTransformerBlockForLearner = // a lambda function to build a transformer block for a given learner index and its corresponding notebook weights directory and dump directory
-        [&](std::size_t learner_idx,
-            const std::string& learner_notebook_weights_dir,
-            const std::string& learner_dump_dir) -> ActiveTransformerBlock* {
-
-            // Q weight
-            // K weight
-            // V weight
-            // output projection
-            // FFN layer 1
-            // FFN layer 2
-        std::vector<uint32_t*> weightVec(3 * NUM_HEAD + 3, nullptr);
+    auto buildTransformerBlockForLearner = // a lambda function to build a transformer
+                                           // block for a given learner index and its
+                                           // corresponding notebook weights directory
+                                           // and dump directory
+        [&](std::size_t learner_idx, const std::string &learner_notebook_weights_dir,
+            const std::string &learner_dump_dir) -> ActiveTransformerBlock * {
+        // Q weight
+        // K weight
+        // V weight
+        // output projection
+        // FFN layer 1
+        // FFN layer 2
+        std::vector<uint32_t *> weightVec(3 * NUM_HEAD + 3, nullptr);
 #if !CFG_CODEBOOK_ONLY_MODE
         const int head_qkv_size = D_Q * D_MODEL >> 2;
 #endif
 
         for (int n = 0; n < NUM_HEAD; n++) {
-            uint32_t* query_kernel = nullptr;
-            uint32_t* key_kernel = nullptr;
-            uint32_t* value_kernel = nullptr;
+            uint32_t *query_kernel = nullptr;
+            uint32_t *key_kernel = nullptr;
+            uint32_t *value_kernel = nullptr;
 
 #if !CFG_CODEBOOK_ONLY_MODE
             query_kernel = new uint32_t[D_Q * D_MODEL >> 2]();
@@ -339,34 +340,36 @@ void test() {
             printf("Head %d : trying notebook-generated Q/K/V weights\n", n);
 #endif
 
-            q_loaded_from_notebook = tryLoadWeight(
-                n, 0, head_qkv_size, query_kernel, learner_notebook_weights_dir);
+            q_loaded_from_notebook = tryLoadWeight(n, 0, head_qkv_size, query_kernel,
+                                                   learner_notebook_weights_dir);
 
-            k_loaded_from_notebook = tryLoadWeight(
-                n, 1, head_qkv_size, key_kernel, learner_notebook_weights_dir);
+            k_loaded_from_notebook = tryLoadWeight(n, 1, head_qkv_size, key_kernel,
+                                                   learner_notebook_weights_dir);
 
-            v_loaded_from_notebook = tryLoadWeight(
-                n, 2, head_qkv_size, value_kernel, learner_notebook_weights_dir);
+            v_loaded_from_notebook = tryLoadWeight(n, 2, head_qkv_size, value_kernel,
+                                                   learner_notebook_weights_dir);
 
 #if CFG_ENABLE_DEBUG_PRINT
             if (q_loaded_from_notebook) {
-                std::cout << "Loaded notebook-generated Q weights for head "
-                          << n << " from " << learner_notebook_weights_dir << std::endl;
+                std::cout << "Loaded notebook-generated Q weights for head " << n
+                          << " from " << learner_notebook_weights_dir << std::endl;
             }
             if (k_loaded_from_notebook) {
-                std::cout << "Loaded notebook-generated K weights for head "
-                          << n << " from " << learner_notebook_weights_dir << std::endl;
+                std::cout << "Loaded notebook-generated K weights for head " << n
+                          << " from " << learner_notebook_weights_dir << std::endl;
             }
             if (v_loaded_from_notebook) {
-                std::cout << "Loaded notebook-generated V weights for head "
-                          << n << " from " << learner_notebook_weights_dir << std::endl;
+                std::cout << "Loaded notebook-generated V weights for head " << n
+                          << " from " << learner_notebook_weights_dir << std::endl;
             }
 #endif
 #endif
 
 #if CFG_RELOAD_WEIGHT
 #if CFG_ENABLE_DEBUG_PRINT
-            printf("Head %d : Q, K, V weight matrix: loading weights of Q, K, V kernels\n", n);
+            printf(
+                "Head %d : Q, K, V weight matrix: loading weights of Q, K, V kernels\n",
+                n);
 #endif
             if (!q_loaded_from_notebook) {
                 loadWeight(n, 0, head_qkv_size, query_kernel, dir_name);
@@ -388,15 +391,15 @@ void test() {
 #endif
 
 #ifndef BWMA
-            uint32_t* queryRowWise = new uint32_t[D_MODEL * D_Q >> 2];
+            uint32_t *queryRowWise = new uint32_t[D_MODEL * D_Q >> 2];
             blockWise2RowWise(query_kernel, queryRowWise, D_MODEL, D_Q >> 2);
             query_kernel = queryRowWise;
 
-            uint32_t* keyRowWise = new uint32_t[D_MODEL * D_Q >> 2];
+            uint32_t *keyRowWise = new uint32_t[D_MODEL * D_Q >> 2];
             blockWise2RowWise(key_kernel, keyRowWise, D_MODEL, D_Q >> 2);
             key_kernel = keyRowWise;
 
-            uint32_t* valueRowWise = new uint32_t[D_MODEL * D_Q >> 2];
+            uint32_t *valueRowWise = new uint32_t[D_MODEL * D_Q >> 2];
             blockWise2RowWise(value_kernel, valueRowWise, D_MODEL, D_Q >> 2);
             value_kernel = valueRowWise;
 #endif
@@ -404,13 +407,13 @@ void test() {
 
             weightVec[n * 3] = query_kernel;
             weightVec[n * 3 + 1] = key_kernel;
-            weightVec[n * 3 + 2] = value_kernel; 
+            weightVec[n * 3 + 2] = value_kernel;
             // End for loading/generating Q/K/V weights for each head
         }
 
-        uint32_t* condense_kernel = nullptr;
-        uint32_t* ff0_kernel = nullptr;
-        uint32_t* ff1_kernel = nullptr;
+        uint32_t *condense_kernel = nullptr;
+        uint32_t *ff0_kernel = nullptr;
+        uint32_t *ff1_kernel = nullptr;
 
 #if !CFG_CODEBOOK_ONLY_MODE
         condense_kernel = new uint32_t[NUM_HEAD * D_Q * D_MODEL >> 2]();
@@ -424,22 +427,24 @@ void test() {
 
 #if CFG_USE_NOTEBOOK_GENERATED_WEIGHTS
 #if CFG_ENABLE_DEBUG_PRINT
-        printf("Condense/projection layer: trying notebook-generated condense weights\n");
+        printf(
+            "Condense/projection layer: trying notebook-generated condense weights\n");
 #endif
-        condense_loaded_from_notebook = tryLoadWeight(
-            n, 0, NUM_HEAD * D_Q * D_MODEL >> 2, condense_kernel, learner_notebook_weights_dir);
+        condense_loaded_from_notebook =
+            tryLoadWeight(n, 0, NUM_HEAD * D_Q * D_MODEL >> 2, condense_kernel,
+                          learner_notebook_weights_dir);
 
 #if CFG_ENABLE_DEBUG_PRINT
         printf("Feed forward layer 0: trying notebook-generated FF0 weights\n");
 #endif
-        ff0_loaded_from_notebook = tryLoadWeight(
-            n, 1, D_MODEL * D_FF >> 2, ff0_kernel, learner_notebook_weights_dir);
+        ff0_loaded_from_notebook = tryLoadWeight(n, 1, D_MODEL * D_FF >> 2, ff0_kernel,
+                                                 learner_notebook_weights_dir);
 
 #if CFG_ENABLE_DEBUG_PRINT
         printf("Feed forward layer 1: trying notebook-generated FF1 weights\n");
 #endif
-        ff1_loaded_from_notebook = tryLoadWeight(
-            n, 2, D_FF * D_MODEL >> 2, ff1_kernel, learner_notebook_weights_dir);
+        ff1_loaded_from_notebook = tryLoadWeight(n, 2, D_FF * D_MODEL >> 2, ff1_kernel,
+                                                 learner_notebook_weights_dir);
 
 #if CFG_ENABLE_DEBUG_PRINT
         if (condense_loaded_from_notebook) {
@@ -489,15 +494,16 @@ void test() {
 #endif
 
 #ifndef BWMA
-        uint32_t* condenseRowWise = new uint32_t[NUM_HEAD * D_Q * D_MODEL >> 2];
-        blockWise2RowWise(condense_kernel, condenseRowWise, NUM_HEAD * D_Q, D_MODEL >> 2);
+        uint32_t *condenseRowWise = new uint32_t[NUM_HEAD * D_Q * D_MODEL >> 2];
+        blockWise2RowWise(condense_kernel, condenseRowWise, NUM_HEAD * D_Q,
+                          D_MODEL >> 2);
         condense_kernel = condenseRowWise;
 
-        uint32_t* ff0RowWise = new uint32_t[D_MODEL * D_FF >> 2];
+        uint32_t *ff0RowWise = new uint32_t[D_MODEL * D_FF >> 2];
         blockWise2RowWise(ff0_kernel, ff0RowWise, D_MODEL, D_FF >> 2);
         ff0_kernel = ff0RowWise;
 
-        uint32_t* ff1RowWise = new uint32_t[D_FF * D_MODEL >> 2];
+        uint32_t *ff1RowWise = new uint32_t[D_FF * D_MODEL >> 2];
         blockWise2RowWise(ff1_kernel, ff1RowWise, D_FF, D_MODEL >> 2);
         ff1_kernel = ff1RowWise;
 #endif
@@ -507,19 +513,12 @@ void test() {
         weightVec[NUM_HEAD * 3 + 1] = ff0_kernel;
         weightVec[NUM_HEAD * 3 + 2] = ff1_kernel;
 
-        return new ActiveTransformerBlock(
-            D_SEQ,
-            D_MODEL,
-            D_Q,
-            NUM_HEAD,
-            D_FF,
-            weightVec.data(),
-            KERNEL_DIM,
-            MAX_COL,
-            learner_idx,
-            learner_dump_dir);
-        // End of lambda function to build a transformer block for a given learner index and its corresponding notebook weights directory and dump directory
-    }; 
+        return new ActiveTransformerBlock(D_SEQ, D_MODEL, D_Q, NUM_HEAD, D_FF,
+                                          weightVec.data(), KERNEL_DIM, MAX_COL,
+                                          learner_idx, learner_dump_dir);
+        // End of lambda function to build a transformer block for a given learner index
+        // and its corresponding notebook weights directory and dump directory
+    };
 
 #if !CFG_DENSE_NO_SIMD_BASELINE
     // The grouped execution path is enabled when the registry exposes a learner
@@ -528,9 +527,9 @@ void test() {
     // diff-seq internally from the registry metadata.
     // 2 Learners
     if (learner_count == 2) {
-        TransformerBlock* grouped_blocks[2] = {nullptr, nullptr};
-        uint32_t* grouped_inputs[2] = {tensor_in, tensor_in};
-        uint32_t* grouped_outputs[2] = {
+        TransformerBlock *grouped_blocks[2] = {nullptr, nullptr};
+        uint32_t *grouped_inputs[2] = {tensor_in, tensor_in};
+        uint32_t *grouped_outputs[2] = {
             new uint32_t[D_SEQ * D_MODEL >> 2](),
             new uint32_t[D_SEQ * D_MODEL >> 2](),
         };
@@ -538,20 +537,19 @@ void test() {
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             printLearnerHeader(learner_idx);
 
-            const auto paths = preparePathsForLearner(
-                learner_idx, notebook_weights_dir,
-                multiple_learner_output_root, dump_outputs_enabled);
+            const auto paths = preparePathsForLearner(learner_idx, notebook_weights_dir,
+                                                      multiple_learner_output_root,
+                                                      dump_outputs_enabled);
             grouped_blocks[learner_idx] = buildTransformerBlockForLearner(
-                learner_idx,
-                paths.notebook_weights_dir,
-                paths.dump_dir);
+                learner_idx, paths.notebook_weights_dir, paths.dump_dir);
         }
 
 #ifdef SIMD
         sve_cb4_scratch_reset();
 #endif
         CodebookDense::reportCompressedIndexSetup();
-        TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, grouped_inputs, grouped_outputs);
+        TransformerBlock::computeGroup2(D_SEQ, grouped_blocks, grouped_inputs,
+                                        grouped_outputs);
 #ifdef SIMD
         const i2ce_cb4_scratch_stats scratch = sve_cb4_scratch_get();
         std::cout << "[bounded-runtime-W] version=2 runtime_allocations="
@@ -581,9 +579,9 @@ void test() {
 
     //  4 Leaners
     if (learner_count == 4) {
-        TransformerBlock* grouped_blocks[4] = {nullptr, nullptr, nullptr, nullptr};
-        uint32_t* grouped_inputs[4] = {tensor_in, tensor_in, tensor_in, tensor_in};
-        uint32_t* grouped_outputs[4] = {
+        TransformerBlock *grouped_blocks[4] = {nullptr, nullptr, nullptr, nullptr};
+        uint32_t *grouped_inputs[4] = {tensor_in, tensor_in, tensor_in, tensor_in};
+        uint32_t *grouped_outputs[4] = {
             new uint32_t[D_SEQ * D_MODEL >> 2](),
             new uint32_t[D_SEQ * D_MODEL >> 2](),
             new uint32_t[D_SEQ * D_MODEL >> 2](),
@@ -593,20 +591,19 @@ void test() {
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             printLearnerHeader(learner_idx);
 
-            const auto paths = preparePathsForLearner(
-                learner_idx, notebook_weights_dir,
-                multiple_learner_output_root, dump_outputs_enabled);
+            const auto paths = preparePathsForLearner(learner_idx, notebook_weights_dir,
+                                                      multiple_learner_output_root,
+                                                      dump_outputs_enabled);
             grouped_blocks[learner_idx] = buildTransformerBlockForLearner(
-                learner_idx,
-                paths.notebook_weights_dir,
-                paths.dump_dir);
+                learner_idx, paths.notebook_weights_dir, paths.dump_dir);
         }
 
         // This call does not jump to GEMM directly. It enters the grouped
         // transformer path, where each attention/FFN dense layer first tries the
         // 4-learner CodebookDense fast path and only then dispatches to either the
         // SVE or scalar interleaved GEMM backend.
-        TransformerBlock::computeGroup4(D_SEQ, grouped_blocks, grouped_inputs, grouped_outputs);
+        TransformerBlock::computeGroup4(D_SEQ, grouped_blocks, grouped_inputs,
+                                        grouped_outputs);
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             delete[] grouped_outputs[learner_idx];
@@ -618,24 +615,24 @@ void test() {
 #endif
 
 #if CFG_DENSE_NO_SIMD_BASELINE
-    // For the DenseNoSimd baseline, we always execute learners sequentially in a loop, even if the registry exposes multiple learners. 
-    // This is because the baseline does not have an interleaved GEMM backend and thus cannot benefit from grouped execution.
+    // For the DenseNoSimd baseline, we always execute learners sequentially in a loop,
+    // even if the registry exposes multiple learners. This is because the baseline does
+    // not have an interleaved GEMM backend and thus cannot benefit from grouped
+    // execution.
     if (learner_count > 1) {
-        std::vector<TransformerBlock*> learner_blocks(learner_count, nullptr);
-        std::vector<uint32_t*> learner_outputs(learner_count, nullptr);
+        std::vector<TransformerBlock *> learner_blocks(learner_count, nullptr);
+        std::vector<uint32_t *> learner_outputs(learner_count, nullptr);
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             printLearnerHeader(learner_idx);
 
-            const auto paths = preparePathsForLearner(
-                learner_idx, notebook_weights_dir,
-                multiple_learner_output_root, dump_outputs_enabled);
+            const auto paths = preparePathsForLearner(learner_idx, notebook_weights_dir,
+                                                      multiple_learner_output_root,
+                                                      dump_outputs_enabled);
 
             learner_outputs[learner_idx] = new uint32_t[D_SEQ * D_MODEL >> 2]();
             learner_blocks[learner_idx] = buildTransformerBlockForLearner(
-                learner_idx,
-                paths.notebook_weights_dir,
-                paths.dump_dir);
+                learner_idx, paths.notebook_weights_dir, paths.dump_dir);
         }
 
         // Keep one gem5 stats window around the whole sequential learner loop,
@@ -644,9 +641,7 @@ void test() {
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
             learner_blocks[learner_idx]->computeWithoutStatsReset(
-                D_SEQ,
-                tensor_in,
-                learner_outputs[learner_idx]);
+                D_SEQ, tensor_in, learner_outputs[learner_idx]);
         }
 
         for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
@@ -658,28 +653,25 @@ void test() {
     }
 #endif
 
-    // Default single-learner execution path (also used for multi-learner when the registry does not expose a learner count).
+    // Default single-learner execution path (also used for multi-learner when the
+    // registry does not expose a learner count).
     for (std::size_t learner_idx = 0; learner_idx < learner_count; learner_idx++) {
         if (learner_count > 1) {
             printLearnerHeader(learner_idx);
         }
 
         const auto paths = preparePathsForLearner(
-            learner_idx, notebook_weights_dir,
-            multiple_learner_output_root,
+            learner_idx, notebook_weights_dir, multiple_learner_output_root,
             dump_outputs_enabled && learner_count > 1);
 
         uint32_t *out = new uint32_t[D_SEQ * D_MODEL >> 2]();
-        TransformerBlock* selfatten = buildTransformerBlockForLearner(
-            learner_idx,
-            paths.notebook_weights_dir,
-            paths.dump_dir);
+        TransformerBlock *selfatten = buildTransformerBlockForLearner(
+            learner_idx, paths.notebook_weights_dir, paths.dump_dir);
         selfatten->compute(D_SEQ, tensor_in, out);
         delete selfatten;
 
         delete[] out;
     }
-
 }
 
 int main() {
@@ -694,8 +686,7 @@ int main() {
               << mismatches << " with mismatches" << std::endl;
     if (mismatches != 0) {
         std::cerr << "ERROR: " << mismatches << " of " << comparisons
-                  << " reference comparisons differed; failing the run."
-                  << std::endl;
+                  << " reference comparisons differed; failing the run." << std::endl;
         return 1;
     }
     if (comparisons == 0) {

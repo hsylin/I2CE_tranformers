@@ -80,25 +80,24 @@ CodebookDenseConfig makeCheckedCodebookConfig(const char *layer_name,
  * @return A bundle whose main pointer is the execution layer. The reference
  *         pointer is populated only when CFG_USE_CODEBOOK_REFERENCE is enabled.
  */
-LinearLayerBundle LayerFactory::create(
-    const std::string& layer_name,
-    std::size_t input_size,
-    std::size_t output_size,
-    uint32_t* fallback_weight,
-    std::size_t learner) {
+LinearLayerBundle LayerFactory::create(const std::string &layer_name,
+                                       std::size_t input_size, std::size_t output_size,
+                                       uint32_t *fallback_weight, std::size_t learner) {
 
     LinearLayerBundle bundle;
 
 #if CFG_USE_CODEBOOK_GEMM
     try {
         CodebookDenseConfig cfg = makeCheckedCodebookConfig(
-            layer_name.c_str(), input_size, output_size, learner); // Get config from registry and validate shape
+            layer_name.c_str(), input_size, output_size,
+            learner); // Get config from registry and validate shape
 
         bundle.main = new CodebookDense(cfg);
 #if CFG_ENABLE_DEBUG_PRINT
-        std::cout << "[LayerFactory] Using CodebookDense for " << layer_name << std::endl;
+        std::cout << "[LayerFactory] Using CodebookDense for " << layer_name
+                  << std::endl;
 #endif
-    } catch (const std::exception& ex) {
+    } catch (const std::exception &ex) {
 #if CFG_PROFILE_GEMM_ONLY
         throw std::runtime_error(
             "PROFILE_GEMM_ONLY requires a matching CodebookDense registry entry for " +
@@ -108,7 +107,8 @@ LinearLayerBundle LayerFactory::create(
             "Codebook-only mode requires a matching CodebookDense registry entry for " +
             layer_name +
             ". Dense fallback weights are intentionally skipped when "
-            "ENABLE_CODEBOOK_REFERENCE is disabled: " + ex.what());
+            "ENABLE_CODEBOOK_REFERENCE is disabled: " +
+            ex.what());
 #else
         bundle.main = new Dense(input_size, output_size, fallback_weight);
 #if CFG_ENABLE_DEBUG_PRINT

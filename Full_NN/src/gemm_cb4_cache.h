@@ -31,7 +31,9 @@ void sve_cb4_scratch_reset(void) {
     memset(&cb4_scratch_stats, 0, sizeof(cb4_scratch_stats));
     cb_sdot_calls = cb_sdot_full_calls = cb_sdot_source = cb_sdot_edges = 0;
 }
-i2ce_cb4_scratch_stats sve_cb4_scratch_get(void) { return cb4_scratch_stats; }
+i2ce_cb4_scratch_stats sve_cb4_scratch_get(void) {
+    return cb4_scratch_stats;
+}
 
 #ifdef I2CE_TEST_CB4_CACHE
 uint32_t *i2ce_cb4_cache_observed = NULL;
@@ -62,7 +64,9 @@ typedef char cb4_runtime_size_check[(sizeof(cb4_cache_arena) == 262144u) ? 1 : -
 /* All reduction panels are retained for the active outer sequence tile. */
 typedef int8_t cb4_x_panel[2][CACHE_S2][CACHE_X2_STRIDE];
 
-static size_t cache_min(size_t a, size_t b) { return a < b ? a : b; }
+static size_t cache_min(size_t a, size_t b) {
+    return a < b ? a : b;
+}
 
 /* Views partition the accumulator region into 16x32 tiles.
  * Each tile contains two learner planes; no packing or copy pass.

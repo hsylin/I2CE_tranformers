@@ -13,59 +13,46 @@
 // #include "dense.h"
 #include "linearLayer.h"
 
-
 class TransformerBlock {
-public:
-    TransformerBlock(std::size_t pre_seq_len,
-                     std::size_t input_dim,
-                     std::size_t head_hidden_size,
-                     std::size_t num_heads,
-                     std::size_t ff_size,
-                     uint32_t** weightVector,
-                     std::size_t kernelDim,
-                     std::size_t maxCol,
-                     std::size_t learner_idx = 0,
-                     std::string dump_dir = "");
+  public:
+    TransformerBlock(std::size_t pre_seq_len, std::size_t input_dim,
+                     std::size_t head_hidden_size, std::size_t num_heads,
+                     std::size_t ff_size, uint32_t **weightVector,
+                     std::size_t kernelDim, std::size_t maxCol,
+                     std::size_t learner_idx = 0, std::string dump_dir = "");
 
     virtual ~TransformerBlock();
 
-    virtual void compute(std::size_t seq_len, uint32_t* input, uint32_t* output);
-    void computeWithoutStatsReset(std::size_t seq_len, uint32_t* input, uint32_t* output);
-    static void computeGroup2(std::size_t seq_len,
-                              TransformerBlock* blocks[2],
-                              uint32_t* const inputs[2],
-                              uint32_t* const outputs[2]);
-    static void computeGroup4(std::size_t seq_len,
-                              TransformerBlock* blocks[4],
-                              uint32_t* const inputs[4],
-                              uint32_t* const outputs[4]);
+    virtual void compute(std::size_t seq_len, uint32_t *input, uint32_t *output);
+    void computeWithoutStatsReset(std::size_t seq_len, uint32_t *input,
+                                  uint32_t *output);
+    static void computeGroup2(std::size_t seq_len, TransformerBlock *blocks[2],
+                              uint32_t *const inputs[2], uint32_t *const outputs[2]);
+    static void computeGroup4(std::size_t seq_len, TransformerBlock *blocks[4],
+                              uint32_t *const inputs[4], uint32_t *const outputs[4]);
 
-private:
+  private:
     template <std::size_t LearnerCount>
-    static void computeGroupImpl(std::size_t seq_len,
-                                 TransformerBlock** blocks,
-                                 uint32_t* const* inputs,
-                                 uint32_t* const* outputs);
+    static void computeGroupImpl(std::size_t seq_len, TransformerBlock **blocks,
+                                 uint32_t *const *inputs, uint32_t *const *outputs);
 
 #if CFG_FULL_INTERLEAVED_PIPELINE
     static void computeGroup2FullInterleaved(std::size_t seq_len,
-                                             TransformerBlock* blocks[2],
-                                             uint32_t* const inputs[2],
-                                             uint32_t* const outputs[2]);
+                                             TransformerBlock *blocks[2],
+                                             uint32_t *const inputs[2],
+                                             uint32_t *const outputs[2]);
     static void computeGroup4FullInterleaved(std::size_t seq_len,
-                                             TransformerBlock* blocks[4],
-                                             uint32_t* const inputs[4],
-                                             uint32_t* const outputs[4]);
+                                             TransformerBlock *blocks[4],
+                                             uint32_t *const inputs[4],
+                                             uint32_t *const outputs[4]);
 #endif
 
-protected:
-    void computeWithStatsLabel(std::size_t seq_len,
-                               uint32_t* input,
-                               uint32_t* output,
-                               const char* stats_window_label);
-    void computeBody(std::size_t seq_len, uint32_t* input, uint32_t* output);
+  protected:
+    void computeWithStatsLabel(std::size_t seq_len, uint32_t *input, uint32_t *output,
+                               const char *stats_window_label);
+    void computeBody(std::size_t seq_len, uint32_t *input, uint32_t *output);
 
-private:
+  private:
     std::size_t num_heads_;
     std::size_t head_hidden_size_;
     std::size_t input_dim_;
@@ -73,21 +60,21 @@ private:
     std::size_t learner_idx_;
     std::string dump_dir_;
 
-    std::vector<SingleHeadSelfAttn*> selfatten_;
+    std::vector<SingleHeadSelfAttn *> selfatten_;
 
-    uint32_t* multihead_out;
-    uint32_t* condense_out;
-    uint32_t* intermediateFF;
+    uint32_t *multihead_out;
+    uint32_t *condense_out;
+    uint32_t *intermediateFF;
 
 #ifndef BWMA
-    uint32_t* multihead_out_reshape;
+    uint32_t *multihead_out_reshape;
 #endif
 
-    AddNormalize* addNorm;
+    AddNormalize *addNorm;
 
-    LinearLayer* condense;
-    LinearLayer* feedForward0;
-    LinearLayer* feedForward1;
+    LinearLayer *condense;
+    LinearLayer *feedForward0;
+    LinearLayer *feedForward1;
 
 #if CFG_USE_CODEBOOK_REFERENCE
     // LinearLayer* condenseReference;
@@ -98,21 +85,21 @@ private:
     // uint32_t* referenceFF0;
     // uint32_t* referenceFF1;
 
-    LinearLayer* condenseReference = nullptr;
-    LinearLayer* feedForward0Reference = nullptr;
-    LinearLayer* feedForward1Reference = nullptr;
+    LinearLayer *condenseReference = nullptr;
+    LinearLayer *feedForward0Reference = nullptr;
+    LinearLayer *feedForward1Reference = nullptr;
 
-    uint32_t* referenceCondense = nullptr;
-    uint32_t* referenceCondenseAfterAddNorm = nullptr;
-    uint32_t* referenceFF0 = nullptr;
-    uint32_t* referenceFF1 = nullptr;
-    uint32_t* referenceFinalOutput = nullptr;
+    uint32_t *referenceCondense = nullptr;
+    uint32_t *referenceCondenseAfterAddNorm = nullptr;
+    uint32_t *referenceFF0 = nullptr;
+    uint32_t *referenceFF1 = nullptr;
+    uint32_t *referenceFinalOutput = nullptr;
 #endif
 };
 
 class DenseNoSimdTransformerBlock : public TransformerBlock {
-public:
+  public:
     using TransformerBlock::TransformerBlock;
 
-    void compute(std::size_t seq_len, uint32_t* input, uint32_t* output) override;
+    void compute(std::size_t seq_len, uint32_t *input, uint32_t *output) override;
 };
